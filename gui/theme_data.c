@@ -689,11 +689,11 @@ void theme_data_reset_piece_defaults(ThemeData* theme) {
     if (!theme) return;
     
     theme->whitePieceR = 1.0; theme->whitePieceG = 1.0; theme->whitePieceB = 1.0; // White
-    theme->whiteStrokeR = 0.0; theme->whiteStrokeG = 0.0; theme->whiteStrokeB = 0.0; // Black stroke
+    theme->whiteStrokeR = 0x22 / 255.0; theme->whiteStrokeG = 0x22 / 255.0; theme->whiteStrokeB = 0x22 / 255.0; // Grey stroke (Startup Default)
     theme->whiteStrokeWidth = DEFAULT_WHITE_STROKE_WIDTH;
     
-    theme->blackPieceR = 0.0; theme->blackPieceG = 0.0; theme->blackPieceB = 0.0; // Black
-    theme->blackStrokeR = 1.0; theme->blackStrokeG = 1.0; theme->blackStrokeB = 1.0; // White stroke
+    theme->blackPieceR = 0x31 / 255.0; theme->blackPieceG = 0x2e / 255.0; theme->blackPieceB = 0x2b / 255.0; // Dark
+    theme->blackStrokeR = 0x31 / 255.0; theme->blackStrokeG = 0x2e / 255.0; theme->blackStrokeB = 0x2b / 255.0; // Dark stroke
     theme->blackStrokeWidth = DEFAULT_BLACK_STROKE_WIDTH;
     
     // Reset font to default
@@ -704,11 +704,11 @@ void theme_data_reset_piece_colors_only(ThemeData* theme) {
     if (!theme) return;
     
     theme->whitePieceR = 1.0; theme->whitePieceG = 1.0; theme->whitePieceB = 1.0; // White
-    theme->whiteStrokeR = 0.0; theme->whiteStrokeG = 0.0; theme->whiteStrokeB = 0.0; // Black stroke
+    theme->whiteStrokeR = 0x22 / 255.0; theme->whiteStrokeG = 0x22 / 255.0; theme->whiteStrokeB = 0x22 / 255.0; // Grey
     theme->whiteStrokeWidth = DEFAULT_WHITE_STROKE_WIDTH;
     
-    theme->blackPieceR = 0.0; theme->blackPieceG = 0.0; theme->blackPieceB = 0.0; // Black
-    theme->blackStrokeR = 1.0; theme->blackStrokeG = 1.0; theme->blackStrokeB = 1.0; // White stroke
+    theme->blackPieceR = 0x31 / 255.0; theme->blackPieceG = 0x2e / 255.0; theme->blackPieceB = 0x2b / 255.0; // Dark
+    theme->blackStrokeR = 0x31 / 255.0; theme->blackStrokeG = 0x2e / 255.0; theme->blackStrokeB = 0x2b / 255.0; // Dark
     theme->blackStrokeWidth = DEFAULT_BLACK_STROKE_WIDTH;
     // Do NOT reset font
 }

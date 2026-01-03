@@ -4,6 +4,7 @@
 #include "board_widget.h"
 #include "sound_engine.h"
 #include "piece.h"
+#include "settings_dialog.h"
 
 // Forward declarations
 static void tutorial_setup_pawn(AppState* state);
@@ -22,6 +23,7 @@ static gboolean on_tutorial_delay_complete(gpointer user_data) {
     AppState* state = (AppState*)user_data;
     
     state->tutorial_step = state->tutorial_next_step;
+    state->tutorial_wait = FALSE; // Reset wait flag
     
     // Call setup for the new step
     switch (state->tutorial_step) {
@@ -64,11 +66,7 @@ static void on_message_dialog_destroy(GtkWidget* window, gpointer user_data) {
         // Transition from Intro -> Pawn
         if (state && state->tutorial_step == TUT_INTRO) {
              state->tutorial_step = TUT_PAWN;
-             // We need to re-trigger setup for Pawn specifically here? 
-             // Or will the main loop pick it up?
-             // Actually, setup functions calls clear_board and sets nav restricted.
-             // We must call the setup function.
-             // Forward declare setup functions or make them internal helpers
+             tutorial_setup_pawn(state);
         }
     }
     
@@ -81,11 +79,9 @@ static void on_message_dialog_destroy(GtkWidget* window, gpointer user_data) {
 void show_message_dialog(GtkWindow* parent, const char* message, AppState* state) {
     // FIX: Prevent double messages if one is already showing
     if (state->tutorial_msg) {
-        printf("DEBUG: Tutorial dialog already exists, presenting it.\n");
         gtk_window_present(GTK_WINDOW(state->tutorial_msg));
         return;
     }
-    printf("DEBUG: Creating new tutorial dialog. Message: %s\n", message);
 
     GtkWidget* window = gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(window), "Tutorial");
@@ -241,13 +237,34 @@ static void tutorial_setup_mate(AppState* state) {
         "Final Step: Checkmate\n\nThe Black King is trapped.\n\nTask: Deliver Checkmate by moving the Rook to d8!", state);
 }
 
+static gboolean on_tutorial_final_message_timeout(gpointer user_data) {
+    AppState* state = (AppState*)user_data;
+    GtkWindow* parent = state->window;
+    
+    // Check if settings dialog is open and use its window as parent for better focus
+    if (state->settings_dialog) {
+        GtkWindow* settings_win = settings_dialog_get_window(state->settings_dialog);
+        if (settings_win && GTK_IS_WINDOW(settings_win)) {
+            parent = settings_win;
+        }
+    }
+    
+    show_message_dialog(parent, 
+        "Tutorial Complete!\n\nYou have learned the basics of Chess.\n\n"
+        "HAL :) suggests to play around and customise the game to your liking. PS: Try out Horsey!"
+        "Use the board theme to modify the board.", state);
+    return FALSE;
+}
+
 static void tutorial_finish(AppState* state) {
     on_tutorial_exit(NULL, state);
-    sound_engine_play(SOUND_WIN);
-    // Note: on_tutorial_exit resets state->window title, etc.
-    // Dialog should show on top of main menu.
-    show_message_dialog(state->window,
-        "Tutorial Complete!\n\nYou have learned the basics of Chess.\n", state);
+    
+    // Redirect to Settings -> Piece Theme
+    GApplication* app = g_application_get_default();
+    g_action_group_activate_action(G_ACTION_GROUP(app), "open-settings", g_variant_new_string("piece"));
+
+    // Use a small delay to ensure settings window is created if not already
+    g_timeout_add(500, on_tutorial_final_message_timeout, state);
 }
 
 // --- Public Handlers ---
@@ -307,7 +324,6 @@ void on_tutorial_exit(GtkButton* btn, gpointer user_data) {
 void on_tutorial_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
     (void)action; (void)parameter;
     AppState* state = (AppState*)user_data;
-    printf("DEBUG: on_tutorial_action called!\n");
     
     // Reset to Empty -> Intro
     state->tutorial_step = TUT_INTRO;
@@ -328,7 +344,7 @@ void on_tutorial_action(GSimpleAction* action, GVariant* parameter, gpointer use
     board_widget_set_invalid_move_callback(state->board, on_invalid_tutorial_move, state);
 
     show_message_dialog(state->window,
-        "Welcome to the Interactive Tutorial!\n\nWe will guide you through the basics of Chess.", state);
+        "Hey I am HAL :) A friendly Chess engine.\n\nI will guide you through the basics of Chess so we can play together!", state);
 }
 
 void tutorial_check_progress(AppState* state) {
@@ -355,18 +371,12 @@ void tutorial_check_progress(AppState* state) {
     // But I didn't add `tutorial_wait` boolean.
     // I can assume `puzzle_wait` is reused? No, risky.
     
-    static gboolean tutorial_wait = FALSE;
-    // But if we exit tutorial, we must reset `tutorial_wait`.
-    // on_tutorial_exit should reset it.
-    // Since `tutorial_wait` is static here, it won't be reset easily externally.
-    // I should check `if (state->tutorial_step == TUT_OFF) tutorial_wait = FALSE;` at start.
-    
     if (state->tutorial_step == TUT_OFF) {
-        tutorial_wait = FALSE;
+        state->tutorial_wait = FALSE;
         return;
     }
     
-    if (tutorial_wait) return;
+    if (state->tutorial_wait) return;
     
     // logic...
     // FIX: Delay 500ms
@@ -376,7 +386,7 @@ void tutorial_check_progress(AppState* state) {
         // d2->d4 (6,3 -> 4,3)
         Piece* p = state->logic->board[4][3];
         if (p && p->type == PIECE_PAWN && p->owner == PLAYER_WHITE) {
-            tutorial_wait = TRUE;
+            state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_ROOK;
             g_timeout_add(delay, on_tutorial_delay_complete, state);
@@ -385,7 +395,7 @@ void tutorial_check_progress(AppState* state) {
         // e4->e8 (4,4 -> 0,4)
         Piece* p = state->logic->board[0][4];
         if (p && p->type == PIECE_ROOK && p->owner == PLAYER_WHITE) {
-            tutorial_wait = TRUE;
+            state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_BISHOP;
             g_timeout_add(delay, on_tutorial_delay_complete, state);
@@ -393,7 +403,7 @@ void tutorial_check_progress(AppState* state) {
     } else if (state->tutorial_step == TUT_BISHOP) {
         Piece* p = state->logic->board[2][7];
         if (p && p->type == PIECE_BISHOP && p->owner == PLAYER_WHITE) {
-            tutorial_wait = TRUE;
+            state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_KNIGHT;
             g_timeout_add(delay, on_tutorial_delay_complete, state);
@@ -401,7 +411,7 @@ void tutorial_check_progress(AppState* state) {
     } else if (state->tutorial_step == TUT_KNIGHT) {
         Piece* p = state->logic->board[5][2];
         if (p && p->type == PIECE_KNIGHT && p->owner == PLAYER_WHITE) {
-            tutorial_wait = TRUE;
+            state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_QUEEN;
             g_timeout_add(delay, on_tutorial_delay_complete, state);
@@ -409,7 +419,7 @@ void tutorial_check_progress(AppState* state) {
     } else if (state->tutorial_step == TUT_QUEEN) {
         Piece* p = state->logic->board[3][7];
         if (p && p->type == PIECE_QUEEN && p->owner == PLAYER_WHITE) {
-            tutorial_wait = TRUE;
+            state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_CHECK;
             g_timeout_add(delay, on_tutorial_delay_complete, state);
@@ -417,7 +427,7 @@ void tutorial_check_progress(AppState* state) {
     } else if (state->tutorial_step == TUT_CHECK) {
         Piece* p = state->logic->board[0][7];
         if (p && p->type == PIECE_ROOK && p->owner == PLAYER_WHITE) {
-            tutorial_wait = TRUE;
+            state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_ESCAPE;
             g_timeout_add(delay, on_tutorial_delay_complete, state);
@@ -425,7 +435,7 @@ void tutorial_check_progress(AppState* state) {
     } else if (state->tutorial_step == TUT_ESCAPE) {
         Piece* p = state->logic->board[7][5];
         if (p && p->type == PIECE_KING && p->owner == PLAYER_WHITE) {
-            tutorial_wait = TRUE;
+            state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_CASTLING;
             g_timeout_add(delay, on_tutorial_delay_complete, state);
@@ -433,7 +443,7 @@ void tutorial_check_progress(AppState* state) {
     } else if (state->tutorial_step == TUT_CASTLING) {
         Piece* p = state->logic->board[7][6];
         if (p && p->type == PIECE_KING && p->owner == PLAYER_WHITE) {
-            tutorial_wait = TRUE;
+            state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_MATE;
             g_timeout_add(delay, on_tutorial_delay_complete, state);
@@ -441,13 +451,13 @@ void tutorial_check_progress(AppState* state) {
     } else if (state->tutorial_step == TUT_MATE) {
         Piece* p = state->logic->board[0][3]; 
         if (p && p->type == PIECE_ROOK && p->owner == PLAYER_WHITE) {
-             tutorial_wait = TRUE;
+             state->tutorial_wait = TRUE;
              board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
              state->tutorial_next_step = TUT_DONE;
              g_timeout_add(delay, on_tutorial_delay_complete, state);
         }
     } else if (state->tutorial_step == TUT_DONE) {
-         tutorial_wait = TRUE;
+         state->tutorial_wait = TRUE;
          tutorial_finish(state);
          // After finish, we exit, and next loop checks TUT_OFF, resetting wait.
     }

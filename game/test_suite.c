@@ -45,35 +45,6 @@ static void assert_condition(bool condition, const char* message) {
     }
 }
 
-static void print_board(GameLogic* logic) {
-    printf("\nBoard:\n");
-    for (int r = 0; r < 8; r++) {
-        for (int c = 0; c < 8; c++) {
-            Piece* p = logic->board[r][c];
-            if (p == NULL) {
-                printf(". ");
-            } else {
-                char code;
-                switch (p->type) {
-                    case PIECE_KING: code = 'K'; break;
-                    case PIECE_QUEEN: code = 'Q'; break;
-                    case PIECE_ROOK: code = 'R'; break;
-                    case PIECE_BISHOP: code = 'B'; break;
-                    case PIECE_KNIGHT: code = 'N'; break;
-                    case PIECE_PAWN: code = 'P'; break;
-                    default: code = '?'; break;
-                }
-                if (p->owner == PLAYER_BLACK) {
-                    code = (char)tolower(code);
-                }
-                printf("%c ", code);
-            }
-        }
-        printf("\n");
-    }
-    printf("\n");
-}
-
 // Test 1: Initial Setup
 static void test_initial_setup(void) {
     GameLogic* logic = gamelogic_create();
@@ -156,6 +127,9 @@ static void test_promotion(void) {
     }
     
     logic->board[1][0] = piece_create(PIECE_PAWN, PLAYER_WHITE);
+    // Add Kings
+    logic->board[7][4] = piece_create(PIECE_KING, PLAYER_WHITE);
+    logic->board[0][4] = piece_create(PIECE_KING, PLAYER_BLACK);
     logic->turn = PLAYER_WHITE;
     
     Move* m = move_create(1, 0, 0, 0);
@@ -169,6 +143,8 @@ static void test_promotion(void) {
     gamelogic_undo_move(logic);
     assert_condition(logic->board[1][0] != NULL && logic->board[1][0]->type == PIECE_PAWN, 
                     "Should revert to pawn");
+    assert_condition(logic->board[1][0]->hasMoved == false, 
+                    "Pawn should have hasMoved=false after undoing promotion");
     
     gamelogic_free(logic);
     printf("✅ Test Promotion: Passed\n");
@@ -192,6 +168,8 @@ static void test_castling_illegal_through_check(void) {
     logic->board[7][4] = piece_create(PIECE_KING, PLAYER_WHITE);
     logic->board[7][7] = piece_create(PIECE_ROOK, PLAYER_WHITE);
     logic->board[0][5] = piece_create(PIECE_ROOK, PLAYER_BLACK); // Attacks f1
+    // Add Black King to avoid segfault
+    logic->board[0][4] = piece_create(PIECE_KING, PLAYER_BLACK);
     logic->turn = PLAYER_WHITE;
     
     MoveList* moves = movelist_create();
@@ -232,6 +210,8 @@ static void test_castling_illegal_while_in_check(void) {
     logic->board[7][4] = piece_create(PIECE_KING, PLAYER_WHITE);
     logic->board[7][7] = piece_create(PIECE_ROOK, PLAYER_WHITE);
     logic->board[0][4] = piece_create(PIECE_QUEEN, PLAYER_BLACK); // Checking the King
+    // Add Black King to avoid segfault (place it elsewhere)
+    logic->board[0][0] = piece_create(PIECE_KING, PLAYER_BLACK);
     logic->turn = PLAYER_WHITE;
     
     MoveList* moves = movelist_create();
@@ -270,6 +250,8 @@ static void test_piece_pin_logic(void) {
     logic->board[7][4] = piece_create(PIECE_KING, PLAYER_WHITE);
     logic->board[5][4] = piece_create(PIECE_ROOK, PLAYER_WHITE); // The pinned piece
     logic->board[0][4] = piece_create(PIECE_ROOK, PLAYER_BLACK); // The pinner
+    // Add Black King to avoid segfault (place it elsewhere)
+    logic->board[0][0] = piece_create(PIECE_KING, PLAYER_BLACK);
     logic->turn = PLAYER_WHITE;
     
     MoveList* moves = movelist_create();
@@ -285,7 +267,7 @@ static void test_piece_pin_logic(void) {
                 pin_violated = true;
                 printf("ERROR: Pinned Rook moved horizontally from (%d,%d) to (%d,%d)!\n",
                        m->startRow, m->startCol, m->endRow, m->endCol);
-                print_board(logic);
+                // print_board(logic);
                 break;
             }
         }
@@ -317,6 +299,10 @@ static void test_stalemate(void) {
     logic->board[2][1] = piece_create(PIECE_KING, PLAYER_WHITE);   // b2
     logic->turn = PLAYER_BLACK;
     
+    // Ensure Kings are present for game state update
+    if (!logic->board[0][0]) logic->board[0][0] = piece_create(PIECE_KING, PLAYER_BLACK);
+    if (!logic->board[2][1]) logic->board[2][1] = piece_create(PIECE_KING, PLAYER_WHITE);
+    
     gamelogic_update_game_state(logic);
     
     assert_condition(logic->isGameOver, "Game should be over in stalemate");
@@ -347,6 +333,8 @@ static void test_en_passant_illegal_pin(void) {
     logic->board[3][4] = piece_create(PIECE_PAWN, PLAYER_WHITE); // e5
     logic->board[3][3] = piece_create(PIECE_PAWN, PLAYER_BLACK); // d5
     logic->board[0][4] = piece_create(PIECE_ROOK, PLAYER_BLACK); // e8 attacking e-file
+    // Add Black King to avoid segfault
+    logic->board[0][0] = piece_create(PIECE_KING, PLAYER_BLACK);
     logic->turn = PLAYER_WHITE;
     logic->enPassantCol = 3; // column d (for en passant)
     
@@ -370,6 +358,145 @@ static void test_en_passant_illegal_pin(void) {
     printf("✅ Test En Passant Pin: Passed\n");
 }
 
+// Test 10: Promotion Memory Safety
+static void test_promotion_memory_safety(void) {
+    GameLogic* logic = gamelogic_create();
+    
+    // Setup for promotion
+    for (int i = 0; i < 8; i++) for (int j = 0; j < 8; j++) {
+        if (logic->board[i][j]) { piece_free(logic->board[i][j]); logic->board[i][j] = NULL; }
+    }
+    
+    // Pawn at rank 7, about to promote
+    logic->board[1][4] = piece_create(PIECE_PAWN, PLAYER_WHITE);
+    logic->turn = PLAYER_WHITE;
+    
+    Move* m = move_create(1, 4, 0, 4);
+    m->promotionPiece = PIECE_QUEEN;
+    
+    // Before fix, this might crash or use freed memory if running with sanitizers
+    gamelogic_perform_move(logic, m);
+    
+    assert_condition(logic->board[0][4] != NULL, "Promoted piece should exist");
+    assert_condition(logic->board[0][4]->type == PIECE_QUEEN, "Should be a Queen");
+    assert_condition(logic->board[0][4]->hasMoved == true, "Promoted piece should have hasMoved=true");
+    
+    move_free(m);
+    gamelogic_free(logic);
+    printf("✅ Test Promotion Memory Safety: Passed\n");
+}
+
+// Test 11: En Passant Undo State
+static void test_en_passant_undo_state(void) {
+    GameLogic* logic = gamelogic_create();
+    
+    // 1. e4 (sets enPassantCol to 4)
+    Move* m1 = move_create(6, 4, 4, 4);
+    gamelogic_perform_move(logic, m1);
+    assert_condition(logic->enPassantCol == 4, "EP col should be 4 after e4");
+    
+    // 2. d5
+    Move* m2 = move_create(1, 3, 3, 3);
+    gamelogic_perform_move(logic, m2);
+    assert_condition(logic->enPassantCol == 3, "EP col should be 3 after d5");
+    
+    // 3. Undo d5
+    gamelogic_undo_move(logic);
+    assert_condition(logic->enPassantCol == 4, "EP col should be restored to 4 after undoing d5");
+    
+    // 4. Undo e4
+    gamelogic_undo_move(logic);
+    assert_condition(logic->enPassantCol == -1, "EP col should be restored to -1 after undoing e4");
+    
+    move_free(m1);
+    move_free(m2);
+    gamelogic_free(logic);
+    printf("✅ Test En Passant Undo State: Passed\n");
+}
+
+// Test 12: Castling Rook State Undo
+static void test_castling_rook_state_undo(void) {
+    GameLogic* logic = gamelogic_create();
+    
+    // Clear board and setup castling
+    for (int i = 0; i < 8; i++) for (int j = 0; j < 8; j++) {
+        if (logic->board[i][j]) { piece_free(logic->board[i][j]); logic->board[i][j] = NULL; }
+    }
+    
+    logic->board[7][4] = piece_create(PIECE_KING, PLAYER_WHITE);
+    logic->board[7][7] = piece_create(PIECE_ROOK, PLAYER_WHITE);
+    // Add Black King to avoid segfault in checkmate logic
+    logic->board[0][4] = piece_create(PIECE_KING, PLAYER_BLACK);
+    logic->turn = PLAYER_WHITE;
+    
+    // 1. Move rook e.g. h1-h2 then back h2-h1 (it has moved now)
+    Move* m1 = move_create(7, 7, 6, 7);
+    gamelogic_perform_move(logic, m1);
+    
+    // Filler move for black
+    Move* filler = move_create(0, 4, 0, 3); 
+    gamelogic_perform_move(logic, filler);
+    
+    Move* m2 = move_create(6, 7, 7, 7);
+    gamelogic_perform_move(logic, m2);
+    
+    // Filler move for black
+    Move* filler2 = move_create(0, 3, 0, 4);
+    gamelogic_perform_move(logic, filler2);
+    
+    assert_condition(logic->board[7][7]->hasMoved == true, "Rook should have hasMoved=true after moving");
+    
+    // 2. Try to castle
+    Move* castle = move_create(7, 4, 7, 6);
+    castle->isCastling = true;
+    gamelogic_perform_move(logic, castle);
+    
+    Piece* rookAfterCastle = logic->board[7][5];
+    assert_condition(rookAfterCastle != NULL && rookAfterCastle->type == PIECE_ROOK, "Rook should be at f1");
+    assert_condition(rookAfterCastle->hasMoved == true, "Rook should have moved=true");
+    
+    // 3. Undo castle
+    gamelogic_undo_move(logic);
+    Piece* rookRestored = logic->board[7][7];
+    assert_condition(rookRestored != NULL && rookRestored->hasMoved == true, "Rook should STILL have hasMoved=true after undoing castle");
+    
+    move_free(m1);
+    move_free(m2);
+    move_free(filler);
+    move_free(filler2);
+    move_free(castle);
+    gamelogic_free(logic);
+    printf("✅ Test Castling Rook State Undo: Passed\n");
+}
+
+// Test 13: FEN Loading Castling Rights
+static void test_fen_loading_castling_rights(void) {
+    GameLogic* logic = gamelogic_create();
+    
+    // FEN with white kingside castling ONLY
+    const char* fen = "r3k2r/8/8/8/8/8/8/R3K2R w K - 0 1";
+    gamelogic_load_fen(logic, fen);
+    
+    // White King e1
+    Piece* wk = logic->board[7][4];
+    assert_condition(wk != NULL && wk->hasMoved == false, "White King should not have moved (K in FEN)");
+    
+    // White Rook h1
+    Piece* wrh = logic->board[7][7];
+    assert_condition(wrh != NULL && wrh->hasMoved == false, "White Rook h1 should not have moved (K in FEN)");
+    
+    // White Rook a1
+    Piece* wra = logic->board[7][0];
+    assert_condition(wra != NULL && wra->hasMoved == true, "White Rook a1 SHOULD have moved (no Q in FEN)");
+    
+    // Black King e8
+    Piece* bk = logic->board[0][4];
+    assert_condition(bk != NULL && bk->hasMoved == true, "Black King SHOULD have moved (no kq in FEN)");
+    
+    gamelogic_free(logic);
+    printf("✅ Test FEN Loading Castling Rights: Passed\n");
+}
+
 int main(void) {
     printf("--- STARTING EXTENSIVE ENGINE TESTS ---\n\n");
     
@@ -382,6 +509,12 @@ int main(void) {
     test_piece_pin_logic();
     test_stalemate();
     test_en_passant_illegal_pin();
+    
+    // New tests
+    test_promotion_memory_safety();
+    test_en_passant_undo_state();
+    test_castling_rook_state_undo();
+    test_fen_loading_castling_rights();
     
     printf("\n--- TEST SUMMARY ---\n");
     printf("✅ Tests Passed: %d\n", tests_passed);

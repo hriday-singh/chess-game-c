@@ -29,10 +29,12 @@
 
 // Globals
 static AppState* g_app_state = NULL;
+static int g_ai_move_delay_ms = 250;
 
 // Forward declarations
 static void request_ai_move(AppState* state);
 static gboolean check_trigger_ai_idle(gpointer user_data);
+static gboolean ai_think_thread_timeout(gpointer user_data);
 
 // --- CvC Orchestration ---
 
@@ -54,33 +56,33 @@ static void on_cvc_control_action(CvCMatchState action, gpointer user_data) {
 
 // --- AI Settings Orchestration ---
 
-static SettingsDialog* settings_dialog_instance = NULL;
-
-static void on_settings_destroyed(GtkWidget* w, gpointer data) {
-    (void)w; (void)data;
-    settings_dialog_instance = NULL;
+static void on_settings_destroyed(GtkWidget *w, gpointer data) {
+    (void)w;
+    AppState* app = (AppState*)data;
+    app->settings_dialog = NULL;
 }
 
 static void ensure_settings_dialog(AppState* app) {
-    if (!settings_dialog_instance) {
-        settings_dialog_instance = settings_dialog_new(app);
-        GtkWindow* w = settings_dialog_get_window(settings_dialog_instance);
+    if (!app->settings_dialog) {
+        app->settings_dialog = settings_dialog_new(app);
+        GtkWindow* w = settings_dialog_get_window(app->settings_dialog);
         if (w) {
-            g_signal_connect(w, "destroy", G_CALLBACK(on_settings_destroyed), NULL);
+            g_signal_connect(w, "destroy", G_CALLBACK(on_settings_destroyed), app);
         }
     }
 }
 
 static void open_settings_page(AppState* app, const char* page) {
     ensure_settings_dialog(app);
-    if (settings_dialog_instance) {
-        settings_dialog_open_page(settings_dialog_instance, page);
+    if (app->settings_dialog) {
+        settings_dialog_open_page(app->settings_dialog, page);
         // Also ensure AI dialog tab logic if needed? 
         // AiDialog inside settings is embedded.
     }
 }
 
 static void show_ai_settings_dialog(int tab_index, gpointer user_data) {
+    (void)tab_index; // Unused for now
     AppState* state = (AppState*)user_data;
     if (state->ai_dialog) {
         // We still support direct AI dialog usage if needed, but we prefer Settings Dialog
@@ -338,53 +340,16 @@ static void on_panel_puzzle_selected(GtkListBox* list, GtkListBoxRow* row, gpoin
 }
 
 
-static void on_puzzle_button_clicked(GtkButton* btn, gpointer user_data) {
-    AppState* state = (AppState*)user_data;
-    int puzzle_idx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "puzzle-index"));
-    
-    // Start the puzzle (callbacks are connected inside start_puzzle)
-    start_puzzle(state, puzzle_idx);
-    
-    // Close the selection window
-    GtkWidget* window = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_WINDOW);
-    if (window) {
-        gtk_window_destroy(GTK_WINDOW(window));
-    }
-}
-
-static gboolean on_puzzle_selector_closed(GtkWindow* window, gpointer user_data) {
-    (void)window;
-    AppState* state = (AppState*)user_data;
-    
-    // If user closed without selecting a puzzle, revert dropdown to PvC
-    if (state->logic->gameMode != GAME_MODE_PUZZLE) {
-        info_panel_set_game_mode(state->info_panel, GAME_MODE_PVC);
-    }
-    return FALSE; // Allow close
-}
+// Puzzle selector logic removed (moved to Settings Dialog)
 
 #include "puzzle_editor.h"
 
 // ... (other internal functions)
 
-// Callback when a custom puzzle is created and "Play" is clicked
-static void on_custom_puzzle_created(int new_puzzle_index, gpointer user_data) {
-    GtkWidget* selector_window = (GtkWidget*)user_data;
-    AppState* state = (AppState*)g_object_get_data(G_OBJECT(selector_window), "app-state");
-    
-    if (state) {
-        refresh_puzzle_list(state);
-        start_puzzle(state, new_puzzle_index);
-        gtk_window_present(state->window);
-        gtk_widget_grab_focus(state->board);
-    }
-    
-    // Close the selector window as we are starting the puzzle
-    if (GTK_IS_WINDOW(selector_window)) {
-        gtk_window_destroy(GTK_WINDOW(selector_window));
-    }
-}
-
+// Custom puzzle creation logic needs to be adapted if still needed
+// For now, removing unused static functions to fix compilation warnings.
+// If puzzle creator is needed, it should be integrated into Settings -> Puzzles
+/*
 static void on_create_puzzle_clicked(GtkButton* btn, gpointer user_data) {
     (void)user_data;
     GtkWidget* selector_window = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_WINDOW);
@@ -393,66 +358,7 @@ static void on_create_puzzle_clicked(GtkButton* btn, gpointer user_data) {
     // Pass selector_window as user_data so we can close it later and get state from it
     show_puzzle_editor(GTK_WINDOW(selector_window), G_CALLBACK(on_custom_puzzle_created), selector_window);
 }
-
-static void show_puzzle_selector(AppState* state) {
-    // Create puzzle selection window
-    GtkWidget* window = gtk_window_new();
-    gtk_window_set_title(GTK_WINDOW(window), "Select a Puzzle");
-    gtk_window_set_transient_for(GTK_WINDOW(window), state->window);
-    gtk_window_set_modal(GTK_WINDOW(window), TRUE);
-    gtk_window_set_default_size(GTK_WINDOW(window), 400, 500);
-    
-    // Attach state to window for retrieval in callbacks
-    g_object_set_data(G_OBJECT(window), "app-state", state);
-    
-    // Connect close handler to revert dropdown if user cancels
-    g_signal_connect(window, "close-request", G_CALLBACK(on_puzzle_selector_closed), state);
-    
-    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_window_set_child(GTK_WINDOW(window), vbox);
-    
-    // Create New Puzzle Button
-    // Create New Puzzle Button - Renaming to Add Puzzle
-    GtkWidget* create_btn = gtk_button_new_with_label("+ Add Puzzle");
-    gtk_widget_add_css_class(create_btn, "suggested-action");
-    gtk_widget_set_margin_top(create_btn, 10);
-    gtk_widget_set_margin_bottom(create_btn, 10);
-    gtk_widget_set_margin_start(create_btn, 10);
-    gtk_widget_set_margin_end(create_btn, 10);
-    
-    g_signal_connect(create_btn, "clicked", G_CALLBACK(on_create_puzzle_clicked), state);
-    gtk_box_append(GTK_BOX(vbox), create_btn);
-    
-    GtkWidget* scroll = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_vexpand(scroll, TRUE);
-    gtk_box_append(GTK_BOX(vbox), scroll);
-    
-    GtkWidget* list_box = gtk_list_box_new();
-    gtk_list_box_set_selection_mode(GTK_LIST_BOX(list_box), GTK_SELECTION_NONE);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), list_box);
-    
-    for (int i = 0; i < puzzles_get_count(); i++) {
-        const Puzzle* p = puzzles_get_at(i);
-        if (!p) continue;
-        
-        GtkWidget* btn = gtk_button_new_with_label(p->title);
-        gtk_widget_set_margin_top(btn, 5);
-        gtk_widget_set_margin_bottom(btn, 5);
-        gtk_widget_set_margin_start(btn, 10);
-        gtk_widget_set_margin_end(btn, 10);
-        
-        g_object_set_data(G_OBJECT(btn), "puzzle-index", GINT_TO_POINTER(i));
-        g_signal_connect(btn, "clicked", G_CALLBACK(on_puzzle_button_clicked), state);
-        
-        // Wrap in list box row for consistency with previous code
-        GtkWidget* row = gtk_list_box_row_new();
-        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), btn);
-        gtk_list_box_append(GTK_LIST_BOX(list_box), row);
-    }
-    
-    gtk_window_present(GTK_WINDOW(window));
-}
+*/
 
 static void on_puzzles_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
     (void)action; (void)parameter;
@@ -472,8 +378,8 @@ static void on_start_puzzle_action(GSimpleAction* action, GVariant* parameter, g
     // Ensure we close settings if open? SettingsDialog handles its own close?
     // If we start a puzzle, we probably want to show the board.
     // So we should close the Settings Dialog.
-    if (settings_dialog_instance && settings_dialog_get_window(settings_dialog_instance)) {
-        gtk_widget_set_visible(GTK_WIDGET(settings_dialog_get_window(settings_dialog_instance)), FALSE);
+    if (state->settings_dialog && settings_dialog_get_window(state->settings_dialog)) {
+        gtk_widget_set_visible(GTK_WIDGET(settings_dialog_get_window(state->settings_dialog)), FALSE);
     }
 }
 
@@ -509,7 +415,6 @@ static gboolean popup_popover_delayed(gpointer user_data) {
 // Wrapper to activate action
 static void activate_tutorial_action(GtkWidget* widget, gpointer user_data) {
     (void)widget;
-    printf("DEBUG: activate_tutorial_action called from Start Button!\n");
     AppState* state = (AppState*)user_data;
     if (state) {
        // Call the action handler directly
@@ -531,9 +436,14 @@ static void on_about_action(GSimpleAction* action, GVariant* parameter, gpointer
 }
 
 static void on_open_settings_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
-    (void)action; (void)parameter;
+    (void)action;
     AppState* state = (AppState*)user_data;
-    open_settings_page(state, "tutorial"); // Open tutorial/home page by default
+    const char* page = "ai"; // Default
+    
+    if (parameter && g_variant_is_of_type(parameter, G_VARIANT_TYPE_STRING)) {
+        page = g_variant_get_string(parameter, NULL);
+    }
+    open_settings_page(state, page);
 }
 
 typedef struct {
@@ -641,7 +551,14 @@ static void request_ai_move(AppState* state) {
     }
     const char* nn_path = ai_dialog_get_nnue_path(state->ai_dialog, &data->nnue_enabled);
     if (nn_path) data->nnue_path = g_strdup(nn_path);
-    g_thread_new("ai-think", ai_think_thread, data);
+    
+    // Use the configurable delay
+    g_timeout_add(g_ai_move_delay_ms, (GSourceFunc)ai_think_thread_timeout, data);
+}
+
+static gboolean ai_think_thread_timeout(gpointer user_data) {
+    g_thread_new("ai-think", ai_think_thread, user_data);
+    return FALSE;
 }
 
 static gboolean check_trigger_ai_idle(gpointer user_data) {
@@ -714,12 +631,13 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* settings_btn = gtk_button_new_from_icon_name("open-menu-symbolic");
     gtk_widget_set_tooltip_text(settings_btn, "Settings");
     
-    // Register "open-settings" action
-    GSimpleAction* act_settings = g_simple_action_new("open-settings", NULL);
+    // Register "open-settings" action with string type
+    GSimpleAction* act_settings = g_simple_action_new("open-settings", G_VARIANT_TYPE_STRING);
     g_signal_connect(act_settings, "activate", G_CALLBACK(on_open_settings_action), state);
     g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_settings));
     
     gtk_actionable_set_action_name(GTK_ACTIONABLE(settings_btn), "app.open-settings");
+    gtk_actionable_set_action_target(GTK_ACTIONABLE(settings_btn), "s", "ai");
     
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), settings_btn);
     

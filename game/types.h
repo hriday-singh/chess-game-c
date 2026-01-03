@@ -42,11 +42,13 @@ typedef struct {
     int startCol;
     int endRow;
     int endCol;
-    PieceType promotionPiece;  // Use PIECE_KING+1 (6) as sentinel for "no promotion"
-    Piece* capturedPiece;       // NULL if none
+    PieceType promotionPiece;
+    Piece* capturedPiece;
     int isEnPassant;
     int isCastling;
     int firstMove;
+    int rookFirstMove;
+    Player mover;
 } Move;
 
 // Sentinel value for "no promotion" (PIECE_KING is 0, so 6 is safe)

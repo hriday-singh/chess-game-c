@@ -26,7 +26,7 @@ enum {
     TUT_DONE = 11
 };
 
-typedef struct {
+typedef struct AppState {
     GameLogic* logic;
     GtkWidget* info_panel;
     GtkWidget* board;
@@ -35,6 +35,7 @@ typedef struct {
     BoardThemeDialog* theme_dialog;
     PieceThemeDialog* piece_theme_dialog;
     AiDialog* ai_dialog;
+    struct _SettingsDialog* settings_dialog;
     
     gboolean ai_thinking;
     EngineHandle* internal_engine;
@@ -47,13 +48,17 @@ typedef struct {
     int tutorial_next_step; // For delayed transition
     GtkWidget* tutorial_msg; 
     GtkWidget* tutorial_exit_btn;
-    gboolean tutorial_message_shown; // To prevent double firing?
+    gboolean tutorial_message_shown; 
+    gboolean tutorial_wait; // To prevent rapid progression
 
     // Puzzle State
     int current_puzzle_idx;
     int puzzle_move_idx;
     int puzzle_last_processed_move; // Track processed move count from game logic
     bool puzzle_wait; // For delaying response
+
+    // Settings State
+    char last_settings_page[32]; // Remember last visited page
 } AppState;
 
 #endif

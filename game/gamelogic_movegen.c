@@ -104,7 +104,9 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                 movelist_add(moves, m);
                 
                 // Double move from starting position
-                if (!p->hasMoved && is_valid_pos(r + (forward * 2), c) && 
+                bool isStartRank = (p->owner == PLAYER_WHITE && r == 6) || 
+                                  (p->owner == PLAYER_BLACK && r == 1);
+                if (!p->hasMoved && isStartRank && is_valid_pos(r + (forward * 2), c) && 
                     logic->board[r + (forward * 2)][c] == NULL) {
                     movelist_add(moves, move_create(r, c, r + (forward * 2), c));
                 }

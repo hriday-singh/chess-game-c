@@ -4,8 +4,8 @@
 #include <gtk/gtk.h>
 #include "app_state.h"
 
-// Forward declaration
-typedef struct AppState AppState;
+// Forward declaration is handled by app_state.h include
+// typedef struct AppState AppState;
 
 typedef struct _SettingsDialog SettingsDialog;
 

@@ -10,6 +10,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdbool.h>
 
 struct BoardThemeDialog {
     ThemeData* theme;
@@ -77,76 +78,30 @@ static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int he
 }
 
 // Callbacks
-// CORRECTED: notify:: signals require (GObject*, GParamSpec*, gpointer) signature
-static void on_light_color_changed(GObject* object, GParamSpec* pspec, gpointer user_data) {
-    (void)pspec; // Unused parameter
-    
-    // Cast object to button
-    GtkColorDialogButton* button = GTK_COLOR_DIALOG_BUTTON(object);
-    
-    if (!button || !GTK_IS_COLOR_DIALOG_BUTTON(button)) {
-        return;
-    }
-    
+static void on_light_color_changed(GObject* source_object, GParamSpec* pspec, gpointer user_data) {
+    (void)pspec;
+    GtkColorDialogButton* button = GTK_COLOR_DIALOG_BUTTON(source_object);
     BoardThemeDialog* dialog = (BoardThemeDialog*)user_data;
-    if (!dialog || !dialog->theme) {
-        return;
-    }
+    if (!dialog || !dialog->theme) return;
     
-    // Get color and copy values immediately to avoid pointer invalidation
-    const GdkRGBA* color = gtk_color_dialog_button_get_rgba(button);
-    if (!color) {
-        return;
-    }
+    const GdkRGBA* c = gtk_color_dialog_button_get_rgba(button);
+    if (!c) return;
     
-    // Copy color values to local variables for safety
-    double red = color->red;
-    double green = color->green;
-    double blue = color->blue;
-    
-    // Validate color values are in valid range
-    if (red < 0.0 || red > 1.0 || green < 0.0 || green > 1.0 || blue < 0.0 || blue > 1.0) {
-        return;
-    }
-    
-    theme_data_set_light_square_color(dialog->theme, red, green, blue);
+    theme_data_set_light_square_color(dialog->theme, c->red, c->green, c->blue);
     update_template_selection(dialog);
     refresh_dialog(dialog);
 }
 
-// CORRECTED: notify:: signals require (GObject*, GParamSpec*, gpointer) signature
-static void on_dark_color_changed(GObject* object, GParamSpec* pspec, gpointer user_data) {
-    (void)pspec; // Unused parameter
-    
-    // Cast object to button
-    GtkColorDialogButton* button = GTK_COLOR_DIALOG_BUTTON(object);
-    
-    if (!button || !GTK_IS_COLOR_DIALOG_BUTTON(button)) {
-        return;
-    }
-    
+static void on_dark_color_changed(GObject* source_object, GParamSpec* pspec, gpointer user_data) {
+    (void)pspec;
+    GtkColorDialogButton* button = GTK_COLOR_DIALOG_BUTTON(source_object);
     BoardThemeDialog* dialog = (BoardThemeDialog*)user_data;
-    if (!dialog || !dialog->theme) {
-        return;
-    }
+    if (!dialog || !dialog->theme) return;
     
-    // Get color and copy values immediately to avoid pointer invalidation
-    const GdkRGBA* color = gtk_color_dialog_button_get_rgba(button);
-    if (!color) {
-        return;
-    }
+    const GdkRGBA* c = gtk_color_dialog_button_get_rgba(button);
+    if (!c) return;
     
-    // Copy color values to local variables for safety
-    double red = color->red;
-    double green = color->green;
-    double blue = color->blue;
-    
-    // Validate color values are in valid range
-    if (red < 0.0 || red > 1.0 || green < 0.0 || green > 1.0 || blue < 0.0 || blue > 1.0) {
-        return;
-    }
-    
-    theme_data_set_dark_square_color(dialog->theme, red, green, blue);
+    theme_data_set_dark_square_color(dialog->theme, c->red, c->green, c->blue);
     update_template_selection(dialog);
     refresh_dialog(dialog);
 }
@@ -254,33 +209,26 @@ static void on_template_changed(GObject* object, GParamSpec* pspec, gpointer use
     theme_data_apply_board_template(dialog->theme, templates[selected]);
     
     // Update color buttons - check if they exist and are valid
-    if (dialog->light_color_button && (uintptr_t)dialog->light_color_button > 0x1000 &&
-        dialog->dark_color_button && (uintptr_t)dialog->dark_color_button > 0x1000 &&
-        GTK_IS_WIDGET(dialog->light_color_button) && 
-        GTK_IS_COLOR_DIALOG_BUTTON(dialog->light_color_button) &&
-        GTK_IS_WIDGET(dialog->dark_color_button) &&
-        GTK_IS_COLOR_DIALOG_BUTTON(dialog->dark_color_button)) {
+    if (dialog->light_color_button && GTK_IS_WIDGET(dialog->light_color_button) &&
+        dialog->dark_color_button && GTK_IS_WIDGET(dialog->dark_color_button)) {
         
         double r, g, b;
         theme_data_get_light_square_color(dialog->theme, &r, &g, &b);
         GdkRGBA light = {r, g, b, 1.0};
         
-        // Block signal to prevent recursive callback
-        if (GTK_IS_WIDGET(dialog->light_color_button)) {
-            g_signal_handlers_block_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
-            gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->light_color_button), &light);
-            g_signal_handlers_unblock_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
-        }
+        // Block signal to prevent recursive callback 
+        // Note: For GtkColorDialogButton, we need to block correct signal or just set rgba directly?
+        // Blocking notify::rgba is correct.
+        g_signal_handlers_block_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
+        gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->light_color_button), &light);
+        g_signal_handlers_unblock_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
         
         theme_data_get_dark_square_color(dialog->theme, &r, &g, &b);
         GdkRGBA dark = {r, g, b, 1.0};
         
-        // Block signal to prevent recursive callback
-        if (GTK_IS_WIDGET(dialog->dark_color_button)) {
-            g_signal_handlers_block_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
-            gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->dark_color_button), &dark);
-            g_signal_handlers_unblock_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
-        }
+        g_signal_handlers_block_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
+        gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->dark_color_button), &dark);
+        g_signal_handlers_unblock_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
     }
     
     refresh_dialog(dialog);
@@ -294,27 +242,21 @@ static void on_reset_clicked(GtkButton* button, gpointer user_data) {
     theme_data_reset_board_defaults(dialog->theme);
     // Update controls - check if buttons exist and are valid
     if (dialog->light_color_button && GTK_IS_WIDGET(dialog->light_color_button) &&
-        GTK_IS_COLOR_DIALOG_BUTTON(dialog->light_color_button) &&
-        dialog->dark_color_button && GTK_IS_WIDGET(dialog->dark_color_button) &&
-        GTK_IS_COLOR_DIALOG_BUTTON(dialog->dark_color_button)) {
+        dialog->dark_color_button && GTK_IS_WIDGET(dialog->dark_color_button)) {
         double r, g, b;
         theme_data_get_light_square_color(dialog->theme, &r, &g, &b);
         GdkRGBA light = {r, g, b, 1.0};
-        // Block signal to prevent recursive callback
-        if (GTK_IS_WIDGET(dialog->light_color_button)) {
-            g_signal_handlers_block_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
-            gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->light_color_button), &light);
-            g_signal_handlers_unblock_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
-        }
+        
+        g_signal_handlers_block_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
+        gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->light_color_button), &light);
+        g_signal_handlers_unblock_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
         
         theme_data_get_dark_square_color(dialog->theme, &r, &g, &b);
         GdkRGBA dark = {r, g, b, 1.0};
-        // Block signal to prevent recursive callback
-        if (GTK_IS_WIDGET(dialog->dark_color_button)) {
-            g_signal_handlers_block_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
-            gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->dark_color_button), &dark);
-            g_signal_handlers_unblock_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
-        }
+        
+        g_signal_handlers_block_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
+        gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->dark_color_button), &dark);
+        g_signal_handlers_unblock_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
     }
     update_template_selection(dialog);
     refresh_dialog(dialog);
@@ -377,27 +319,19 @@ static void on_import_finish(GObject* source, GAsyncResult* result, gpointer dat
                 theme_data_load_board_json(dialog->theme, json);
                 // Update controls - check if buttons exist and are valid
                 if (dialog->light_color_button && GTK_IS_WIDGET(dialog->light_color_button) &&
-                    GTK_IS_COLOR_DIALOG_BUTTON(dialog->light_color_button) &&
-                    dialog->dark_color_button && GTK_IS_WIDGET(dialog->dark_color_button) &&
-                    GTK_IS_COLOR_DIALOG_BUTTON(dialog->dark_color_button)) {
+                    dialog->dark_color_button && GTK_IS_WIDGET(dialog->dark_color_button)) {
                     double r, g, b;
                     theme_data_get_light_square_color(dialog->theme, &r, &g, &b);
                     GdkRGBA light = {r, g, b, 1.0};
-                    // Block signal to prevent recursive callback
-                    if (GTK_IS_WIDGET(dialog->light_color_button)) {
-                        g_signal_handlers_block_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
-                        gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->light_color_button), &light);
-                        g_signal_handlers_unblock_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
-                    }
+                    g_signal_handlers_block_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
+                    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->light_color_button), &light);
+                    g_signal_handlers_unblock_by_func(dialog->light_color_button, G_CALLBACK(on_light_color_changed), dialog);
                     
                     theme_data_get_dark_square_color(dialog->theme, &r, &g, &b);
                     GdkRGBA dark = {r, g, b, 1.0};
-                    // Block signal to prevent recursive callback
-                    if (GTK_IS_WIDGET(dialog->dark_color_button)) {
-                        g_signal_handlers_block_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
-                        gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->dark_color_button), &dark);
-                        g_signal_handlers_unblock_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
-                    }
+                    g_signal_handlers_block_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
+                    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->dark_color_button), &dark);
+                    g_signal_handlers_unblock_by_func(dialog->dark_color_button, G_CALLBACK(on_dark_color_changed), dialog);
                 }
                 free(json);
                 update_template_selection(dialog);
@@ -513,10 +447,7 @@ static void board_theme_dialog_build_ui(BoardThemeDialog* dialog) {
     
     // Create and configure color dialog
     dialog->light_color_dialog = gtk_color_dialog_new();
-    if (dialog->light_color_dialog) {
-        gtk_color_dialog_set_modal(dialog->light_color_dialog, TRUE);
-        gtk_color_dialog_set_with_alpha(dialog->light_color_dialog, FALSE);
-    }
+    gtk_color_dialog_set_with_alpha(dialog->light_color_dialog, FALSE);
     
     dialog->light_color_button = gtk_color_dialog_button_new(dialog->light_color_dialog);
     if (dialog->light_color_button) {
@@ -542,10 +473,7 @@ static void board_theme_dialog_build_ui(BoardThemeDialog* dialog) {
     GdkRGBA dark_color = {r, g, b, 1.0};
     
     dialog->dark_color_dialog = gtk_color_dialog_new();
-    if (dialog->dark_color_dialog) {
-        gtk_color_dialog_set_modal(dialog->dark_color_dialog, TRUE);
-        gtk_color_dialog_set_with_alpha(dialog->dark_color_dialog, FALSE);
-    }
+    gtk_color_dialog_set_with_alpha(dialog->dark_color_dialog, FALSE);
     
     dialog->dark_color_button = gtk_color_dialog_button_new(dialog->dark_color_dialog);
     if (dialog->dark_color_button) {

@@ -250,6 +250,10 @@ static void on_play_clicked(GtkButton* btn, gpointer user_data) {
         callback(new_idx, data->user_data);
     }
     
+    // Focus back to parent
+    GtkWindow* parent = gtk_window_get_transient_for(GTK_WINDOW(data->window));
+    if (parent) gtk_window_present(parent);
+
     // Close window
     gtk_window_destroy(GTK_WINDOW(data->window));
 }
@@ -257,6 +261,10 @@ static void on_play_clicked(GtkButton* btn, gpointer user_data) {
 static void on_cancel_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn;
     EditorData* data = (EditorData*)user_data;
+    // Focus back to parent
+    GtkWindow* parent = gtk_window_get_transient_for(GTK_WINDOW(data->window));
+    if (parent) gtk_window_present(parent);
+    
     gtk_window_destroy(GTK_WINDOW(data->window));
 }
 
@@ -280,7 +288,7 @@ void show_puzzle_editor(GtkWindow* parent, GCallback on_created, gpointer user_d
     
     GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_margin_top(vbox, 20);
-    gtk_widget_set_margin_bottom(vbox, 20);
+    gtk_widget_set_margin_bottom(vbox, 45); // Increased as requested "increase it little" (was 20)
     gtk_widget_set_margin_start(vbox, 20);
     gtk_widget_set_margin_end(vbox, 20);
     gtk_window_set_child(GTK_WINDOW(data->window), vbox);
@@ -320,18 +328,20 @@ void show_puzzle_editor(GtkWindow* parent, GCallback on_created, gpointer user_d
     gtk_box_append(GTK_BOX(vbox), info);
 
     // Buttons Bottom
-    GtkWidget* hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    GtkWidget* hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 45); // Increased spacing from 24 to 45
     gtk_widget_set_halign(hbox, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(hbox, 30); // Increased top margin
     gtk_box_append(GTK_BOX(vbox), hbox);
     
     GtkWidget* cancel_btn = gtk_button_new_with_label("Cancel");
     g_signal_connect(cancel_btn, "clicked", G_CALLBACK(on_cancel_clicked), data);
     gtk_box_append(GTK_BOX(hbox), cancel_btn);
     
-    GtkWidget* play_btn = gtk_button_new_with_label("Add Puzzle");
+    GtkWidget* play_btn = gtk_button_new_with_label("Select");
     gtk_widget_add_css_class(play_btn, "suggested-action");
     g_signal_connect(play_btn, "clicked", G_CALLBACK(on_play_clicked), data);
     gtk_box_append(GTK_BOX(hbox), play_btn);
+
 
     gtk_window_present(GTK_WINDOW(data->window));
 }

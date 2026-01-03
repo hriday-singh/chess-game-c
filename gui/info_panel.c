@@ -149,6 +149,7 @@ static void on_cvc_stop_clicked(GtkButton* btn, gpointer user_data);
 
 static void reset_game(InfoPanel* panel);
 static void update_ai_settings_visibility(InfoPanel* panel);
+static void on_elo_adjustment_changed(GtkAdjustment* adj, gpointer user_data);
 
 typedef struct {
     InfoPanel* panel;
@@ -183,6 +184,7 @@ static GtkWidget* create_ai_side_block(InfoPanel* panel, bool is_black, const ch
     gtk_box_append(GTK_BOX(elo_box), gtk_label_new("ELO Difficulty:"));
     
     GtkAdjustment* adj = gtk_adjustment_new(1500, 100, 3600, 50, 500, 0);
+    g_signal_connect(adj, "value-changed", G_CALLBACK(on_elo_adjustment_changed), panel);
     GtkWidget* elo_slider = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, adj);
     gtk_scale_set_draw_value(GTK_SCALE(elo_slider), FALSE);
     gtk_box_append(GTK_BOX(elo_box), elo_slider);
@@ -276,17 +278,17 @@ static void update_captured_pieces(InfoPanel* panel) {
         int total = 0;
         while (current) {
             total++;
-            if (count < 7) {
+            if (count < 6) {
                 GtkWidget* widget = create_piece_widget(panel, current->type, PLAYER_BLACK);
                 gtk_box_append(GTK_BOX(panel->white_captures_box), widget);
                 count++;
             }
             current = current->next;
         }
-        // Show "+N" if there are more than 7 pieces
-        if (total > 7) {
+        // Show "+N" if there are more than 6 pieces
+        if (total > 6) {
             char buffer[16];
-            snprintf(buffer, sizeof(buffer), "+%d", total - 7);
+            snprintf(buffer, sizeof(buffer), "+%d", total - 6);
             GtkWidget* plus_label = gtk_label_new(buffer);
             gtk_widget_add_css_class(plus_label, "capture-count");
             gtk_box_append(GTK_BOX(panel->white_captures_box), plus_label);
@@ -300,17 +302,17 @@ static void update_captured_pieces(InfoPanel* panel) {
         int total = 0;
         while (current) {
             total++;
-            if (count < 7) {
+            if (count < 6) {
                 GtkWidget* widget = create_piece_widget(panel, current->type, PLAYER_WHITE);
                 gtk_box_append(GTK_BOX(panel->black_captures_box), widget);
                 count++;
             }
             current = current->next;
         }
-        // Show "+N" if there are more than 7 pieces
-        if (total > 7) {
+        // Show "+N" if there are more than 6 pieces
+        if (total > 6) {
             char buffer[16];
-            snprintf(buffer, sizeof(buffer), "+%d", total - 7);
+            snprintf(buffer, sizeof(buffer), "+%d", total - 6);
             GtkWidget* plus_label = gtk_label_new(buffer);
             gtk_widget_add_css_class(plus_label, "capture-count");
             gtk_box_append(GTK_BOX(panel->black_captures_box), plus_label);
@@ -453,25 +455,25 @@ static void update_captured_labels(InfoPanel* panel) {
     int point_diff = white_points - black_points;
     
     // Update labels with relative points (only show if non-zero)
-    char black_text[64];
+    char black_text[128];
     if (point_diff < 0) {
         // Black is ahead
-        snprintf(black_text, sizeof(black_text), "Captured by Black: +%d", -point_diff);
+        snprintf(black_text, sizeof(black_text), "Captured by Black: <span size='large' weight='bold' foreground='#d32f2f'>+%d</span>", -point_diff);
     } else {
         // Black is not ahead, show nothing
         snprintf(black_text, sizeof(black_text), "Captured by Black:");
     }
-    gtk_label_set_text(GTK_LABEL(panel->black_label), black_text);
+    gtk_label_set_markup(GTK_LABEL(panel->black_label), black_text);
     
-    char white_text[64];
+    char white_text[128];
     if (point_diff > 0) {
         // White is ahead
-        snprintf(white_text, sizeof(white_text), "Captured by White: +%d", point_diff);
+        snprintf(white_text, sizeof(white_text), "Captured by White: <span size='large' weight='bold' foreground='#2e7d32'>+%d</span>", point_diff);
     } else {
         // White is not ahead, show nothing
         snprintf(white_text, sizeof(white_text), "Captured by White:");
     }
-    gtk_label_set_text(GTK_LABEL(panel->white_label), white_text);
+    gtk_label_set_markup(GTK_LABEL(panel->white_label), white_text);
 }
 
 // Update visibility of AI settings based on game mode
@@ -598,6 +600,13 @@ static void on_cvc_stop_clicked(GtkButton* btn, gpointer user_data) {
     if (panel->cvc_callback) {
         panel->cvc_callback(CVC_STATE_STOPPED, panel->cvc_callback_data);
     }
+    reset_game(panel); // Added reset_game here for CvC Stop
+}
+
+static void on_elo_adjustment_changed(GtkAdjustment* adj, gpointer user_data) {
+    (void)adj;
+    InfoPanel* panel = (InfoPanel*)user_data;
+    reset_game(panel);
 }
 
 static void on_reset_clicked(GtkButton* button, gpointer user_data) {
@@ -633,6 +642,13 @@ static void on_undo_clicked(GtkButton* button, gpointer user_data) {
 // Helper function to reset game (used by reset button and settings changes)
 static void reset_game(InfoPanel* panel) {
     if (!panel || !panel->logic) return;
+    
+    // Stop CvC if running
+    if (panel->logic->gameMode == GAME_MODE_CVC && panel->cvc_state != CVC_STATE_STOPPED) {
+        if (panel->cvc_callback) {
+            panel->cvc_callback(CVC_STATE_STOPPED, panel->cvc_callback_data);
+        }
+    }
     
     // Check if "Random" is selected - if so, randomly pick a color
     guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(panel->play_as_dropdown));
@@ -682,8 +698,10 @@ static void on_game_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_
         GtkWidget* toplevel = gtk_widget_get_ancestor(GTK_WIDGET(panel->game_mode_dropdown), GTK_TYPE_WINDOW);
         if (toplevel) {
             GtkApplication* app = gtk_window_get_application(GTK_WINDOW(toplevel));
-            if (app) {
+            if (app && G_IS_ACTION_GROUP(app)) {
                 g_action_group_activate_action(G_ACTION_GROUP(app), "puzzles", NULL);
+            } else {
+                printf("ERROR: Application not valid for launching puzzles!\n");
             }
         }
         // Reset dropdown back to previous mode (will be set by puzzle logic)
@@ -841,7 +859,7 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     // Puzzle List (Embedded)
     panel->puzzle_ui.puzzle_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(panel->puzzle_ui.puzzle_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-    gtk_widget_set_size_request(panel->puzzle_ui.puzzle_scroll, -1, 150); // Fixed height for list
+    gtk_widget_set_size_request(panel->puzzle_ui.puzzle_scroll, -1, 250); // Fixed height for list
     gtk_widget_set_vexpand(panel->puzzle_ui.puzzle_scroll, FALSE);
     gtk_box_append(GTK_BOX(panel->puzzle_ui.box), panel->puzzle_ui.puzzle_scroll);
     
@@ -1134,13 +1152,19 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     
     gtk_box_append(GTK_BOX(panel->standard_controls_box), visual_section);
     
-    // CSS and setup
-    GtkCssProvider* cp = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(cp, ".capture-box { background: #e8e8e8; border-radius: 5px; padding: 8px; border: 1px solid #ccc; min-height: 50px; } "
-                                         ".success-text { color: #2e7d32; font-size: 0.9em; } "
-                                         ".error-text { color: #d32f2f; font-size: 0.9em; } "
-                                         ".ai-note { color: #666; font-size: 0.8em; font-style: italic; }");
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(cp), GTK_STYLE_PROVIDER_PRIORITY_USER);
+    // CSS for custom elements
+    GtkCssProvider* provider = gtk_css_provider_new();
+    gtk_css_provider_load_from_string(provider, 
+        ".capture-box { background: #e8e8e8; border-radius: 5px; padding: 8px; border: 1px solid #ccc; min-height: 50px; } "
+        ".success-text { color: #2e7d32; font-size: 0.9em; } "
+        ".error-text { color: #d32f2f; font-size: 0.9em; } "
+        ".ai-note { color: #666; font-size: 0.8em; font-style: italic; } "
+        ".capture-count { font-size: 16px; font-weight: bold; margin-left: 4px; color: #666; }"
+    );
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(),
+                                              GTK_STYLE_PROVIDER(provider),
+                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref(provider);
 
     gtk_widget_set_size_request(scrolled, 280, -1);
     gtk_widget_set_vexpand(scrolled, TRUE);
@@ -1162,6 +1186,13 @@ void info_panel_update_status(GtkWidget* info_panel) {
     if (!panel) return;
     update_captured_pieces(panel);
     update_status_display(panel);
+
+    // Stop CvC if game is over
+    if (panel->logic->isGameOver && panel->cvc_state != CVC_STATE_STOPPED) {
+        if (panel->cvc_callback) {
+            panel->cvc_callback(CVC_STATE_STOPPED, panel->cvc_callback_data);
+        }
+    }
 }
 
 void info_panel_rebuild_layout(GtkWidget* info_panel) {
@@ -1341,12 +1372,15 @@ void info_panel_set_puzzle_exit_callback(GtkWidget* info_panel, GCallback on_exi
 }
 
 // List Management
+// Puzzle List Management
+
 void info_panel_clear_puzzle_list(GtkWidget* info_panel) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
-    if (!panel) return;
-    
+    if (!panel || !panel->puzzle_ui.puzzle_list_box) return;
+
+    // Remove all rows
     GtkWidget* child = gtk_widget_get_first_child(panel->puzzle_ui.puzzle_list_box);
-    while (child != NULL) {
+    while (child) {
         GtkWidget* next = gtk_widget_get_next_sibling(child);
         gtk_list_box_remove(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), child);
         child = next;
@@ -1355,35 +1389,73 @@ void info_panel_clear_puzzle_list(GtkWidget* info_panel) {
 
 void info_panel_add_puzzle_to_list(GtkWidget* info_panel, const char* title, int index) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
-    if (!panel) return;
+    if (!panel || !panel->puzzle_ui.puzzle_list_box) return;
+
+    GtkWidget* row_label = gtk_label_new(title);
+    gtk_widget_set_halign(row_label, GTK_ALIGN_START);
+    gtk_widget_set_margin_start(row_label, 12);
+    gtk_widget_set_margin_end(row_label, 12);
+    gtk_widget_set_margin_top(row_label, 8);
+    gtk_widget_set_margin_bottom(row_label, 8);
     
-    GtkWidget* row = gtk_list_box_row_new();
-    GtkWidget* label = gtk_label_new(title);
-    gtk_widget_set_halign(label, GTK_ALIGN_START);
-    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END); // Ensure width constraint
-    gtk_widget_set_margin_start(label, 5);
-    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), label);
+    // Store index on label
+    g_object_set_data(G_OBJECT(row_label), "puzzle-index", GINT_TO_POINTER(index));
     
-    g_object_set_data(G_OBJECT(row), "puzzle-index", GINT_TO_POINTER(index));
-    gtk_list_box_append(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), row);
+    gtk_list_box_append(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), row_label);
 }
 
 void info_panel_highlight_puzzle(GtkWidget* info_panel, int index) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
-    if (!panel) return;
+    if (!panel || !panel->puzzle_ui.puzzle_list_box) return;
+
+    // Loop through rows to find matching index
+    GtkWidget* child = gtk_widget_get_first_child(panel->puzzle_ui.puzzle_list_box);
+    while (child) {
+        // child is GtkListBoxRow wrapping our label
+        GtkWidget* item = gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(child));
+        if (item) {
+            int row_idx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(item), "puzzle-index"));
+            if (row_idx == index) {
+                gtk_list_box_select_row(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), GTK_LIST_BOX_ROW(child));
+                gtk_widget_grab_focus(child);
+                return;
+            }
+        }
+        child = gtk_widget_get_next_sibling(child);
+    }
+}
+
+static void on_puzzle_list_row_activated(GtkListBox* box, GtkListBoxRow* row, gpointer user_data) {
+    (void)box; (void)user_data;
+    if (!box || !G_IS_OBJECT(box)) return;
     
-    GtkListBoxRow* row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), index);
-    if (row) {
-        gtk_list_box_select_row(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), row);
-        gtk_widget_grab_focus(GTK_WIDGET(row));
+    // We can get the panel from the box (ancestor logic or data).
+    // Let's use g_object_get_data on the box to retrieve the callback wrapper.
+    void (*callback)(int, gpointer) = g_object_get_data(G_OBJECT(box), "on-selected-cb");
+    gpointer cb_data = g_object_get_data(G_OBJECT(box), "on-selected-data");
+    
+    if (callback && row && G_IS_OBJECT(row)) {
+        GtkWidget* child = gtk_list_box_row_get_child(row);
+        if (child && G_IS_OBJECT(child)) {
+            gpointer idx_ptr = g_object_get_data(G_OBJECT(child), "puzzle-index");
+            if (idx_ptr != NULL) {
+                 int idx = GPOINTER_TO_INT(idx_ptr);
+                 callback(idx, cb_data);
+            }
+        }
     }
 }
 
 void info_panel_set_puzzle_list_callback(GtkWidget* info_panel, GCallback on_selected, gpointer user_data) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
-    if (!panel) return;
+    if (!panel || !panel->puzzle_ui.puzzle_list_box) return;
+
+    // Store callback and data on the listbox itself
+    g_object_set_data(G_OBJECT(panel->puzzle_ui.puzzle_list_box), "on-selected-cb", (gpointer)on_selected);
+    g_object_set_data(G_OBJECT(panel->puzzle_ui.puzzle_list_box), "on-selected-data", user_data);
     
-    g_signal_connect(panel->puzzle_ui.puzzle_list_box, "row-activated", on_selected, user_data);
+    g_signal_handlers_disconnect_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL);
+    g_signal_connect(panel->puzzle_ui.puzzle_list_box, "row-activated", G_CALLBACK(on_puzzle_list_row_activated), NULL);
 }
 
 void info_panel_set_game_mode(GtkWidget* info_panel, GameMode mode) {
@@ -1410,3 +1482,8 @@ void info_panel_set_sensitive(GtkWidget* info_panel, bool sensitive) {
     if (!info_panel) return;
     gtk_widget_set_sensitive(info_panel, sensitive);
 }
+
+// Puzzle List Management
+
+// End of file cleanup
+

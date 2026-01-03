@@ -73,7 +73,7 @@ tmp/
 
 # Compiler metadata
 compile_commands.json
-.clangd
+.clangd/
 
 # IDE/Editor
 .vscode/

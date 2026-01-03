@@ -22,10 +22,6 @@ struct GameLogic {
     int aiDepth;
     AIType whiteAI;
     AIType blackAI;
-    int whiteDepth;
-    int blackDepth;
-    AIGenome* whiteProfile;
-    AIGenome* blackProfile;
     
     // En passant
     int enPassantCol;  // -1 if none
@@ -34,14 +30,10 @@ struct GameLogic {
     void* moveHistory;  // Stack<Move>
     void* enPassantHistory;  // Stack<Integer>
     
-    // Position history for repetition detection
+    // Position history for repetition detection (Zobrist hash placeholder)
     void* positionHistory;  // List<Long>
     
-    // CVC state
-    bool cvcRunning;
-    bool cvcPaused;
-    
-    // Statistics
+    // Game Statistics
     int whiteMoves;
     int blackMoves;
     int whiteCaptures;
@@ -59,7 +51,6 @@ struct GameLogic {
     
     // Callbacks
     void (*updateCallback)(void);
-    void (*refreshLayoutCallback)(void);
 };
 
 // Function declarations
@@ -116,7 +107,6 @@ bool gamelogic_is_square_safe(GameLogic* logic, int r, int c, Player p);
 
 // Callbacks
 void gamelogic_set_callback(GameLogic* logic, void (*callback)(void));
-void gamelogic_set_refresh_layout_callback(GameLogic* logic, void (*callback)(void));
 
 // Learning
 void gamelogic_handle_game_end_learning(GameLogic* logic, Player winner);

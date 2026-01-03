@@ -14,10 +14,148 @@ struct _SettingsDialog {
     PieceThemeDialog* piece_dialog;
 };
 
-// ... (sidebar helpers same)
+#include "ai_dialog.h"
+#include "board_theme_dialog.h"
+#include "piece_theme_dialog.h"
+#include "tutorial.h"
+#include "puzzles.h"
+
+// Helper: Update board when theme changes
+static void on_theme_update(void* user_data) {
+    if (!user_data) return;
+    AppState* app = (AppState*)user_data;
+    if (app->board) {
+        gtk_widget_queue_draw(app->board);
+    }
+}
+
+// Helper: Create a sidebar row with icon and text
+static GtkWidget* create_sidebar_row(const char* text, const char* icon_name) {
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_margin_top(box, 10);
+    gtk_widget_set_margin_bottom(box, 10);
+    gtk_widget_set_margin_start(box, 12);
+    gtk_widget_set_margin_end(box, 12);
+    
+    GtkWidget* icon = gtk_image_new_from_icon_name(icon_name);
+    gtk_widget_set_size_request(icon, 24, 24); // Standard icon size
+    gtk_box_append(GTK_BOX(box), icon);
+    
+    GtkWidget* label = gtk_label_new(text);
+    gtk_widget_add_css_class(label, "sidebar-label"); // For potential styling
+    gtk_box_append(GTK_BOX(box), label);
+    
+    return box;
+}
+
+// Callback: Handle sidebar row selection to switch stack pages
+static void on_sidebar_row_selected(GtkListBox* box, GtkListBoxRow* row, gpointer user_data) {
+    (void)box;
+    SettingsDialog* dialog = (SettingsDialog*)user_data;
+    if (!row || !dialog->stack) return;
+    
+    int index = gtk_list_box_row_get_index(row);
+    const char* pages[] = {"ai", "board", "piece", "puzzles", "tutorial", "about"};
+    
+    if (index >= 0 && index < 6) {
+        gtk_stack_set_visible_child_name(GTK_STACK(dialog->stack), pages[index]);
+    }
+}
+
+// Helper: Create the About page
+static GtkWidget* create_about_page(SettingsDialog* dialog) {
+    (void)dialog;
+    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
+    gtk_widget_set_valign(vbox, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign(vbox, GTK_ALIGN_CENTER);
+    
+    GtkWidget* logo_icon = gtk_image_new_from_icon_name("applications-games");
+    gtk_widget_set_size_request(logo_icon, 96, 96);
+    gtk_image_set_pixel_size(GTK_IMAGE(logo_icon), 96);
+    gtk_box_append(GTK_BOX(vbox), logo_icon);
+    
+    GtkWidget* title = gtk_label_new("HAL :) Chess");
+    gtk_widget_add_css_class(title, "title-1");
+    gtk_box_append(GTK_BOX(vbox), title);
+    
+    GtkWidget* version = gtk_label_new("Version 1.0.0");
+    gtk_widget_add_css_class(version, "dim-label");
+    gtk_box_append(GTK_BOX(vbox), version);
+    
+    GtkWidget* desc = gtk_label_new("A modern chess application built with GTK4.\nFeatures AI, Puzzles, and customizable themes.");
+    gtk_label_set_justify(GTK_LABEL(desc), GTK_JUSTIFY_CENTER);
+    gtk_label_set_wrap(GTK_LABEL(desc), TRUE);
+    gtk_box_append(GTK_BOX(vbox), desc);
+    
+    GtkWidget* credit = gtk_label_new("© 2026 Hriday Singh");
+    gtk_widget_add_css_class(credit, "dim-label");
+    gtk_box_append(GTK_BOX(vbox), credit);
+    
+    return vbox;
+}
+
+// Callback: Start Tutorial
+static void on_start_tutorial_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn;
+    SettingsDialog* dialog = (SettingsDialog*)user_data;
+    
+    // Activate the "tutorial" action
+    GApplication* app = g_application_get_default();
+    g_action_group_activate_action(G_ACTION_GROUP(app), "tutorial", NULL);
+    
+    // Close settings properly
+    if (dialog->window) {
+        gtk_window_destroy(dialog->window);
+    }
+}
+
+// Helper: Create Tutorial Page wrapper (placeholder using existing Tutorial module if needed)
+static GtkWidget* create_tutorial_page(SettingsDialog* dialog) {
+    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
+    gtk_widget_set_valign(vbox, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign(vbox, GTK_ALIGN_CENTER);
+    
+    GtkWidget* title = gtk_label_new("Learn Chess");
+    gtk_widget_add_css_class(title, "title-1");
+    gtk_box_append(GTK_BOX(vbox), title);
+    
+    GtkWidget* desc = gtk_label_new("Master the game with our interactive tutorial.\nLearn piece movements, basic tactics, and strategies.");
+    gtk_label_set_justify(GTK_LABEL(desc), GTK_JUSTIFY_CENTER);
+    gtk_box_append(GTK_BOX(vbox), desc);
+    
+    GtkWidget* start_btn = gtk_button_new_with_label("Start Tutorial");
+    gtk_widget_add_css_class(start_btn, "suggested-action");
+    gtk_widget_set_size_request(start_btn, 200, 50);
+    
+    g_signal_connect(start_btn, "clicked", G_CALLBACK(on_start_tutorial_clicked), dialog);
+    gtk_box_append(GTK_BOX(vbox), start_btn);
+    
+    return vbox;
+}
+
+#include "puzzle_editor.h"
+
+static void on_puzzle_created(int new_index, gpointer user_data) {
+    (void)new_index;
+    (void)user_data;
+    // Refresh list? The settings dialog recreates the page if reopened, but not if staying open.
+    // For now, we assume user might close/reopen or we could refresh the list box.
+    // Actually, user_data is SettingsDialog*. We could try to refresh.
+}
+
+static void on_create_puzzle_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn;
+    SettingsDialog* dialog = (SettingsDialog*)user_data;
+    if (dialog->window) {
+        show_puzzle_editor(dialog->window, G_CALLBACK(on_puzzle_created), dialog);
+    }
+}
+
+static GtkWidget* create_puzzles_page(SettingsDialog* dialog); // Forward
 
 // Puzzle Page (Real Implementation)
 static void on_puzzle_row_activated(GtkListBox* box, GtkListBoxRow* row, gpointer user_data) {
+    (void)box;
     SettingsDialog* dialog = (SettingsDialog*)user_data;
     if (!row) return;
     
@@ -29,20 +167,50 @@ static void on_puzzle_row_activated(GtkListBox* box, GtkListBoxRow* row, gpointe
     // Trigger action "app.start-puzzle" with parameter
     GApplication* app = g_application_get_default();
     g_action_group_activate_action(G_ACTION_GROUP(app), "start-puzzle", g_variant_new_int32(idx));
+    
+    // Close settings dialog properly
+    if (dialog->window) {
+        gtk_window_destroy(dialog->window);
+    }
 }
 
 static GtkWidget* create_puzzles_page(SettingsDialog* dialog) {
-    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_widget_set_margin_top(vbox, 20);
-    gtk_widget_set_margin_bottom(vbox, 20);
-    gtk_widget_set_margin_start(vbox, 20);
-    gtk_widget_set_margin_end(vbox, 20);
+    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_set_margin_top(vbox, 24);
+    gtk_widget_set_margin_bottom(vbox, 24);
+    gtk_widget_set_margin_start(vbox, 32);
+    gtk_widget_set_margin_end(vbox, 32);
     
-    GtkWidget* title = gtk_label_new("Select a Puzzle");
+    // Title
+    GtkWidget* title = gtk_label_new("Puzzles");
     gtk_widget_set_halign(title, GTK_ALIGN_START);
-    gtk_widget_add_css_class(title, "title-2");
+    gtk_widget_add_css_class(title, "title-1");
     gtk_box_append(GTK_BOX(vbox), title);
     
+    // Create / Import Section
+    GtkWidget* action_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    GtkWidget* create_btn = gtk_button_new_with_label("Create / Import Puzzles");
+    gtk_widget_add_css_class(create_btn, "suggested-action");
+    gtk_widget_set_size_request(create_btn, -1, 40); // Taller button
+    g_signal_connect(create_btn, "clicked", G_CALLBACK(on_create_puzzle_clicked), dialog);
+    gtk_box_append(GTK_BOX(action_box), create_btn);
+    gtk_box_append(GTK_BOX(vbox), action_box);
+    
+    // Separator
+    gtk_box_append(GTK_BOX(vbox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    
+    // List Header
+    // TODO: Distinguish between User and Built-in puzzles if API allows
+    char buffer[64];
+    int count = puzzles_get_count();
+    snprintf(buffer, sizeof(buffer), "Available Puzzles (%d)", count);
+    
+    GtkWidget* list_header = gtk_label_new(buffer);
+    gtk_widget_set_halign(list_header, GTK_ALIGN_START);
+    gtk_widget_add_css_class(list_header, "heading");
+    gtk_box_append(GTK_BOX(vbox), list_header);
+    
+    // Puzzle List
     GtkWidget* scrolled = gtk_scrolled_window_new();
     gtk_widget_set_vexpand(scrolled, TRUE);
     gtk_widget_add_css_class(scrolled, "view"); 
@@ -52,26 +220,27 @@ static GtkWidget* create_puzzles_page(SettingsDialog* dialog) {
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(list), GTK_SELECTION_SINGLE);
     gtk_widget_add_css_class(list, "boxed-list");
     
-    int count = puzzles_get_count();
     for (int i = 0; i < count; i++) {
         const Puzzle* p = puzzles_get_at(i);
         if (p) {
+            GtkWidget* row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
             GtkWidget* row_label = gtk_label_new(p->title);
             gtk_widget_set_halign(row_label, GTK_ALIGN_START);
-            gtk_widget_set_margin_start(row_label, 12);
-            gtk_widget_set_margin_end(row_label, 12);
-            gtk_widget_set_margin_top(row_label, 12);
-            gtk_widget_set_margin_bottom(row_label, 12);
+            gtk_box_append(GTK_BOX(row_box), row_label);
             
-            // Store index on the label widget (which is child of row)
-            g_object_set_data(G_OBJECT(row_label), "puzzle-index", GINT_TO_POINTER(i));
+            gtk_widget_set_margin_start(row_box, 12);
+            gtk_widget_set_margin_end(row_box, 12);
+            gtk_widget_set_margin_top(row_box, 12);
+            gtk_widget_set_margin_bottom(row_box, 12);
             
-            gtk_list_box_append(GTK_LIST_BOX(list), row_label);
+            // Store index on the label widget (which is child of row_box, wait row get child returns box)
+            g_object_set_data(G_OBJECT(row_box), "puzzle-index", GINT_TO_POINTER(i));
+            
+            gtk_list_box_append(GTK_LIST_BOX(list), row_box);
         }
     }
     
     g_signal_connect(list, "row-activated", G_CALLBACK(on_puzzle_row_activated), dialog);
-    
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), list);
     
     return vbox;
@@ -108,17 +277,17 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     gtk_widget_set_size_request(sidebar_frame, 220, -1);
     gtk_widget_add_css_class(sidebar_frame, "sidebar"); // Apply custom CSS later
     
-    dialog->sidebar = GTK_LIST_BOX(gtk_list_box_new());
-    gtk_list_box_set_selection_mode(dialog->sidebar, GTK_SELECTION_SINGLE);
+    dialog->sidebar = gtk_list_box_new();
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(dialog->sidebar), GTK_SELECTION_SINGLE);
     g_signal_connect(dialog->sidebar, "row-selected", G_CALLBACK(on_sidebar_row_selected), dialog);
     
     // Add Items
-    gtk_list_box_append(dialog->sidebar, create_sidebar_row("Tutorial", "user-available-symbolic"));
-    gtk_list_box_append(dialog->sidebar, create_sidebar_row("AI Settings", "preferences-system-symbolic"));
-    gtk_list_box_append(dialog->sidebar, create_sidebar_row("Board Theme", "preferences-desktop-display-symbolic"));
-    gtk_list_box_append(dialog->sidebar, create_sidebar_row("Piece Theme", "applications-graphics-symbolic"));
-    gtk_list_box_append(dialog->sidebar, create_sidebar_row("Puzzles", "applications-games-symbolic"));
-    gtk_list_box_append(dialog->sidebar, create_sidebar_row("About", "help-about-symbolic"));
+    gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("AI Settings", "preferences-system-symbolic"));
+    gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("Board Theme", "applications-graphics-symbolic"));
+    gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("Piece Theme", "applications-graphics-symbolic"));
+    gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("Puzzles", "applications-games-symbolic"));
+    gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("Tutorial", "user-available-symbolic"));
+    gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("About", "help-about-symbolic"));
     
     gtk_box_append(GTK_BOX(sidebar_frame), GTK_WIDGET(dialog->sidebar));
     gtk_box_append(GTK_BOX(main_hbox), sidebar_frame);
@@ -127,13 +296,13 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     gtk_box_append(GTK_BOX(main_hbox), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
     
     // --- Content Stack ---
-    dialog->stack = GTK_STACK(gtk_stack_new());
-    gtk_stack_set_transition_type(dialog->stack, GTK_STACK_TRANSITION_TYPE_CROSSFADE);
+    dialog->stack = gtk_stack_new();
+    gtk_stack_set_transition_type(GTK_STACK(dialog->stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
     gtk_widget_set_hexpand(GTK_WIDGET(dialog->stack), TRUE);
     gtk_box_append(GTK_BOX(main_hbox), GTK_WIDGET(dialog->stack));
     
     // 1. Tutorial
-    gtk_stack_add_named(dialog->stack, create_tutorial_page(dialog), "tutorial");
+    gtk_stack_add_named(GTK_STACK(dialog->stack), create_tutorial_page(dialog), "tutorial");
     
     // 2. AI Settings
     // Reuse existing singleton logic if possible, or create embedded
@@ -159,7 +328,7 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     GtkWidget* ai_widget = ai_dialog_get_widget(dialog->ai_dialog);
     gtk_widget_set_margin_start(ai_widget, 20);
     gtk_widget_set_margin_end(ai_widget, 20);
-    gtk_stack_add_named(dialog->stack, ai_widget, "ai");
+    gtk_stack_add_named(GTK_STACK(dialog->stack), ai_widget, "ai");
     
     // 3. Board Theme
     // We need ThemeData.
@@ -181,30 +350,44 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     board_theme_dialog_set_parent_window(dialog->board_dialog, dialog->window);
     GtkWidget* board_widget = board_theme_dialog_get_widget(dialog->board_dialog);
     // Since board theme dialog has its own layout, we assume it is fine
-    gtk_stack_add_named(dialog->stack, board_widget, "board");
+    gtk_stack_add_named(GTK_STACK(dialog->stack), board_widget, "board");
     
     // 4. Piece Theme
-    dialog->piece_dialog = piece_theme_dialog_new_embedded(theme_data, NULL, NULL);
+    dialog->piece_dialog = piece_theme_dialog_new_embedded(theme_data, on_theme_update, app_state);
     piece_theme_dialog_set_parent_window(dialog->piece_dialog, dialog->window);
     GtkWidget* piece_widget = piece_theme_dialog_get_widget(dialog->piece_dialog);
-    gtk_stack_add_named(dialog->stack, piece_widget, "piece");
+    gtk_stack_add_named(GTK_STACK(dialog->stack), piece_widget, "piece");
     
     // 5. Puzzles
-    gtk_stack_add_named(dialog->stack, create_puzzles_page(dialog), "puzzles");
+    gtk_stack_add_named(GTK_STACK(dialog->stack), create_puzzles_page(dialog), "puzzles");
     
     // 6. About
-    gtk_stack_add_named(dialog->stack, create_about_page(dialog), "about");
+    gtk_stack_add_named(GTK_STACK(dialog->stack), create_about_page(dialog), "about");
     
-    // Select first item
-    GtkListBoxRow* first = gtk_list_box_get_row_at_index(dialog->sidebar, 0);
-    gtk_list_box_select_row(dialog->sidebar, first);
+    // Restore last visited page or default to first
+    const char* start_page = "ai";
+    if (app_state && strlen(app_state->last_settings_page) > 0) {
+        start_page = app_state->last_settings_page;
+        // Avoid starting on tutorial if it was last open (user request: "BYe default... should open AI settings or whatever last visited... right now it ALWAYS SHOWS TUTORIAL")
+        // Actually user said "Right now it ALWAYS SHOWS TUTORIAL... that shoudnt happen".
+        // They WANT last visited. "BYe default when you open settings, it should open AI settings or whatever last visited."
+        if (strcmp(start_page, "tutorial") == 0) start_page = "ai"; 
+    }
+    
+    // Open page (this handles sidebar selection too)
+    settings_dialog_open_page(dialog, start_page);
+    
+    /*
+    GtkListBoxRow* first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(dialog->sidebar), 0);
+    gtk_list_box_select_row(GTK_LIST_BOX(dialog->sidebar), first);
+    */
     
     // CSS for Sidebar
     GtkCssProvider* provider = gtk_css_provider_new();
     const char* css = 
-        ".sidebar { background: #f6f6f6; border-right: 1px solid #e0e0e0; } "
-        ".sidebar row { padding: 8px; border-radius: 6px; margin: 4px; } "
-        ".sidebar row:selected { background: #e0e0e0; font-weight: bold; border-left: 3px solid #3584e4; } " // Blue line attempt
+        ".sidebar { background: #f0f0f0; border-right: 1px solid #e0e0e0; } "
+        ".sidebar row { padding: 10px; border-radius: 6px; margin: 4px; color: #333333; } "
+        ".sidebar row:selected { background: #3584e4; color: #ffffff; font-weight: bold; } "
         ".title-1 { font-size: 24px; font-weight: bold; margin-bottom: 8px; } "
         ".title-2 { font-size: 18px; font-weight: bold; margin-bottom: 12px; } "
         ".dim-label { opacity: 0.7; } ";
@@ -241,31 +424,30 @@ void settings_dialog_open_page(SettingsDialog* dialog, const char* page_name) {
     if (!dialog || !dialog->stack || !page_name) return;
     
     // Check if page exists or just try setting it
-    gtk_stack_set_visible_child_name(dialog->stack, page_name);
+    gtk_stack_set_visible_child_name(GTK_STACK(dialog->stack), page_name);
+    
+    // Save to persistence
+    if (dialog->app_state) {
+        strncpy(dialog->app_state->last_settings_page, page_name, 31);
+        dialog->app_state->last_settings_page[31] = '\0';
+    }
     
     // Also update sidebar selection if possible
     // Reverse map page name to index
     int idx = -1;
-    if (strcmp(page_name, "tutorial") == 0) idx = 0;
-    else if (strcmp(page_name, "ai") == 0) idx = 1;
-    else if (strcmp(page_name, "board") == 0) idx = 2;
-    else if (strcmp(page_name, "piece") == 0) idx = 3;
-    else if (strcmp(page_name, "puzzles") == 0) idx = 4;
+    if (strcmp(page_name, "ai") == 0) idx = 0;
+    else if (strcmp(page_name, "board") == 0) idx = 1;
+    else if (strcmp(page_name, "piece") == 0) idx = 2;
+    else if (strcmp(page_name, "puzzles") == 0) idx = 3;
+    else if (strcmp(page_name, "tutorial") == 0) idx = 4;
     else if (strcmp(page_name, "about") == 0) idx = 5;
     
     if (idx >= 0 && dialog->sidebar) {
-        GtkListBoxRow* row = gtk_list_box_get_row_at_index(dialog->sidebar, idx);
+        GtkListBoxRow* row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(dialog->sidebar), idx);
         if (row) {
-             // Block signal to prevent loop? 
-             // on_sidebar_row_selected calls set_visible_child_name.
-             // set_visible_child_name doesn't emit row-selected.
-             // selecting row emits row-selected.
-             // So if we select row, it changes stack. No loop.
-             gtk_list_box_select_row(dialog->sidebar, row);
+             gtk_list_box_select_row(GTK_LIST_BOX(dialog->sidebar), row);
         }
     }
-    
-    settings_dialog_present(dialog);
 }
 
 void settings_dialog_free(SettingsDialog* dialog) {

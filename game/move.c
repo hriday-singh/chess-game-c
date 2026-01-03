@@ -15,6 +15,8 @@ Move* move_create(int r1, int c1, int r2, int c2) {
         m->isEnPassant = 0;
         m->isCastling = 0;
         m->firstMove = 0;
+        m->rookFirstMove = 0;
+        m->mover = PLAYER_WHITE; // Default, set by caller or make_move
     }
     return m;
 }
@@ -31,6 +33,8 @@ Move* move_copy(Move* src) {
         m->isEnPassant = src->isEnPassant;
         m->isCastling = src->isCastling;
         m->firstMove = src->firstMove;
+        m->rookFirstMove = src->rookFirstMove;
+        m->mover = src->mover;
         // Deep copy captured piece if it exists
         if (src->capturedPiece) {
             m->capturedPiece = piece_copy(src->capturedPiece);
