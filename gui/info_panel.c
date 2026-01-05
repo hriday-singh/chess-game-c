@@ -602,7 +602,7 @@ static void on_cvc_stop_clicked(GtkButton* btn, gpointer user_data) {
     if (panel->cvc_callback) {
         panel->cvc_callback(CVC_STATE_STOPPED, panel->cvc_callback_data);
     }
-    reset_game(panel); // Added reset_game here for CvC Stop
+    // reset_game(panel); // REMOVED: User wants board to freeze on stop, not reset
 }
 
 static void on_elo_adjustment_changed(GtkAdjustment* adj, gpointer user_data) {

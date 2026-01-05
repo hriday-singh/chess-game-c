@@ -37,6 +37,24 @@ static gboolean on_window_close(GtkWindow* window, gpointer user_data) {
     return TRUE; // Stop further handling (prevent double-destroy)
 }
 
+// Helper to draw rounded rectangle path
+static void draw_rounded_rect(cairo_t* cr, double x, double y, double w, double h, double r) {
+    if (r <= 0.0) {
+        cairo_rectangle(cr, x, y, w, h);
+        return;
+    }
+    // Limit radius to half of width/height
+    if (r > w/2.0) r = w/2.0;
+    if (r > h/2.0) r = h/2.0;
+    
+    cairo_new_sub_path(cr);
+    cairo_arc(cr, x + w - r, y + r, r, -G_PI / 2, 0);
+    cairo_arc(cr, x + w - r, y + h - r, r, 0, G_PI / 2);
+    cairo_arc(cr, x + r, y + h - r, r, G_PI / 2, G_PI);
+    cairo_arc(cr, x + r, y + r, r, G_PI, 3 * G_PI / 2);
+    cairo_close_path(cr);
+}
+
 // Draw piece on button
 static void draw_piece_button(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
     (void)area; // Unused parameter
@@ -45,24 +63,32 @@ static void draw_piece_button(GtkDrawingArea* area, cairo_t* cr, int width, int 
     Player owner = (Player)piece_data[1];
     ThemeData* theme = (ThemeData*)g_object_get_data(G_OBJECT(area), "theme");
     
-    // Draw background - darker for white pieces to distinguish them
+    // Draw background with rounded corners
+    // White pieces on Dark Squares, Black pieces on Light Squares for contrast
     if (owner == PLAYER_WHITE) {
-        // Dark background for white pieces (like dark square on chessboard)
-        cairo_set_source_rgb(cr, 0.70, 0.50, 0.35); // Brown/dark square color
+        double r, g, b;
+        if (theme) theme_data_get_dark_square_color(theme, &r, &g, &b);
+        else { r = 0.70; g = 0.50; b = 0.35; } // Fallback
+        cairo_set_source_rgb(cr, r, g, b);
     } else {
-        // Light background for black pieces
-        cairo_set_source_rgb(cr, 0.96, 0.96, 0.96); // Light gray
+        double r, g, b;
+        if (theme) theme_data_get_light_square_color(theme, &r, &g, &b);
+        else { r = 0.96; g = 0.96; b = 0.96; } // Fallback
+        cairo_set_source_rgb(cr, r, g, b);
     }
-    cairo_rectangle(cr, 0, 0, width, height);
+    
+    // Use rounded rect (radius ~15% of width)
+    draw_rounded_rect(cr, 0, 0, width, height, width * 0.15);
     cairo_fill(cr);
     
-    // Subtle border
+    // Optional: Subtle border (rounded)
+    /*
     cairo_set_source_rgb(cr, 0.75, 0.75, 0.75);
     cairo_set_line_width(cr, 1.5);
-    cairo_rectangle(cr, 0.5, 0.5, width - 1, height - 1);
+    draw_rounded_rect(cr, 0.5, 0.5, width - 1, height - 1, width * 0.15);
     cairo_stroke(cr);
+    */
     
-    // Draw piece
     // Draw piece
     cairo_surface_t* surface = theme_data_get_piece_surface(theme, type, owner);
     
@@ -186,6 +212,9 @@ PieceType promotion_dialog_show(GtkWindow* parent, ThemeData* theme, Player play
         GtkWidget* piece_button = gtk_button_new();
         gtk_button_set_child(GTK_BUTTON(piece_button), piece_area);
         gtk_widget_set_can_focus(piece_button, TRUE);
+        
+        // Remove frame/background from button to avoid "box in a box"
+        gtk_button_set_has_frame(GTK_BUTTON(piece_button), FALSE);
         
         // Store piece type in button
         g_object_set_data(G_OBJECT(piece_button), "piece-type", 

@@ -42,9 +42,9 @@ static void on_cvc_control_action(CvCMatchState action, gpointer user_data) {
     AppState* state = (AppState*)user_data;
     state->cvc_match_state = action;
     
-    // If stopped, reset board
+    // If stopped, just pause the match state (no reset)
     if (action == CVC_STATE_STOPPED) {
-         gamelogic_reset(state->logic);
+         // gamelogic_reset(state->logic); // Removed: Keep board state
          board_widget_refresh(state->board);
     }
     
@@ -428,11 +428,22 @@ static void on_about_action(GSimpleAction* action, GVariant* parameter, gpointer
 }
 
 static void on_open_settings_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
-    (void)action; (void)parameter;
+    (void)action; 
     AppState* state = (AppState*)user_data;
+    
+    // Check if a specific page was requested via parameter
+    if (parameter) {
+        const char* req_page = g_variant_get_string(parameter, NULL);
+        if (req_page && req_page[0] != '\0') {
+            open_settings_page(state, req_page);
+            return;
+        }
+    }
+    
+    // Default / Last Page Logic (if parameter is empty string or NULL)
     const char* page = "ai"; // Default
 
-    // Validate page name
+    // Validate if last_settings_page is valid
     const char* valid_pages[] = {"ai", "board", "piece", "puzzles", "tutorial", "about"};
     bool is_valid = false;
     for (int i = 0; i < 6; i++) {
@@ -660,13 +671,15 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* settings_btn = gtk_button_new_from_icon_name("open-menu-symbolic");
     gtk_widget_set_tooltip_text(settings_btn, "Settings");
     
-    // Register "open-settings" action with no parameter (uses last page)
-    GSimpleAction* act_settings = g_simple_action_new("open-settings", NULL);
+    // Register "open-settings" action with string parameter (optional page name)
+    // Note: We use G_VARIANT_TYPE_STRING so we can pass specific pages like "piece" from tutorial
+    GSimpleAction* act_settings = g_simple_action_new("open-settings", G_VARIANT_TYPE_STRING);
     g_signal_connect(act_settings, "activate", G_CALLBACK(on_open_settings_action), state);
     g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_settings));
     
     gtk_actionable_set_action_name(GTK_ACTIONABLE(settings_btn), "app.open-settings");
-    // gtk_actionable_set_action_target(GTK_ACTIONABLE(settings_btn), "s", "ai"); // REMOVED to allow last page persistence
+    // Set default target to empty string (will trigger logic to use last page)
+    gtk_actionable_set_action_target(GTK_ACTIONABLE(settings_btn), "s", "");
     
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), settings_btn);
     

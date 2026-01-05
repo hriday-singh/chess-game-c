@@ -114,6 +114,9 @@ GameLogic* gamelogic_create(void) {
         // Initialize Cache
         logic->cachedMoves = NULL;
         logic->cachedPieceRow = -1;
+        logic->cachedPieceCol = -1;
+        logic->cachedVersion = 0;
+        logic->positionVersion = 0;
         
         gamelogic_reset(logic);
     }
@@ -253,6 +256,8 @@ void gamelogic_reset(GameLogic* logic) {
     // Clear cache
     gamelogic_clear_cache(logic);
     logic->cachedPieceRow = -1;
+    logic->cachedVersion = 0;
+    logic->positionVersion = 0;
     
     // Reset statistics removed
     
@@ -378,11 +383,15 @@ bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player 
     if (!logic || !m) return false;
     
     // Save only affected squares (max 4: start, end, en passant victim, castling rook)
+    // We must respect the ownership and type exactly as they are now.
     Piece* saved_start = logic->board[m->startRow][m->startCol] ? piece_copy(logic->board[m->startRow][m->startCol]) : NULL;
     Piece* saved_end = logic->board[m->endRow][m->endCol] ? piece_copy(logic->board[m->endRow][m->endCol]) : NULL;
     Piece* saved_ep = NULL;
-    Piece* saved_rook = NULL;
+    Piece* saved_rook_start = NULL;
+    Piece* saved_rook_dest = NULL;
+    
     int rookStartCol = -1, rookDestCol = -1;
+    bool is_ep_capture = false;
     
     Player saved_turn = logic->turn;
     int saved_enPassantCol = logic->enPassantCol;
@@ -398,6 +407,7 @@ bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player 
     // Handle capture at destination
     if (logic->board[m->endRow][m->endCol]) {
         piece_free(logic->board[m->endRow][m->endCol]);
+        logic->board[m->endRow][m->endCol] = NULL;
     }
     
     // Move piece
@@ -405,10 +415,17 @@ bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player 
     logic->board[m->startRow][m->startCol] = NULL;
     
     // Handle en passant
-    if (m->isEnPassant && logic->board[m->startRow][m->endCol]) {
-        saved_ep = piece_copy(logic->board[m->startRow][m->endCol]);
-        piece_free(logic->board[m->startRow][m->endCol]);
-        logic->board[m->startRow][m->endCol] = NULL;
+    if (m->isEnPassant) {
+        // Strict check before applying deletion
+        if (logic->board[m->startRow][m->endCol] && 
+            logic->board[m->startRow][m->endCol]->type == PIECE_PAWN &&
+            logic->board[m->startRow][m->endCol]->owner != movingPiece->owner) {
+            
+            saved_ep = piece_copy(logic->board[m->startRow][m->endCol]);
+            piece_free(logic->board[m->startRow][m->endCol]);
+            logic->board[m->startRow][m->endCol] = NULL;
+            is_ep_capture = true;
+        }
     }
     
     // Handle castling
@@ -417,7 +434,13 @@ bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player 
         rookDestCol = (m->endCol > m->startCol) ? 5 : 3;
         Piece* rook = logic->board[m->startRow][rookStartCol];
         if (rook) {
-            saved_rook = piece_copy(rook);
+            saved_rook_start = piece_copy(logic->board[m->startRow][rookStartCol]);
+            // Save desitnation if it had something (should remain empty for valid castling but for safety)
+            if (logic->board[m->startRow][rookDestCol]) {
+                saved_rook_dest = piece_copy(logic->board[m->startRow][rookDestCol]);
+                piece_free(logic->board[m->startRow][rookDestCol]);
+            }
+            
             logic->board[m->startRow][rookDestCol] = rook;
             logic->board[m->startRow][rookStartCol] = NULL;
         }
@@ -426,21 +449,60 @@ bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player 
     // Check safety
     bool safe = !gamelogic_is_in_check(logic, p);
     
-    // RESTORE affected squares only
-    logic->board[m->startRow][m->startCol] = saved_start;
-    if (logic->board[m->endRow][m->endCol]) piece_free(logic->board[m->endRow][m->endCol]);
-    logic->board[m->endRow][m->endCol] = saved_end;
+    // RESTORE affected squares in REVERSE order of modification
     
-    if (saved_ep) {
+    // 1. Restore Castling
+    if (m->isCastling) {
+        // Clear destination (where rook moved to)
+        // If we saved something that was at dest, restore it, otherwise NULL
+        if (logic->board[m->startRow][rookDestCol] == movingPiece) {
+            // Edge case: if movingPiece ended up here? Unlikely for castling.
+            // Castling moves King and Rook. 'movingPiece' is King.
+        }
+        
+        // Put rook back to start
+        if (saved_rook_start) {
+             // Free whatever is at rookDestCol (the moved rook)
+             if (logic->board[m->startRow][rookDestCol]) {
+                 // But wait, the pointer in board is 'rook'. We must not free 'rook' if we are just moving functionality.
+                 // Actually, we are swapping pointers.
+                 // But for SAFETY in simulation, we depend on pure restore from copies.
+                 // Current state at rookDest: the rook pointer.
+                 // Current state at rookStart: NULL.
+                 // We want to restore saved_rook_start to rookStart.
+                 // We need to clear rookDest.
+                 logic->board[m->startRow][rookDestCol] = NULL; 
+             }
+             logic->board[m->startRow][rookStartCol] = saved_rook_start;
+        }
+        
+        // If there was something at rookDest originally (saved_rook_dest), restore it
+        if (saved_rook_dest) {
+             logic->board[m->startRow][rookDestCol] = saved_rook_dest;
+        }
+    }
+    
+    // 2. Restore En Passant Victim
+    if (is_ep_capture && saved_ep) {
+        // En Passant victim was at [startRow][endCol]
         logic->board[m->startRow][m->endCol] = saved_ep;
     }
     
-    if (saved_rook && rookStartCol >= 0) {
-        if (logic->board[m->startRow][rookDestCol]) piece_free(logic->board[m->startRow][rookDestCol]);
-        logic->board[m->startRow][rookStartCol] = saved_rook;
-        logic->board[m->startRow][rookDestCol] = NULL;
-    }
+    // 3. Restore Main Move (End Square)
+    // Clear the piece at end square (the movingPiece)
+    // Note: logic->board[m->endRow][m->endCol] currently holds movingPiece.
+    // We DO NOT free movingPiece because it's effectively the same pointer as one of the saved copies?
+    // NO. saved_start is a COPY. saved_end is a COPY.
+    // The board currently has the ORIGINAL pointers (unless we freed them).
+    // The original 'movingPiece' is at endCol.
+    // The original 'capturedPiece' (if any) was freed.
+    // So we just overwrite with saved_end (which is a copy of what was there, or NULL).
+    logic->board[m->endRow][m->endCol] = saved_end;
     
+    // 4. Restore Main Move (Start Square)
+    logic->board[m->startRow][m->startCol] = saved_start;
+    
+    // 5. Restore Global State
     logic->turn = saved_turn;
     logic->enPassantCol = saved_enPassantCol;
     
@@ -652,13 +714,29 @@ static void make_move_internal(GameLogic* logic, Move* move) {
     move->firstMove = !movingPiece->hasMoved;
 
     // 2. En Passant Capture Logic
+    // STRICT En Passant Application:
+    // 1. Must be a pawn
+    // 2. Must be diagonal move (cols differ)
+    // 3. Dest must be empty (implicit in pseudo-gen usually, but good to check)
+    // 4. En Passant column must match end column
+    // 5. Victim must be at [startRow][endCol] AND be a pawn AND belong to opponent
     if (movingPiece->type == PIECE_PAWN && move->startCol != move->endCol && 
         logic->board[move->endRow][move->endCol] == NULL) {
         
-        move->isEnPassant = true;
-        Piece* victim = logic->board[move->startRow][move->endCol];
-        if (victim) {
-            // Free any previous capture copy (though shouldn't exist for EP)
+        // Validate conditions
+        bool validEP = false;
+        if (logic->enPassantCol == move->endCol) {
+             // Check victim
+             Piece* victim = logic->board[move->startRow][move->endCol];
+             if (victim && victim->type == PIECE_PAWN && victim->owner != movingPiece->owner) {
+                 validEP = true;
+             }
+        }
+
+        if (validEP) {
+            move->isEnPassant = true;
+            Piece* victim = logic->board[move->startRow][move->endCol];
+            // Free any previous capture copy (shouldn't exist for EP logic flow but safety)
             if (move->capturedPiece) piece_free(move->capturedPiece);
             move->capturedPiece = piece_copy(victim);
             piece_free(victim);
@@ -694,7 +772,10 @@ static void make_move_internal(GameLogic* logic, Move* move) {
     // Promotion
     if (movingPiece->type == PIECE_PAWN && (move->endRow == 0 || move->endRow == 7)) {
         Player pawnOwner = movingPiece->owner;
-        if (move->promotionPiece == NO_PROMOTION) move->promotionPiece = PIECE_QUEEN;
+        // Default to Queen if no promotion piece is specified
+        if (move->promotionPiece == NO_PROMOTION) {
+            move->promotionPiece = PIECE_QUEEN;
+        }
         
         // Remove old piece and create new one
         piece_free(movingPiece);
@@ -728,6 +809,9 @@ static void make_move_internal(GameLogic* logic, Move* move) {
             stack_push(epStack, ep);
         }
     }
+    
+    // Increment version
+    logic->positionVersion++;
 }
 
 // Internal: Undo last move
@@ -754,12 +838,16 @@ static void undo_move_internal(GameLogic* logic) {
     Piece* movedPiece = logic->board[lastMove->endRow][lastMove->endCol];
     if (!movedPiece) {
         // This should theoretically not happen if moves are perfectly matched
-        // But if it does, we restored turn and need to check for captures
     } else {
         if (lastMove->promotionPiece != NO_PROMOTION) {
+            // Undo promotion: replace promoted piece with a PAWN of the mover
             piece_free(movedPiece);
             logic->board[lastMove->startRow][lastMove->startCol] = piece_create(PIECE_PAWN, movePlayer);
-            logic->board[lastMove->startRow][lastMove->startCol]->hasMoved = !lastMove->firstMove;
+            // Restore hasMoved state logic (pawns on start rank haven't moved, others have)
+            // But strict restoration uses implicit logic:
+            if (logic->board[lastMove->startRow][lastMove->startCol]) {
+                logic->board[lastMove->startRow][lastMove->startCol]->hasMoved = !lastMove->firstMove;
+            }
         } else {
             logic->board[lastMove->startRow][lastMove->startCol] = movedPiece;
         }
@@ -773,7 +861,14 @@ static void undo_move_internal(GameLogic* logic) {
         if (restoredPiece) {
             if (lastMove->isEnPassant) {
                 // En passant: victim was on same row as moving piece, at end column
-                logic->board[lastMove->startRow][lastMove->endCol] = restoredPiece;
+                // STRICT: Ensure target is empty
+                if (logic->board[lastMove->startRow][lastMove->endCol] == NULL) {
+                    logic->board[lastMove->startRow][lastMove->endCol] = restoredPiece;
+                } else {
+                    // Critical Error: Square not empty during undo EP! 
+                    // Fallback: free restored piece to avoid leak, though this means state is corrupt
+                    piece_free(restoredPiece);
+                }
             } else {
                 // Normal capture: victim was at destination square  
                 logic->board[lastMove->endRow][lastMove->endCol] = restoredPiece;
@@ -799,6 +894,9 @@ static void undo_move_internal(GameLogic* logic) {
     }
     
     move_free(lastMove);
+    
+    // Increment version
+    logic->positionVersion++;
 }
 
 GameMode gamelogic_get_game_mode(GameLogic* logic) {
@@ -923,13 +1021,47 @@ void gamelogic_load_fen(GameLogic* logic, const char* fen) {
     while (*ptr && *ptr == ' ') ptr++;
     
     // Parse en passant square (e.g., "e3")
+    // Parse en passant square (e.g., "e3")
+    // Fix: Parse BOTH rank and file to ensure validity
     if (*ptr && *ptr != '-') {
         if (*ptr >= 'a' && *ptr <= 'h') {
-            logic->enPassantCol = *ptr - 'a';
+            int epFile = *ptr - 'a';
+            ptr++;
+            // Check rank digit
+            if (*ptr >= '1' && *ptr <= '8') {
+                int epRank = *ptr - '1'; // 0-7 index (0=row7, 7=row0 in standard chess... wait. FEN is rank 1=row 7, rank 8=row 0)
+                // FEN "3" -> Rank 3. In our 0-indexed board (0=Black/Top, 7=White/Bottom):
+                // Rank 1 is Row 7. Rank 8 is Row 0.
+                // Rank 3 is Row 5. Rank 6 is Row 2.
+                // If it's White's turn, en passant target must be Rank 6 (Row 2), meaning Black just moved double. 
+                // Wait. 
+                // If White to move, EP target is behind the Black pawn. Black pawn moved to Rank 5. EP Target is Rank 6? 
+                // Standard FEN:
+                // "e6" means Black just moved e7-e5. Target e6. White to move. Capture on e6.
+                // "e3" means White just moved e2-e4. Target e3. Black to move. Capture on e3.
+                
+                int expectedRank = (logic->turn == PLAYER_WHITE) ? 5 : 2; // Rank 6 (row 2) or Rank 3 (row 5)
+                
+                // Let's map char '3' to rank index. '3' - '1' = 2.
+                // Our rows are: '8'->row 0. '1'->row 7.
+                // internal_row = 7 - (char_rank - '1').
+                int internal_row = 7 - epRank;
+                
+                if (internal_row == expectedRank) {
+                    logic->enPassantCol = epFile;
+                } else {
+                    logic->enPassantCol = -1;
+                }
+            } else {
+                 logic->enPassantCol = -1;
+            }
         }
     } else {
         logic->enPassantCol = -1;
     }
+
+    // Bump version for cache
+    logic->positionVersion++;
     
     // Update game state
     gamelogic_update_game_state(logic);

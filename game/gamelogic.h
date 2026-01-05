@@ -4,6 +4,7 @@
 #include "types.h"
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 // GameLogic structure (equivalent to Java class)
 struct GameLogic {
@@ -28,6 +29,10 @@ struct GameLogic {
     void* cachedMoves;      // MoveList* (internal)
     int cachedPieceRow;
     int cachedPieceCol;
+    uint64_t cachedVersion;
+    
+    // Position versioning for cache validation
+    uint64_t positionVersion;
     
     // Simulation flag (for AI search)
     bool isSimulation;

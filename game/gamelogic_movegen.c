@@ -24,15 +24,30 @@ static MoveList* movelist_create(void) {
         list->capacity = 32;
         list->count = 0;
         list->moves = (Move**)malloc(sizeof(Move*) * list->capacity);
+        if (!list->moves) {
+            free(list);
+            return NULL;
+        }
     }
     return list;
+}
+
+static void movelist_clear(MoveList* list) {
+    if (!list) return;
+    for (int i = 0; i < list->count; i++) {
+        move_free(list->moves[i]);
+    }
+    list->count = 0;
 }
 
 static void movelist_add(MoveList* list, Move* move) {
     if (!list || !move) return;
     if (list->count >= list->capacity) {
-        list->capacity *= 2;
-        list->moves = (Move**)realloc(list->moves, sizeof(Move*) * list->capacity);
+        int new_cap = list->capacity * 2;
+        Move** new_moves = (Move**)realloc(list->moves, sizeof(Move*) * new_cap);
+        if (!new_moves) return; // Fail safe, don't crash
+        list->moves = new_moves;
+        list->capacity = new_cap;
     }
     list->moves[list->count++] = move;
 }
@@ -65,9 +80,14 @@ void gamelogic_generate_legal_moves(GameLogic* logic, Player player, void* moves
     // Filter to only legal moves
     MoveList* legal_moves = (MoveList*)moves_list;
     if (!legal_moves) {
-        legal_moves = movelist_create();
-        // Note: We can't modify the void* parameter, so caller should pass a valid list
+        // If caller passed NULL, we can't return anything. 
+        // To avoid leak, just free pseudo and return.
+        movelist_free(pseudo_moves);
+        return;
     }
+    
+    // Clear list to prevent accumulation
+    movelist_clear(legal_moves);
     
     // Declare extern for simulate function
     extern bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player p);
@@ -75,13 +95,9 @@ void gamelogic_generate_legal_moves(GameLogic* logic, Player player, void* moves
     for (int i = 0; i < pseudo_moves->count; i++) {
         Move* m = pseudo_moves->moves[i];
         if (gamelogic_simulate_move_and_check_safety(logic, m, player)) {
-            if (legal_moves) {
-                movelist_add(legal_moves, move_create(m->startRow, m->startCol, m->endRow, m->endCol));
-                Move* new_move = legal_moves->moves[legal_moves->count - 1];
-                new_move->promotionPiece = m->promotionPiece;
-                new_move->isCastling = m->isCastling;
-                new_move->isEnPassant = m->isEnPassant;  // Preserve en passant flag
-            }
+             // Use move_copy to preserve ALL fields (isEnPassant, isCastling, promotionPiece, etc.)
+             Move* mp = move_copy(m);
+             if (mp) movelist_add(legal_moves, mp);
         }
     }
     
@@ -100,14 +116,25 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
         case PIECE_PAWN: {
             // Forward move
             if (is_valid_pos(r + forward, c) && logic->board[r + forward][c] == NULL) {
-                Move* m = move_create(r, c, r + forward, c);
-                movelist_add(moves, m);
+                bool isPromo = (p->owner == PLAYER_WHITE && r + forward == 0) || (p->owner == PLAYER_BLACK && r + forward == 7);
+                if (isPromo) {
+                    PieceType promos[] = {PIECE_QUEEN, PIECE_ROOK, PIECE_BISHOP, PIECE_KNIGHT};
+                    for(int k=0; k<4; k++) {
+                        Move* m = move_create(r, c, r + forward, c);
+                        m->promotionPiece = promos[k];
+                        movelist_add(moves, m);
+                    }
+                } else {
+                    Move* m = move_create(r, c, r + forward, c);
+                    movelist_add(moves, m);
+                }
                 
                 // Double move from starting position
                 bool isStartRank = (p->owner == PLAYER_WHITE && r == 6) || 
                                   (p->owner == PLAYER_BLACK && r == 1);
                 if (!p->hasMoved && isStartRank && is_valid_pos(r + (forward * 2), c) && 
                     logic->board[r + (forward * 2)][c] == NULL) {
+                    // Start rank moves can't be promotions, so just add
                     movelist_add(moves, move_create(r, c, r + (forward * 2), c));
                 }
             }
@@ -119,18 +146,32 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                 if (is_valid_pos(r + forward, targetCol)) {
                     Piece* target = logic->board[r + forward][targetCol];
                     if (target && target->owner != p->owner) {
-                        movelist_add(moves, move_create(r, c, r + forward, targetCol));
+                        bool isPromo = (p->owner == PLAYER_WHITE && r + forward == 0) || (p->owner == PLAYER_BLACK && r + forward == 7);
+                        if (isPromo) {
+                            PieceType promos[] = {PIECE_QUEEN, PIECE_ROOK, PIECE_BISHOP, PIECE_KNIGHT};
+                            for(int k=0; k<4; k++) {
+                                Move* m = move_create(r, c, r + forward, targetCol);
+                                m->promotionPiece = promos[k];
+                                movelist_add(moves, m);
+                            }
+                        } else {
+                            movelist_add(moves, move_create(r, c, r + forward, targetCol));
+                        }
                     }
                     // En passant
                     // En passant can only be done from the 5th rank (row 3 for white, row 4 for black)
                     if (target == NULL && 
                         ((p->owner == PLAYER_WHITE && r == 3) || (p->owner == PLAYER_BLACK && r == 4)) &&
                         targetCol == logic->enPassantCol && logic->enPassantCol != -1) {
-                        Piece* epPawn = logic->board[r][targetCol];
-                        if (epPawn && epPawn->type == PIECE_PAWN && epPawn->owner != p->owner) {
-                            Move* epMove = move_create(r, c, r + forward, targetCol);
-                            epMove->isEnPassant = 1;  // Mark as en passant move
-                            movelist_add(moves, epMove);
+                        
+                        // Explicit safety check: adjacent column
+                        if (abs(targetCol - c) == 1) {
+                            Piece* epPawn = logic->board[r][targetCol];
+                            if (epPawn && epPawn->type == PIECE_PAWN && epPawn->owner != p->owner) {
+                                Move* epMove = move_create(r, c, r + forward, targetCol);
+                                epMove->isEnPassant = 1;  // Mark as en passant move
+                                movelist_add(moves, epMove);
+                            }
                         }
                     }
                 }
@@ -233,7 +274,10 @@ static void add_linear_moves(GameLogic* logic, int r, int c, int dirs[][2], int 
 // Check if castling is possible
 static bool can_castle(GameLogic* logic, int r, int kCol, int rCol) {
     Piece* rook = logic->board[r][rCol];
+    // Check rook exists, is rook, has not moved, AND belongs to same owner as king
     if (!rook || rook->type != PIECE_ROOK || rook->hasMoved) return false;
+    Piece* king = logic->board[r][kCol];
+    if (!king || king->owner != rook->owner) return false;
     
     // Path must be clear
     int start = (kCol < rCol) ? kCol + 1 : rCol + 1;
@@ -243,7 +287,7 @@ static bool can_castle(GameLogic* logic, int r, int kCol, int rCol) {
     }
     
     // Safety checks
-    Piece* king = logic->board[r][kCol];
+    // King check already done above
     if (!king) return false;
     Player p = king->owner;
     int step = (rCol > kCol) ? 1 : -1;
@@ -273,6 +317,7 @@ void gamelogic_clear_cache(GameLogic* logic) {
     }
     logic->cachedPieceRow = -1;
     logic->cachedPieceCol = -1;
+    logic->cachedVersion = 0;
 }
 
 static Move** move_array_clone(MoveList* list, int* count) {
@@ -295,7 +340,7 @@ Move** gamelogic_get_valid_moves_for_piece(GameLogic* logic, int row, int col, i
     }
 
     // Check cache
-    if (logic->cachedMoves && logic->cachedPieceRow == row && logic->cachedPieceCol == col) {
+    if (logic->cachedMoves && logic->cachedPieceRow == row && logic->cachedPieceCol == col && logic->cachedVersion == logic->positionVersion) {
         return move_array_clone((MoveList*)logic->cachedMoves, count);
     }
     
@@ -318,11 +363,9 @@ Move** gamelogic_get_valid_moves_for_piece(GameLogic* logic, int row, int col, i
     for (int i = 0; i < pseudo->count; i++) {
         Move* m = pseudo->moves[i];
         if (gamelogic_simulate_move_and_check_safety(logic, m, p->owner)) {
+            // Use move_copy to preserve all fields
             Move* clone = move_copy(m);
-            // Ensure flags like isEnPassant are preserved
-            clone->isEnPassant = m->isEnPassant; 
-            clone->promotionPiece = m->promotionPiece;
-            movelist_add(valid, clone);
+            if (clone) movelist_add(valid, clone);
         }
     }
     
@@ -332,6 +375,7 @@ Move** gamelogic_get_valid_moves_for_piece(GameLogic* logic, int row, int col, i
     logic->cachedMoves = valid;
     logic->cachedPieceRow = row;
     logic->cachedPieceCol = col;
+    logic->cachedVersion = logic->positionVersion;
     
     return move_array_clone(valid, count);
 }
