@@ -298,9 +298,6 @@ void on_tutorial_exit(GtkButton* btn, gpointer user_data) {
     
     // Reset to PvC ELO 100
     state->logic->gameMode = GAME_MODE_PVC;
-    state->logic->vsComputer = true;
-    state->logic->blackAI = AI_TYPE_STOCKFISH;
-    state->logic->blackDepth = 1;
     gamelogic_reset(state->logic);
     
     // Set ELO to 100 on exit
@@ -335,7 +332,6 @@ void on_tutorial_action(GSimpleAction* action, GVariant* parameter, gpointer use
     
     // Important: Switch to PvP so logic does not try to play AI
     state->logic->gameMode = GAME_MODE_PVP;
-    state->logic->vsComputer = false;
     
     // Disable info panel during tutorial
     info_panel_set_sensitive(state->info_panel, false);

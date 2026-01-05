@@ -56,56 +56,8 @@ static void stack_free(Stack* s) {
     free(s);
 }
 
-// Simple list implementation for position history
-typedef struct ListNode {
-    long long data;
-    struct ListNode* next;
-} ListNode;
-
-typedef struct {
-    ListNode* head;
-    ListNode* tail;
-    int size;
-} List;
-
-static List* list_create(void) {
-    List* l = (List*)malloc(sizeof(List));
-    if (l) {
-        l->head = NULL;
-        l->tail = NULL;
-        l->size = 0;
-    }
-    return l;
-}
-
-static void list_remove_last(List* l) {
-    if (!l || !l->head) return;
-    if (l->head == l->tail) {
-        free(l->head);
-        l->head = l->tail = NULL;
-        l->size = 0;
-    } else {
-        ListNode* current = l->head;
-        while (current->next != l->tail) {
-            current = current->next;
-        }
-        free(l->tail);
-        l->tail = current;
-        current->next = NULL;
-        l->size--;
-    }
-}
-
-static void list_free(List* l) {
-    if (!l) return;
-    ListNode* current = l->head;
-    while (current) {
-        ListNode* next = current->next;
-        free(current);
-        current = next;
-    }
-    free(l);
-}
+// External cache management (defined in gamelogic_movegen.c)
+extern void gamelogic_clear_cache(GameLogic* logic);
 
 // Simple list for PieceType (for captured pieces)
 typedef struct PieceTypeNode {
@@ -117,13 +69,6 @@ typedef struct {
     PieceTypeNode* head;
     int size;
 } PieceTypeList;
-
-// Note: piece_type_list_create is not used here - lists are created in info_panel.c
-// This function is kept for potential future use but marked as unused to suppress warning
-__attribute__((unused)) static PieceTypeList* piece_type_list_create(void) {
-    PieceTypeList* list = (PieceTypeList*)calloc(1, sizeof(PieceTypeList));
-    return list;
-}
 
 static void piece_type_list_add(PieceTypeList* list, PieceType type) {
     if (!list) return;
@@ -156,17 +101,20 @@ GameLogic* gamelogic_create(void) {
         logic->turn = PLAYER_WHITE;
         logic->playerSide = PLAYER_WHITE;
         logic->isGameOver = false;
-        strcpy(logic->statusMessage, "White's Turn");
-        logic->vsComputer = true;
-        logic->aiDepth = 3;
-        logic->whiteAI = AI_TYPE_PRO;
-        logic->blackAI = AI_TYPE_PRO;
+        logic->statusMessage[0] = '\0';
+        strcat(logic->statusMessage, "White's Turn");
         logic->enPassantCol = -1;
         logic->moveHistory = stack_create();
         logic->enPassantHistory = stack_create();
-        logic->positionHistory = list_create();
+        // logic->positionHistory removed
+
         logic->isSimulation = false;
         logic->updateCallback = NULL;
+        
+        // Initialize Cache
+        logic->cachedMoves = NULL;
+        logic->cachedPieceRow = -1;
+        
         gamelogic_reset(logic);
     }
     return logic;
@@ -205,11 +153,8 @@ void gamelogic_free(GameLogic* logic) {
         stack_free(epStack);
     }
     
-    // Free position history
-    List* posList = (List*)logic->positionHistory;
-    if (posList) {
-        list_free(posList);
-    }
+    // Free cache
+    gamelogic_clear_cache(logic);
     
     free(logic);
 }
@@ -305,25 +250,11 @@ void gamelogic_reset(GameLogic* logic) {
         }
     }
     
-    // Clear position history
-    List* posList = (List*)logic->positionHistory;
-    if (posList) {
-        list_free(posList);
-        logic->positionHistory = list_create();
-    }
+    // Clear cache
+    gamelogic_clear_cache(logic);
+    logic->cachedPieceRow = -1;
     
-    // Reset statistics
-    logic->whiteMoves = 0;
-    logic->blackMoves = 0;
-    logic->whiteCaptures = 0;
-    logic->blackCaptures = 0;
-    logic->whiteCastles = 0;
-    logic->blackCastles = 0;
-    logic->whitePromotions = 0;
-    logic->blackPromotions = 0;
-    logic->whiteChecks = 0;
-    logic->blackChecks = 0;
-    logic->gameStartTime = (long long)time(NULL) * 1000;
+    // Reset statistics removed
     
     setup_board(logic);
     gamelogic_update_game_state(logic);
@@ -380,20 +311,20 @@ void gamelogic_set_callback(GameLogic* logic, void (*callback)(void)) {
     if (logic) logic->updateCallback = callback;
 }
 
-// Forward declarations for internal functions
+// Forward declarations
 static void make_move_internal(GameLogic* logic, Move* move);
 static void undo_move_internal(GameLogic* logic);
 static char get_fen_char(Piece* p);
-static Player get_opponent(Player p);
-
-// External move generation (defined in gamelogic_movegen.c)
-extern void gamelogic_generate_legal_moves(GameLogic* logic, Player player, void* moves_list);
-
 // External safety checks (defined in gamelogic_safety.c)
 extern bool gamelogic_is_square_safe(GameLogic* logic, int r, int c, Player p);
 extern bool gamelogic_is_in_check(GameLogic* logic, Player player);
 extern bool gamelogic_is_checkmate(GameLogic* logic, Player player);
 extern bool gamelogic_is_stalemate(GameLogic* logic, Player player);
+
+// External move generation (defined in gamelogic_movegen.c)
+extern void gamelogic_generate_legal_moves(GameLogic* logic, Player player, void* moves_list);
+
+
 
 // Perform a move
 bool gamelogic_perform_move(GameLogic* logic, Move* move) {
@@ -406,64 +337,16 @@ bool gamelogic_perform_move(GameLogic* logic, Move* move) {
     // Safety check: ensure only the mover can move their own pieces
     if (movingPiece->owner != logic->turn) return false;
     
-    Player movingPlayer = logic->turn;
-    
     make_move_internal(logic, move);
     
-    // Update statistics (only for non-simulation moves)
-    if (!logic->isSimulation) {
-        // Count moves
-        if (movingPlayer == PLAYER_WHITE) {
-            logic->whiteMoves++;
-        } else {
-            logic->blackMoves++;
-        }
-        
-        // Count captures
-        if (move->capturedPiece) {
-            if (movingPlayer == PLAYER_WHITE) {
-                logic->whiteCaptures++;
-            } else {
-                logic->blackCaptures++;
-            }
-        }
-        
-        // Count castling
-        if (move->isCastling) {
-            if (movingPlayer == PLAYER_WHITE) {
-                logic->whiteCastles++;
-            } else {
-                logic->blackCastles++;
-            }
-        }
-        
-        // Count promotions
-        if (move->promotionPiece != NO_PROMOTION) {
-            if (movingPlayer == PLAYER_WHITE) {
-                logic->whitePromotions++;
-            } else {
-                logic->blackPromotions++;
-            }
-        }
-        
-        // Count checks
-        Player opponent = logic->turn;  // turn already switched
-        if (gamelogic_is_in_check(logic, opponent)) {
-            if (movingPlayer == PLAYER_WHITE) {
-                logic->whiteChecks++;
-            } else {
-                logic->blackChecks++;
-            }
-        }
-    }
-        
     // --- OPTIMIZATION START ---
     if (!logic->isSimulation) {
-        // Position history logic would go here (Zobrist)
-        gamelogic_update_game_state(logic); 
         if (logic->updateCallback) logic->updateCallback(); 
     }
     // --- OPTIMIZATION END --- 
+    
+    // Invalidate move cache
+    logic->cachedPieceRow = -1;
     
     return true;
 }
@@ -471,11 +354,7 @@ bool gamelogic_perform_move(GameLogic* logic, Move* move) {
 void gamelogic_undo_move(GameLogic* logic) {
     if (!logic) return;
     
-    List* posList = (List*)logic->positionHistory;
-    if (posList && posList->size > 0) {
-        list_remove_last(posList);
-    }
-    
+    // No position history, just undo
     undo_move_internal(logic);
 
     // --- OPTIMIZATION START ---
@@ -484,15 +363,82 @@ void gamelogic_undo_move(GameLogic* logic) {
         if (logic->updateCallback) logic->updateCallback();
     }
     // --- OPTIMIZATION END ---
+
+    // Invalidate move cache
+    logic->cachedPieceRow = -1;
 }
 
-// Simulate move and check safety (for move validation)
+// Simulate a move and check if the resulting position is safe for the given player
+// OPTIMIZED: Only save/restore affected squares to minimize RAM usage
 bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player p) {
     if (!logic || !m) return false;
     
-    make_move_internal(logic, m);
+    // Save only affected squares (max 4: start, end, en passant victim, castling rook)
+    Piece* saved_start = logic->board[m->startRow][m->startCol] ? piece_copy(logic->board[m->startRow][m->startCol]) : NULL;
+    Piece* saved_end = logic->board[m->endRow][m->endCol] ? piece_copy(logic->board[m->endRow][m->endCol]) : NULL;
+    Piece* saved_ep = NULL;
+    Piece* saved_rook = NULL;
+    int rookStartCol = -1, rookDestCol = -1;
+    
+    Player saved_turn = logic->turn;
+    int saved_enPassantCol = logic->enPassantCol;
+    
+    // Execute move directly on board
+    Piece* movingPiece = logic->board[m->startRow][m->startCol];
+    if (!movingPiece) {
+        if (saved_start) piece_free(saved_start);
+        if (saved_end) piece_free(saved_end);
+        return false;
+    }
+    
+    // Handle capture at destination
+    if (logic->board[m->endRow][m->endCol]) {
+        piece_free(logic->board[m->endRow][m->endCol]);
+    }
+    
+    // Move piece
+    logic->board[m->endRow][m->endCol] = movingPiece;
+    logic->board[m->startRow][m->startCol] = NULL;
+    
+    // Handle en passant
+    if (m->isEnPassant && logic->board[m->startRow][m->endCol]) {
+        saved_ep = piece_copy(logic->board[m->startRow][m->endCol]);
+        piece_free(logic->board[m->startRow][m->endCol]);
+        logic->board[m->startRow][m->endCol] = NULL;
+    }
+    
+    // Handle castling
+    if (m->isCastling) {
+        rookStartCol = (m->endCol > m->startCol) ? 7 : 0;
+        rookDestCol = (m->endCol > m->startCol) ? 5 : 3;
+        Piece* rook = logic->board[m->startRow][rookStartCol];
+        if (rook) {
+            saved_rook = piece_copy(rook);
+            logic->board[m->startRow][rookDestCol] = rook;
+            logic->board[m->startRow][rookStartCol] = NULL;
+        }
+    }
+    
+    // Check safety
     bool safe = !gamelogic_is_in_check(logic, p);
-    undo_move_internal(logic);
+    
+    // RESTORE affected squares only
+    logic->board[m->startRow][m->startCol] = saved_start;
+    if (logic->board[m->endRow][m->endCol]) piece_free(logic->board[m->endRow][m->endCol]);
+    logic->board[m->endRow][m->endCol] = saved_end;
+    
+    if (saved_ep) {
+        logic->board[m->startRow][m->endCol] = saved_ep;
+    }
+    
+    if (saved_rook && rookStartCol >= 0) {
+        if (logic->board[m->startRow][rookDestCol]) piece_free(logic->board[m->startRow][rookDestCol]);
+        logic->board[m->startRow][rookStartCol] = saved_rook;
+        logic->board[m->startRow][rookDestCol] = NULL;
+    }
+    
+    logic->turn = saved_turn;
+    logic->enPassantCol = saved_enPassantCol;
     
     return safe;
 }
@@ -690,7 +636,14 @@ static void make_move_internal(GameLogic* logic, Move* move) {
     // 1. Record state for Undo
     move->capturedPiece = NULL;
     if (logic->board[move->endRow][move->endCol]) {
-        move->capturedPiece = piece_copy(logic->board[move->endRow][move->endCol]);
+        // CRITICAL: piece_copy MUST preserve owner correctly!
+        Piece* victim = logic->board[move->endRow][move->endCol];
+        move->capturedPiece = piece_copy(victim);
+        // SAFETY CHECK: Ensure owner was copied correctly
+        if (move->capturedPiece && move->capturedPiece->owner != victim->owner) {
+            // This should NEVER happen - piece_copy is broken!
+            move->capturedPiece->owner = victim->owner;
+        }
     }
     move->firstMove = !movingPiece->hasMoved;
 
@@ -811,10 +764,16 @@ static void undo_move_internal(GameLogic* logic) {
     
     // Restore captured piece
     if (lastMove->capturedPiece) {
-        if (lastMove->isEnPassant) {
-            logic->board[lastMove->startRow][lastMove->endCol] = piece_copy(lastMove->capturedPiece);
-        } else {
-            logic->board[lastMove->endRow][lastMove->endCol] = piece_copy(lastMove->capturedPiece);
+        // Make a fresh copy to restore
+        Piece* restoredPiece = piece_copy(lastMove->capturedPiece);
+        if (restoredPiece) {
+            if (lastMove->isEnPassant) {
+                // En passant: victim was on same row as moving piece, at end column
+                logic->board[lastMove->startRow][lastMove->endCol] = restoredPiece;
+            } else {
+                // Normal capture: victim was at destination square  
+                logic->board[lastMove->endRow][lastMove->endCol] = restoredPiece;
+            }
         }
     }
     

@@ -263,3 +263,101 @@ static bool is_valid_pos(int r, int c) {
     return (r >= 0 && r < 8 && c >= 0 && c < 8);
 }
 
+// --- Cache Management and UI API ---
+
+void gamelogic_clear_cache(GameLogic* logic) {
+    if (!logic) return;
+    if (logic->cachedMoves) {
+        movelist_free((MoveList*)logic->cachedMoves);
+        logic->cachedMoves = NULL;
+    }
+    logic->cachedPieceRow = -1;
+    logic->cachedPieceCol = -1;
+}
+
+static Move** move_array_clone(MoveList* list, int* count) {
+    if (!list || list->count == 0) {
+        *count = 0;
+        return NULL;
+    }
+    *count = list->count;
+    Move** arr = (Move**)malloc(sizeof(Move*) * list->count);
+    for (int i = 0; i < list->count; i++) {
+        arr[i] = move_copy(list->moves[i]);
+    }
+    return arr;
+}
+
+Move** gamelogic_get_valid_moves_for_piece(GameLogic* logic, int row, int col, int* count) {
+    if (!logic || !is_valid_pos(row, col)) {
+        if (count) *count = 0;
+        return NULL;
+    }
+
+    // Check cache
+    if (logic->cachedMoves && logic->cachedPieceRow == row && logic->cachedPieceCol == col) {
+        return move_array_clone((MoveList*)logic->cachedMoves, count);
+    }
+    
+    // Cache miss - regenerate
+    gamelogic_clear_cache(logic);
+    
+    Piece* p = logic->board[row][col];
+    if (!p) {
+        if (count) *count = 0;
+        return NULL;
+    }
+    
+    MoveList* pseudo = movelist_create();
+    get_pseudo_moves(logic, row, col, p, pseudo);
+    
+    MoveList* valid = movelist_create();
+    
+    extern bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player p);
+    
+    for (int i = 0; i < pseudo->count; i++) {
+        Move* m = pseudo->moves[i];
+        if (gamelogic_simulate_move_and_check_safety(logic, m, p->owner)) {
+            Move* clone = move_copy(m);
+            // Ensure flags like isEnPassant are preserved
+            clone->isEnPassant = m->isEnPassant; 
+            clone->promotionPiece = m->promotionPiece;
+            movelist_add(valid, clone);
+        }
+    }
+    
+    movelist_free(pseudo);
+    
+    // Store in cache
+    logic->cachedMoves = valid;
+    logic->cachedPieceRow = row;
+    logic->cachedPieceCol = col;
+    
+    return move_array_clone(valid, count);
+}
+
+bool gamelogic_is_move_valid(GameLogic* logic, int startRow, int startCol, int endRow, int endCol) {
+    int count = 0;
+    Move** moves = gamelogic_get_valid_moves_for_piece(logic, startRow, startCol, &count);
+    
+    bool valid = false;
+    if (moves) {
+        for (int i = 0; i < count; i++) {
+            if (moves[i]->endRow == endRow && moves[i]->endCol == endCol) {
+                valid = true;
+                break;
+            }
+        }
+        gamelogic_free_moves_array(moves, count);
+    }
+    return valid;
+}
+
+void gamelogic_free_moves_array(Move** moves, int count) {
+    if (!moves) return;
+    for (int i = 0; i < count; i++) {
+        move_free(moves[i]);
+    }
+    free(moves);
+}
+

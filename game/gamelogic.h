@@ -17,12 +17,6 @@ struct GameLogic {
     bool isGameOver;
     char statusMessage[256];
     
-    // AI settings
-    bool vsComputer;
-    int aiDepth;
-    AIType whiteAI;
-    AIType blackAI;
-    
     // En passant
     int enPassantCol;  // -1 if none
     
@@ -30,21 +24,10 @@ struct GameLogic {
     void* moveHistory;  // Stack<Move>
     void* enPassantHistory;  // Stack<Integer>
     
-    // Position history for repetition detection (Zobrist hash placeholder)
-    void* positionHistory;  // List<Long>
-    
-    // Game Statistics
-    int whiteMoves;
-    int blackMoves;
-    int whiteCaptures;
-    int blackCaptures;
-    int whiteCastles;
-    int blackCastles;
-    int whitePromotions;
-    int blackPromotions;
-    int whiteChecks;
-    int blackChecks;
-    long long gameStartTime;
+    // Cache for single-piece move generation
+    void* cachedMoves;      // MoveList* (internal)
+    int cachedPieceRow;
+    int cachedPieceCol;
     
     // Simulation flag (for AI search)
     bool isSimulation;
@@ -60,8 +43,12 @@ void gamelogic_reset(GameLogic* logic);
 GameMode gamelogic_get_game_mode(GameLogic* logic);
 void gamelogic_set_game_mode(GameLogic* logic, GameMode mode);
 
-// Move generation
+// Move generation & validation (UI Decouplings)
 void gamelogic_generate_legal_moves(GameLogic* logic, Player player, void* moves_list);
+Move** gamelogic_get_valid_moves_for_piece(GameLogic* logic, int row, int col, int* count);
+bool gamelogic_is_move_valid(GameLogic* logic, int startRow, int startCol, int endRow, int endCol);
+void gamelogic_free_moves_array(Move** moves, int count);
+
 bool gamelogic_perform_move(GameLogic* logic, Move* move);
 void gamelogic_undo_move(GameLogic* logic);
 
