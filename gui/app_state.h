@@ -45,6 +45,9 @@ typedef struct AppState {
 
     // Tutorial State
     int tutorial_step; 
+    
+    // Timers
+    guint settings_timer_id;
     int tutorial_next_step; // For delayed transition
     GtkWidget* tutorial_msg; 
     GtkWidget* tutorial_exit_btn;
@@ -55,10 +58,10 @@ typedef struct AppState {
     int current_puzzle_idx;
     int puzzle_move_idx;
     int puzzle_last_processed_move; // Track processed move count from game logic
-    bool puzzle_wait; // For delaying response
-
+    gboolean puzzle_wait; // Waiting for opponent response
+    
     // Settings State
-    char last_settings_page[32]; // Remember last visited page
+    char last_settings_page[32];
 } AppState;
 
 #endif

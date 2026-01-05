@@ -258,6 +258,9 @@ void gamelogic_reset(GameLogic* logic) {
     
     setup_board(logic);
     gamelogic_update_game_state(logic);
+    
+    // Notify UI (triggers AI check if applicable)
+    if (logic->updateCallback) logic->updateCallback();
 }
 
 // Get opponent
@@ -341,6 +344,7 @@ bool gamelogic_perform_move(GameLogic* logic, Move* move) {
     
     // --- OPTIMIZATION START ---
     if (!logic->isSimulation) {
+        gamelogic_update_game_state(logic);
         if (logic->updateCallback) logic->updateCallback(); 
     }
     // --- OPTIMIZATION END --- 

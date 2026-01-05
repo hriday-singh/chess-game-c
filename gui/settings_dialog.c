@@ -59,6 +59,10 @@ static void on_sidebar_row_selected(GtkListBox* box, GtkListBoxRow* row, gpointe
     
     if (index >= 0 && index < 6) {
         gtk_stack_set_visible_child_name(GTK_STACK(dialog->stack), pages[index]);
+        // Update last settings page
+        if (dialog->app_state) {
+            g_strlcpy(dialog->app_state->last_settings_page, pages[index], 32);
+        }
     }
 }
 
@@ -448,6 +452,9 @@ void settings_dialog_open_page(SettingsDialog* dialog, const char* page_name) {
              gtk_list_box_select_row(GTK_LIST_BOX(dialog->sidebar), row);
         }
     }
+    
+    // Ensure window is visible!
+    settings_dialog_show(dialog);
 }
 
 void settings_dialog_free(SettingsDialog* dialog) {

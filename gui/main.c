@@ -38,19 +38,23 @@ static gboolean ai_think_thread_timeout(gpointer user_data);
 
 // --- CvC Orchestration ---
 
-
-
-// --- CvC Orchestration ---
-
 static void on_cvc_control_action(CvCMatchState action, gpointer user_data) {
     AppState* state = (AppState*)user_data;
     state->cvc_match_state = action;
+    
+    // If stopped, reset board
+    if (action == CVC_STATE_STOPPED) {
+         gamelogic_reset(state->logic);
+         board_widget_refresh(state->board);
+    }
+    
+    // Update Info Panel Status
+    info_panel_update_status(state->info_panel);
     info_panel_set_cvc_state(state->info_panel, action);
     
+    // Trigger generic idle check
     if (action == CVC_STATE_RUNNING) {
         g_idle_add(check_trigger_ai_idle, state);
-    } else if (action == CVC_STATE_STOPPED) {
-        // Stop current thinking if any? 
     }
 }
 
@@ -76,8 +80,6 @@ static void open_settings_page(AppState* app, const char* page) {
     ensure_settings_dialog(app);
     if (app->settings_dialog) {
         settings_dialog_open_page(app->settings_dialog, page);
-        // Also ensure AI dialog tab logic if needed? 
-        // AiDialog inside settings is embedded.
     }
 }
 
@@ -85,17 +87,7 @@ static void show_ai_settings_dialog(int tab_index, gpointer user_data) {
     (void)tab_index; // Unused for now
     AppState* state = (AppState*)user_data;
     if (state->ai_dialog) {
-        // We still support direct AI dialog usage if needed, but we prefer Settings Dialog
-        // But state->ai_dialog is the one in AppState (window based).
-        // SettingsDialog created a NEW embedded AiDialog.
-        // This is a state split issue.
-        // If we want to use SettingsDialog, we should sync or share state.
-        // For now, let's open Settings Dialog AI page.
         open_settings_page(state, "ai");
-        // We ignore tab_index for simplicity or pass it if extended?
-        // ai_dialog_show_tab requires access to the embedded dialog.
-        // We can't easily reach it without exposing getter on SettingsDialog.
-        // Let's assume AI page default (tab 0) is fine.
     }
 }
 
@@ -436,13 +428,27 @@ static void on_about_action(GSimpleAction* action, GVariant* parameter, gpointer
 }
 
 static void on_open_settings_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
-    (void)action;
+    (void)action; (void)parameter;
     AppState* state = (AppState*)user_data;
     const char* page = "ai"; // Default
-    
-    if (parameter && g_variant_is_of_type(parameter, G_VARIANT_TYPE_STRING)) {
-        page = g_variant_get_string(parameter, NULL);
+
+    // Validate page name
+    const char* valid_pages[] = {"ai", "board", "piece", "puzzles", "tutorial", "about"};
+    bool is_valid = false;
+    for (int i = 0; i < 6; i++) {
+        if (state->last_settings_page[0] != '\0' && strcmp(state->last_settings_page, valid_pages[i]) == 0) {
+            is_valid = true;
+            break;
+        }
     }
+
+    if (is_valid) {
+        page = state->last_settings_page;
+    } else {
+        // Clear invalid garbage
+        state->last_settings_page[0] = '\0';
+    }
+    
     open_settings_page(state, page);
 }
 
@@ -581,6 +587,11 @@ static void on_app_shutdown(GApplication* app, gpointer user_data) {
     }
     puzzles_cleanup(); // Free dynamic puzzles
     sound_engine_cleanup();
+    
+    if (state && state->settings_timer_id > 0) {
+        g_source_remove(state->settings_timer_id);
+        state->settings_timer_id = 0;
+    }
 }
 
 static gboolean sync_ai_settings_to_panel(gpointer user_data) {
@@ -599,6 +610,24 @@ static gboolean sync_ai_settings_to_panel(gpointer user_data) {
     info_panel_update_ai_settings(state->info_panel, w_adv, w_depth, w_time, b_adv, b_depth, b_time);
     
     return G_SOURCE_CONTINUE;
+}
+
+static void on_main_window_destroy(GtkWidget* widget, gpointer user_data) {
+    (void)widget;
+    AppState* state = (AppState*)user_data;
+    
+    // Stop Settings Timer Immediately
+    if (state->settings_timer_id > 0) {
+        g_source_remove(state->settings_timer_id);
+        state->settings_timer_id = 0;
+    }
+    
+    // Nullify widget pointers to prevent access in any remaining callbacks
+    state->window = NULL;
+    state->board = NULL;
+    state->info_panel = NULL;
+    // Note: ai_dialog/etc might be freed by GTK hierarchy or separate cleanup, 
+    // but we shouldn't access them anymore.
 }
 
 static void on_app_activate(GtkApplication* app, gpointer user_data) {
@@ -631,13 +660,13 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* settings_btn = gtk_button_new_from_icon_name("open-menu-symbolic");
     gtk_widget_set_tooltip_text(settings_btn, "Settings");
     
-    // Register "open-settings" action with string type
-    GSimpleAction* act_settings = g_simple_action_new("open-settings", G_VARIANT_TYPE_STRING);
+    // Register "open-settings" action with no parameter (uses last page)
+    GSimpleAction* act_settings = g_simple_action_new("open-settings", NULL);
     g_signal_connect(act_settings, "activate", G_CALLBACK(on_open_settings_action), state);
     g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_settings));
     
     gtk_actionable_set_action_name(GTK_ACTIONABLE(settings_btn), "app.open-settings");
-    gtk_actionable_set_action_target(GTK_ACTIONABLE(settings_btn), "s", "ai");
+    // gtk_actionable_set_action_target(GTK_ACTIONABLE(settings_btn), "s", "ai"); // REMOVED to allow last page persistence
     
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), settings_btn);
     
@@ -771,10 +800,17 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         
         // Show after a delay
         g_timeout_add_seconds(1, popup_popover_delayed, popover);
+        
+        // Clean up popover when header is destroyed to avoid "children left" warning
+        g_signal_connect_swapped(header, "destroy", G_CALLBACK(gtk_widget_unparent), popover);
     }
 
     gamelogic_set_callback(state->logic, update_ui_callback);
-    g_timeout_add(500, sync_ai_settings_to_panel, state);
+    state->settings_timer_id = g_timeout_add(500, sync_ai_settings_to_panel, state);
+    
+    // Connect destroy signal to stop timers immediately
+    g_signal_connect(state->window, "destroy", G_CALLBACK(on_main_window_destroy), state);
+    
     gtk_window_present(state->window);
 }
 int main(int argc, char** argv) {

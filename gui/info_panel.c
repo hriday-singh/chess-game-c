@@ -68,7 +68,6 @@ typedef struct {
     GtkWidget* play_as_dropdown;
     
     // CvC Match Controls
-    GtkWidget* cvc_box;
     GtkWidget* cvc_start_btn;
     GtkWidget* cvc_pause_btn;
     GtkWidget* cvc_stop_btn;
@@ -485,7 +484,27 @@ static void update_ai_settings_visibility(InfoPanel* panel) {
     bool show_cvc = (selected == GAME_MODE_CVC);
     
     gtk_widget_set_visible(panel->ai_settings_section, show_ai);
-    gtk_widget_set_visible(panel->cvc_box, show_cvc);
+    
+    // Toggle controls visibility
+    if (show_cvc) {
+        // Show CvC controls based on state
+        bool show_start = (panel->cvc_state == CVC_STATE_STOPPED);
+        bool show_pause = (panel->cvc_state != CVC_STATE_STOPPED);
+        bool show_stop = (panel->cvc_state != CVC_STATE_STOPPED);
+        
+        gtk_widget_set_visible(panel->cvc_start_btn, show_start);
+        gtk_widget_set_visible(panel->cvc_pause_btn, show_pause);
+        gtk_widget_set_visible(panel->cvc_stop_btn, show_stop);
+        
+    } else {
+        gtk_widget_set_visible(panel->cvc_start_btn, FALSE);
+        gtk_widget_set_visible(panel->cvc_pause_btn, FALSE);
+        gtk_widget_set_visible(panel->cvc_stop_btn, FALSE);
+    }
+    
+    // Ensure Undo/Reset are always visible (user request)
+    gtk_widget_set_visible(panel->undo_button, TRUE);
+    gtk_widget_set_visible(panel->reset_button, TRUE);
     
     // Disable "Play as" in CvC mode
     gtk_widget_set_sensitive(panel->play_as_dropdown, !show_cvc);
@@ -537,23 +556,6 @@ static void on_engine_selection_changed(GObject* obj, GParamSpec* pspec, gpointe
         g_signal_handlers_unblock_by_func(dropdown, on_engine_selection_changed, panel);
         
         if (panel->ai_settings_callback) {
-            // Callback is show_ai_settings_dialog(gpointer user_data) in main.c
-            // But we need to pass the tab index. 
-            // We'll update main.c to handle this, for now we will assume we can pass a special pointer or modify the callback signature.
-            // Actually, main.c's callback is GCallback generic. 
-            // Let's assume we can cast it to a function receiving two args if we update main.c
-            // For now, let's just cheat and assume the callback data is AppState* and we can call a global or update the signature.
-            // Better: update the callback protocol.
-            // But to avoid header mismatch hell right now, we can just call it (default tab) or try to pass the index.
-            
-            // To do this cleanly: 
-            // The callback signature in info_panel.h is: typedef void (*GCallback) (void); which is generic.
-            // We'll update the callback invocation to pass the tab index as a secondary arg if possible, 
-            // OR simpler: we rely on main.c to support it. 
-            // Let's pass the integer 1 as the first argument if we cast it to specific func type.
-             
-            // Wait, GCallback in gtk represents void (*)(void).
-            // We can treat it as void (*)(int tab, gpointer data).
             void (*cb)(int, gpointer) = (void (*)(int, gpointer))panel->ai_settings_callback;
             cb(1, panel->ai_settings_callback_data);
         }
@@ -990,22 +992,50 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_box_append(GTK_BOX(panel->standard_controls_box), actions_title);
     
     // Control buttons
-    GtkWidget* controls_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_widget_set_halign(controls_box, GTK_ALIGN_CENTER);
-    gtk_widget_set_margin_top(controls_box, 5);
-    gtk_widget_set_margin_bottom(controls_box, 10);
+    // Actions container (Vertical to stack rows)
+    GtkWidget* actions_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_widget_set_halign(actions_vbox, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(panel->standard_controls_box), actions_vbox);
+
+    // Row 1: CvC Controls
+    GtkWidget* cvc_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_widget_set_halign(cvc_row, GTK_ALIGN_CENTER);
+    
+    panel->cvc_start_btn = gtk_button_new_with_label("Start Match");
+    gtk_widget_add_css_class(panel->cvc_start_btn, "success-action");
+    g_signal_connect(panel->cvc_start_btn, "clicked", G_CALLBACK(on_cvc_start_clicked), panel);
+    gtk_widget_set_visible(panel->cvc_start_btn, FALSE);
+    gtk_box_append(GTK_BOX(cvc_row), panel->cvc_start_btn);
+    
+    panel->cvc_pause_btn = gtk_button_new_with_label("Pause");
+    gtk_widget_add_css_class(panel->cvc_pause_btn, "success-action");
+    g_signal_connect(panel->cvc_pause_btn, "clicked", G_CALLBACK(on_cvc_pause_clicked), panel);
+    gtk_widget_set_visible(panel->cvc_pause_btn, FALSE);
+    gtk_box_append(GTK_BOX(cvc_row), panel->cvc_pause_btn);
+    
+    panel->cvc_stop_btn = gtk_button_new_with_label("Stop");
+    gtk_widget_add_css_class(panel->cvc_stop_btn, "destructive-action");
+    g_signal_connect(panel->cvc_stop_btn, "clicked", G_CALLBACK(on_cvc_stop_clicked), panel);
+    gtk_widget_set_visible(panel->cvc_stop_btn, FALSE);
+    gtk_box_append(GTK_BOX(cvc_row), panel->cvc_stop_btn);
+    
+    gtk_box_append(GTK_BOX(actions_vbox), cvc_row);
+
+    // Row 2: Standard Controls (Undo/Reset)
+    GtkWidget* std_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_widget_set_halign(std_row, GTK_ALIGN_CENTER);
     
     panel->undo_button = gtk_button_new_with_label("Undo");
     gtk_widget_add_css_class(panel->undo_button, "suggested-action");
     g_signal_connect(panel->undo_button, "clicked", G_CALLBACK(on_undo_clicked), panel);
-    gtk_box_append(GTK_BOX(controls_box), panel->undo_button);
+    gtk_box_append(GTK_BOX(std_row), panel->undo_button);
     
     panel->reset_button = gtk_button_new_with_label("Reset");
     gtk_widget_add_css_class(panel->reset_button, "destructive-action");
     g_signal_connect(panel->reset_button, "clicked", G_CALLBACK(on_reset_clicked), panel);
-    gtk_box_append(GTK_BOX(controls_box), panel->reset_button);
+    gtk_box_append(GTK_BOX(std_row), panel->reset_button);
     
-    gtk_box_append(GTK_BOX(panel->standard_controls_box), controls_box);
+    gtk_box_append(GTK_BOX(actions_vbox), std_row);
     
     // Separator line between buttons and game settings
     GtkWidget* separator3 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
@@ -1053,30 +1083,8 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     g_signal_connect(panel->play_as_dropdown, "notify::selected", G_CALLBACK(on_play_as_changed), panel);
     gtk_box_append(GTK_BOX(settings_section), panel->play_as_dropdown);
     
-    // CvC Match Controls (initially hidden, only for CvC mode)
-    panel->cvc_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    gtk_widget_set_margin_top(panel->cvc_box, 10);
-    gtk_widget_set_visible(panel->cvc_box, FALSE);
-    
-    GtkWidget* cvc_btns_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
-    gtk_widget_set_halign(cvc_btns_hbox, GTK_ALIGN_CENTER);
-    
-    panel->cvc_start_btn = gtk_button_new_with_label("Start Match");
-    g_signal_connect(panel->cvc_start_btn, "clicked", G_CALLBACK(on_cvc_start_clicked), panel);
-    gtk_box_append(GTK_BOX(cvc_btns_hbox), panel->cvc_start_btn);
-    
-    panel->cvc_pause_btn = gtk_button_new_with_label("Pause");
-    gtk_widget_set_visible(panel->cvc_pause_btn, FALSE);
-    g_signal_connect(panel->cvc_pause_btn, "clicked", G_CALLBACK(on_cvc_pause_clicked), panel);
-    gtk_box_append(GTK_BOX(cvc_btns_hbox), panel->cvc_pause_btn);
-    
-    panel->cvc_stop_btn = gtk_button_new_with_label("Stop");
-    gtk_widget_set_visible(panel->cvc_stop_btn, FALSE);
-    g_signal_connect(panel->cvc_stop_btn, "clicked", G_CALLBACK(on_cvc_stop_clicked), panel);
-    gtk_box_append(GTK_BOX(cvc_btns_hbox), panel->cvc_stop_btn);
-    
-    gtk_box_append(GTK_BOX(panel->cvc_box), cvc_btns_hbox);
-    gtk_box_append(GTK_BOX(settings_section), panel->cvc_box);
+    // Old CvC Match Controls block removed
+
     
     gtk_box_append(GTK_BOX(panel->standard_controls_box), settings_section);
     
@@ -1159,6 +1167,8 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
         ".success-text { color: #2e7d32; font-size: 0.9em; } "
         ".error-text { color: #d32f2f; font-size: 0.9em; } "
         ".ai-note { color: #666; font-size: 0.8em; font-style: italic; } "
+        ".success-action { background: #2e7d32; color: white; }" 
+        ".destructive-action { background: #D32F2F; color: white; }"
         ".capture-count { font-size: 16px; font-weight: bold; margin-left: 4px; color: #666; }"
     );
     gtk_style_context_add_provider_for_display(gdk_display_get_default(),
@@ -1261,16 +1271,18 @@ void info_panel_set_cvc_state(GtkWidget* info_panel, CvCMatchState state) {
     panel->cvc_state = state;
     
     // Update button visibility based on state
-    bool show_start = (state == CVC_STATE_STOPPED);
-    bool show_pause = (state != CVC_STATE_STOPPED);
-    bool show_stop = (state != CVC_STATE_STOPPED);
-    
-    gtk_widget_set_visible(panel->cvc_start_btn, show_start);
-    gtk_widget_set_visible(panel->cvc_pause_btn, show_pause);
-    gtk_widget_set_visible(panel->cvc_stop_btn, show_stop);
-    
-    if (show_pause) {
-        gtk_button_set_label(GTK_BUTTON(panel->cvc_pause_btn), (state == CVC_STATE_PAUSED) ? "Continue" : "Pause");
+    if (panel->logic && panel->logic->gameMode == GAME_MODE_CVC) {
+         bool show_start = (state == CVC_STATE_STOPPED);
+         bool show_pause = (state != CVC_STATE_STOPPED);
+         bool show_stop = (state != CVC_STATE_STOPPED);
+         
+         gtk_widget_set_visible(panel->cvc_start_btn, show_start);
+         gtk_widget_set_visible(panel->cvc_pause_btn, show_pause);
+         gtk_widget_set_visible(panel->cvc_stop_btn, show_stop);
+         
+         if (show_pause) {
+             gtk_button_set_label(GTK_BUTTON(panel->cvc_pause_btn), (state == CVC_STATE_PAUSED) ? "Continue" : "Pause");
+         }
     }
 }
 

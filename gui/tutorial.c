@@ -251,7 +251,7 @@ static gboolean on_tutorial_final_message_timeout(gpointer user_data) {
     
     show_message_dialog(parent, 
         "Tutorial Complete!\n\nYou have learned the basics of Chess.\n\n"
-        "HAL :) suggests to play around and customise the game to your liking. PS: Try out Horsey!"
+        "HAL :) suggests to play around and customise the game to your liking. PS: Try out Horsey!\n\n"
         "Use the board theme to modify the board.", state);
     return FALSE;
 }
