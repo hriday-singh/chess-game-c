@@ -809,6 +809,9 @@ static void info_panel_destroy(GtkWidget* widget, gpointer user_data) {
     }
 }
 
+// Forward declaration for click handler
+static void on_puzzle_list_click(GtkGestureClick* gesture, int n_press, double x, double y, gpointer user_data);
+
 GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* theme) {
     InfoPanel* panel = (InfoPanel*)calloc(1, sizeof(InfoPanel));
     if (!panel) return NULL;
@@ -849,10 +852,21 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_label_set_wrap(GTK_LABEL(panel->puzzle_ui.title_label), TRUE);
     gtk_box_append(GTK_BOX(panel->puzzle_ui.box), panel->puzzle_ui.title_label);
     
+    // Use a ScrolledWindow for the description to prevent layout jumping
+    GtkWidget* desc_scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(desc_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_widget_set_size_request(desc_scroll, -1, 180); // Fixed height for description area
+    gtk_widget_set_vexpand(desc_scroll, FALSE);
+    gtk_widget_set_margin_bottom(desc_scroll, 15);
+    
     panel->puzzle_ui.desc_label = gtk_label_new("Description");
     gtk_label_set_wrap(GTK_LABEL(panel->puzzle_ui.desc_label), TRUE);
-    gtk_widget_set_margin_bottom(panel->puzzle_ui.desc_label, 20);
-    gtk_box_append(GTK_BOX(panel->puzzle_ui.box), panel->puzzle_ui.desc_label);
+    // Align to start (top-left) of the scroll area
+    gtk_widget_set_halign(panel->puzzle_ui.desc_label, GTK_ALIGN_START);
+    gtk_widget_set_valign(panel->puzzle_ui.desc_label, GTK_ALIGN_START);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(desc_scroll), panel->puzzle_ui.desc_label);
+    
+    gtk_box_append(GTK_BOX(panel->puzzle_ui.box), desc_scroll);
     
     panel->puzzle_ui.status_label = gtk_label_new("");
     gtk_widget_set_margin_bottom(panel->puzzle_ui.status_label, 10);
@@ -867,6 +881,15 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     
     panel->puzzle_ui.puzzle_list_box = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), GTK_SELECTION_SINGLE);
+    gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), TRUE);
+    
+    // Add Click Gesture to absolutely guarantee clicks are caught
+    // Add Click Gesture to absolutely guarantee clicks are caught
+    GtkGesture* puzzle_click_gesture = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(puzzle_click_gesture), 0); // All buttons
+    g_signal_connect(puzzle_click_gesture, "released", G_CALLBACK(on_puzzle_list_click), panel->puzzle_ui.puzzle_list_box);
+    gtk_widget_add_controller(panel->puzzle_ui.puzzle_list_box, GTK_EVENT_CONTROLLER(puzzle_click_gesture));
+    
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(panel->puzzle_ui.puzzle_scroll), panel->puzzle_ui.puzzle_list_box);
     
     GtkWidget* puz_btns = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
@@ -1416,9 +1439,33 @@ void info_panel_add_puzzle_to_list(GtkWidget* info_panel, const char* title, int
     gtk_list_box_append(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), row_label);
 }
 
+// Forward declaration
+static void on_puzzle_list_row_activated(GtkListBox* box, GtkListBoxRow* row, gpointer user_data);
+
+// Fallback click handler
+static void on_puzzle_list_click(GtkGestureClick* gesture, int n_press, double x, double y, gpointer user_data) {
+    (void)gesture; (void)n_press; (void)x;
+    GtkListBox* box = GTK_LIST_BOX(user_data);
+    GtkListBoxRow* row = gtk_list_box_get_row_at_y(box, (int)y);
+    
+    if (row) {
+        on_puzzle_list_row_activated(box, row, NULL);
+    }
+}
+
 void info_panel_highlight_puzzle(GtkWidget* info_panel, int index) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
     if (!panel || !panel->puzzle_ui.puzzle_list_box) return;
+
+    
+    // Block signals to prevent recursion!
+    if (g_signal_handlers_disconnect_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL) > 0) {
+        // We disconnected it, we will reconnect later.
+        // Actually, disconnect_by_func disconnects ALL matches. 
+        // Best to use block/unblock if we have the handler ID, but we don't store it separate.
+        // But block_by_func works by function pointer matching.
+        g_signal_handlers_block_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL);
+    }
 
     // Loop through rows to find matching index
     GtkWidget* child = gtk_widget_get_first_child(panel->puzzle_ui.puzzle_list_box);
@@ -1429,12 +1476,34 @@ void info_panel_highlight_puzzle(GtkWidget* info_panel, int index) {
             int row_idx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(item), "puzzle-index"));
             if (row_idx == index) {
                 gtk_list_box_select_row(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), GTK_LIST_BOX_ROW(child));
-                gtk_widget_grab_focus(child);
-                return;
+                
+                // Auto-scroll to ensure visible
+                GtkAdjustment* adj_v = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(panel->puzzle_ui.puzzle_scroll));
+                if (adj_v) {
+                   // Calculate position based on index and estimated row height (approx 36px per row + padding)
+                   double row_height = 42.0; 
+                   double target_y = row_idx * row_height;
+                   
+                   double page_size = gtk_adjustment_get_page_size(adj_v);
+                   // double current_val = gtk_adjustment_get_value(adj_v); // Unused
+                   
+                   // Center the item
+                   double centered_val = target_y - (page_size / 2.0) + (row_height / 2.0);
+                   if (centered_val < 0) centered_val = 0;
+                   double max_scroll = gtk_adjustment_get_upper(adj_v) - page_size;
+                   if (centered_val > max_scroll) centered_val = max_scroll;
+                   
+                   gtk_adjustment_set_value(adj_v, centered_val);
+                }
+                
+                 break;
             }
         }
         child = gtk_widget_get_next_sibling(child);
     }
+    
+    // Unblock
+    g_signal_handlers_unblock_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL);
 }
 
 static void on_puzzle_list_row_activated(GtkListBox* box, GtkListBoxRow* row, gpointer user_data) {

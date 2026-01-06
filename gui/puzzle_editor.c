@@ -127,6 +127,11 @@ static void on_import_confirm(GtkButton* btn, gpointer user_data) {
     }
     
     g_free(json);
+    
+    // Restore focus to parent (Editor)
+    GtkWindow* parent = gtk_window_get_transient_for(dialog);
+    if (parent) gtk_window_present(parent);
+
     gtk_window_destroy(dialog);
 }
 
@@ -152,6 +157,14 @@ static void on_open_response(GObject* source, GAsyncResult* result, gpointer use
 static void on_load_file_clicked(GtkButton* btn, gpointer user_data) {
     GtkTextView* tv = GTK_TEXT_VIEW(user_data);
     GtkFileDialog* dialog = gtk_file_dialog_new();
+    GtkFileFilter* filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "Chess Puzzle JSON (*.json)");
+    gtk_file_filter_add_pattern(filter, "*.json");
+    
+    GListStore* filter_list = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filter_list, filter);
+    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filter_list));
+    g_object_unref(filter_list);
     gtk_file_dialog_set_title(dialog, "Open JSON");
     gtk_file_dialog_open(dialog, GTK_WINDOW(gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_WINDOW)), NULL, on_open_response, tv);
     g_object_unref(dialog);
@@ -188,9 +201,9 @@ static void on_import_clicked(GtkButton* btn, gpointer user_data) {
     g_object_set_data(G_OBJECT(load_btn), "text-view", text_view);
     g_signal_connect(load_btn, "clicked", G_CALLBACK(on_import_confirm), data);
     
-    GtkWidget* file_btn = gtk_button_new_with_label("Upload File");
+    GtkWidget* file_btn = gtk_button_new_with_label("Upload File");  
     g_signal_connect(file_btn, "clicked", G_CALLBACK(on_load_file_clicked), text_view);
-    
+        
     GtkWidget* hbo = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
     gtk_widget_set_halign(hbo, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(hbo), file_btn);

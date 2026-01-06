@@ -107,7 +107,7 @@ static void on_puzzle_reset(GtkButton* btn, gpointer user_data);
 static void on_puzzle_next(GtkButton* btn, gpointer user_data);
 
 static void refresh_puzzle_list(AppState* state);
-static void on_panel_puzzle_selected(GtkListBox* list, GtkListBoxRow* row, gpointer user_data);
+// Removed unused forward declaration
 
 // Callbacks
 
@@ -209,7 +209,7 @@ static void update_ui_callback(void) {
                 sound_engine_play(SOUND_ERROR); // Play error sound for wrong move
                 gamelogic_undo_move(state->logic);
                 board_widget_refresh(state->board);
-                info_panel_update_puzzle_info(state->info_panel, NULL, NULL, "Try again! That's not the solution.", false);
+                info_panel_update_puzzle_info(state->info_panel, NULL, NULL, "Try again! That's not the solution.", true);
                 // Do NOT update puzzle_last_processed_move, so the retry (which increments count again) will be processed.
             }
         }
@@ -294,6 +294,10 @@ static void start_puzzle(AppState* state, int puzzle_idx) {
 
     // Highlight in list
     info_panel_highlight_puzzle(state->info_panel, puzzle_idx);
+    
+    // Explicitly grab focus to main window and board (fixes Settings focus bug)
+    if (state->window) gtk_window_present(state->window);
+    if (state->board) gtk_widget_grab_focus(state->board);
 }
 
 static void on_puzzle_reset(GtkButton* btn, gpointer user_data) {
@@ -320,37 +324,35 @@ static void refresh_puzzle_list(AppState* state) {
     }
 }
 
-static void on_panel_puzzle_selected(GtkListBox* list, GtkListBoxRow* row, gpointer user_data) {
-    (void)list;
-    AppState* state = (AppState*)user_data;
-    if (!row) return;
-    
-    int idx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(row), "puzzle-index"));
-    // If not already playing this puzzle or force restart?
-    // User might click same puzzle to restart
-    start_puzzle(state, idx);
+typedef struct {
+    AppState* state;
+    int puzzle_index;
+} PendingPuzzleData;
+
+// Idle callback to start puzzle safely outside listbox signal handlers
+static gboolean start_puzzle_idle(gpointer user_data) {
+    PendingPuzzleData* data = (PendingPuzzleData*)user_data;
+    if (data && data->state) {
+        start_puzzle(data->state, data->puzzle_index);
+    }
+    g_free(data);
+    return FALSE; 
 }
 
+// Unused wrapper removed
 
-// Puzzle selector logic removed (moved to Settings Dialog)
+// Corrected callback signature for the custom puzzle list callback
+static void on_panel_puzzle_selected_safe(int index, gpointer user_data) {
+    AppState* state = (AppState*)user_data;
+    
+    // Use idle add to defer execution to avoid modifying list while handling signal
+    PendingPuzzleData* data = g_new0(PendingPuzzleData, 1);
+    data->state = state;
+    data->puzzle_index = index;
+    g_idle_add(start_puzzle_idle, data);
+}
 
 #include "puzzle_editor.h"
-
-// ... (other internal functions)
-
-// Custom puzzle creation logic needs to be adapted if still needed
-// For now, removing unused static functions to fix compilation warnings.
-// If puzzle creator is needed, it should be integrated into Settings -> Puzzles
-/*
-static void on_create_puzzle_clicked(GtkButton* btn, gpointer user_data) {
-    (void)user_data;
-    GtkWidget* selector_window = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_WINDOW);
-    if (!selector_window) return;
-    
-    // Pass selector_window as user_data so we can close it later and get state from it
-    show_puzzle_editor(GTK_WINDOW(selector_window), G_CALLBACK(on_custom_puzzle_created), selector_window);
-}
-*/
 
 static void on_puzzles_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
     (void)action; (void)parameter;
@@ -731,7 +733,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     state->info_panel = info_panel_new(state->logic, state->board, state->theme);
     info_panel_set_cvc_callback(state->info_panel, on_cvc_control_action, state);
     info_panel_set_ai_settings_callback(state->info_panel, (GCallback)show_ai_settings_dialog, state);
-    info_panel_set_puzzle_list_callback(state->info_panel, G_CALLBACK(on_panel_puzzle_selected), state);
+    info_panel_set_puzzle_list_callback(state->info_panel, G_CALLBACK(on_panel_puzzle_selected_safe), state);
     refresh_puzzle_list(state);
     gtk_widget_set_size_request(state->info_panel, 300, -1);
     gtk_widget_set_hexpand(state->info_panel, FALSE);

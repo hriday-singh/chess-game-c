@@ -124,7 +124,10 @@ static void play_move_sound(BoardWidget* board, Move* move, bool skipStandardSou
         sound_engine_play(SOUND_CAPTURE);
     } else if (!skipStandardSound) {
         // Regular move - play immediately (unless skipped because it was already played delayed)
-        sound_engine_play(SOUND_MOVE);
+        // In Puzzle Mode, the main logic handles sounds (Success/Failure), so don't play default move sound
+        if (board->logic->gameMode != GAME_MODE_PUZZLE) {
+             sound_engine_play(SOUND_MOVE);
+        }
     }
 }
 
