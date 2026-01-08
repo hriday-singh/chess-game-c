@@ -25,7 +25,7 @@
 #define MAX_PIECE_SETS 100
 #define MAX_STROKE_WIDTH 4.0
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 // Helper to print RAM usage
 static void print_memory_usage() {
@@ -464,14 +464,6 @@ static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int he
     double startX = (width - gridWidth) / 2.0;
     double startY = (height - gridHeight) / 2.0;
     
-    // cairo_set_source_rgb(cr, 0.1, 0.1, 0.1); 
-    // cairo_select_font_face(cr, "Inter, Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-    // cairo_set_font_size(cr, 20.0);
-    // cairo_text_extents_t ext;
-    // cairo_text_extents(cr, "Preview", &ext);
-    // cairo_move_to(cr, (width - ext.width)/2.0 - ext.x_bearing, startY - 25.0);
-    // cairo_show_text(cr, "Preview");
-    
     double lightR, lightG, lightB, darkR, darkG, darkB;
     theme_data_get_light_square_color(dialog->theme, &lightR, &lightG, &lightB);
     theme_data_get_dark_square_color(dialog->theme, &darkR, &darkG, &darkB);
@@ -852,10 +844,12 @@ static void piece_theme_dialog_build_ui(PieceThemeDialog* dialog) {
     gtk_box_append(GTK_BOX(left_vbox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL)); // Optional separator
     
     dialog->reset_colors_button = gtk_button_new_with_label("Reset Colors & Thickness");
+    gtk_widget_add_css_class(dialog->reset_colors_button, "destructive-action");
     g_signal_connect(dialog->reset_colors_button, "clicked", G_CALLBACK(on_reset_colors_clicked), dialog);
     gtk_box_append(GTK_BOX(actions_box), dialog->reset_colors_button);
     
     dialog->reset_piece_type_button = gtk_button_new_with_label("Reset Piece Set");
+    gtk_widget_add_css_class(dialog->reset_piece_type_button, "destructive-action");
     g_signal_connect(dialog->reset_piece_type_button, "clicked", G_CALLBACK(on_reset_piece_type_clicked), dialog);
     gtk_box_append(GTK_BOX(actions_box), dialog->reset_piece_type_button);
     

@@ -20,14 +20,18 @@ struct _SettingsDialog {
 #include "tutorial.h"
 #include <ctype.h>
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 // --- Helper: Create Sidebar Row ---when theme changes
 static void on_theme_update(void* user_data) {
     if (!user_data) return;
     AppState* app = (AppState*)user_data;
-    if (app->board) {
+    if (app && app->board) {
         board_widget_refresh(app->board);
+    }
+    // Refresh graveyard (captured pieces) as they use theme assets
+    if (app && app->info_panel) {
+        info_panel_refresh_graveyard(app->info_panel);
     }
 }
 

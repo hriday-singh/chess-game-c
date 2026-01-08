@@ -48,6 +48,9 @@ void info_panel_add_puzzle_to_list(GtkWidget* info_panel, const char* title, int
 void info_panel_highlight_puzzle(GtkWidget* info_panel, int index);
 void info_panel_set_puzzle_list_callback(GtkWidget* info_panel, GCallback on_selected, gpointer user_data);
 
+// Refresh captured pieces (graveyard) display
+void info_panel_refresh_graveyard(GtkWidget* info_panel);
+
 void info_panel_set_game_mode(GtkWidget* info_panel, GameMode mode);
 
 #endif // INFO_PANEL_H

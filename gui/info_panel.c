@@ -787,6 +787,17 @@ static void on_hints_toggled(GtkToggleButton* button, gpointer user_data) {
     }
 }
 
+// Public API: Refresh graveyard
+void info_panel_refresh_graveyard(GtkWidget* info_panel_widget) {
+    if (!info_panel_widget) return;
+    
+    // Retrieve panel using the consistent key used in this file
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel_widget), "info-panel-data");
+    if (!panel) return;
+    
+    update_captured_pieces(panel);
+}
+
 // Hints squares button callback
 static void on_hints_squares_toggled(GtkToggleButton* button, gpointer user_data) {
     InfoPanel* panel = (InfoPanel*)user_data;

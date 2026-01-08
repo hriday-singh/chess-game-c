@@ -443,6 +443,7 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_box_append(GTK_BOX(dialog->int_adv_vbox), t_hbox);
     
     GtkWidget* int_reset_btn = gtk_button_new_with_label("Reset to Defaults");
+    gtk_widget_add_css_class(int_reset_btn, "destructive-action");
     g_signal_connect(int_reset_btn, "clicked", G_CALLBACK(on_int_reset_adv_clicked), dialog);
     gtk_box_append(GTK_BOX(dialog->int_adv_vbox), int_reset_btn);
     
@@ -550,6 +551,7 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_box_append(GTK_BOX(dialog->custom_adv_vbox), ct_hbox);
 
     GtkWidget* cust_reset_btn = gtk_button_new_with_label("Reset to Defaults");
+    gtk_widget_add_css_class(cust_reset_btn, "destructive-action");
     g_signal_connect(cust_reset_btn, "clicked", G_CALLBACK(on_custom_reset_adv_clicked), dialog);
     gtk_box_append(GTK_BOX(dialog->custom_adv_vbox), cust_reset_btn);
 

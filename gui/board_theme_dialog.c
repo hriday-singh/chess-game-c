@@ -12,7 +12,7 @@
 #include <stdbool.h>
 #include <stdbool.h>
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 struct BoardThemeDialog {
     ThemeData* theme;
@@ -507,6 +507,7 @@ static void board_theme_dialog_build_ui(BoardThemeDialog* dialog) {
     GtkWidget* actions_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     
     dialog->reset_button = gtk_button_new_with_label("Reset to Default");
+    gtk_widget_add_css_class(dialog->reset_button, "destructive-action");
     g_signal_connect(dialog->reset_button, "clicked", G_CALLBACK(on_reset_clicked), dialog);
     gtk_box_append(GTK_BOX(actions_box), dialog->reset_button);
     
