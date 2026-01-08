@@ -105,10 +105,6 @@ static double ease_in_out(double t) {
     return t < 0.5 ? 4 * t * t * t : 1 - pow(-2 * t + 2, 3) / 2;
 }
 
-static double map_range(double val, double in_min, double in_max, double out_min, double out_max) {
-    return out_min + (out_max - out_min) * ((val - in_min) / (in_max - in_min));
-}
-
 // --- Lifecycle & Events ---
 
 static void on_enter(GtkEventControllerMotion* controller, double x, double y, gpointer user_data) {
@@ -159,59 +155,6 @@ static void on_click(GtkGestureClick* gesture, int n_press, double x, double y, 
 }
 
 // --- Drawing ---
-
-static void on_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
-    DarkModePriv* priv = (DarkModePriv*)user_data;
-    double current_time = get_monotonic_time();
-    
-    // 1. Draw Background (Optional / Debug)
-    // Design says "Idle: neutral". We can draw a very faint background or none.
-    // Let's draw a subtle rounded rect to show interactivity area if needed.
-    // Prompt says: "Idle visual rule: button should look neutral."
-    // Maybe no background is best, just the icon. The headerbar usually provides button backgrounds on hover,
-    // but we disabled traditional hover. So transparent background.
-    
-    // 2. Draw Particles (underneath or on top? "Aura" implies around/under, "Burst" implies on top.
-    // Let's draw them UNDER the icon for the aura feel, but they naturally overlay for burst.
-    // Drawing them first puts them behind the icon.
-    draw_particles(cr, priv, current_time);
-    
-    // 3. Draw Icon
-    double breathing_scale = 1.0;
-    if (!priv->anim_running) {
-        double t = current_time + priv->breathing_time_base;
-        double phase = (2 * M_PI * t) / BREATHING_PERIOD_SEC;
-        breathing_scale = 1.0 + BREATHING_AMP * sin(phase);
-    }
-    
-    // Determine effective visual state and progress
-    // During animation: morph from current state to NEXT state.
-    // If priv->is_dark == FALSE (Sun), and we animate, we go to Moon.
-    // Target state is !priv->is_dark.
-    
-    gboolean start_is_dark = priv->is_dark;
-    double progress = 0.0;
-    
-    if (priv->anim_running) {
-        progress = priv->anim_progress; // 0..1
-        // We always draw "Start Icon" -> "End Icon" by parameterizing draw_icon logic
-        // But draw_icon handles specific states.
-        // Let's pass the "from" state and the progress towards "other" state.
-    }
-    
-    draw_icon(cr, width, height, start_is_dark, progress, breathing_scale);
-
-    // Debug: Frame count or similar? No.
-}
-
-static void draw_rounded_rect(cairo_t* cr, double x, double y, double w, double h, double r) {
-    cairo_new_sub_path(cr);
-    cairo_arc(cr, x + w - r, y + r, r, -M_PI / 2, 0);
-    cairo_arc(cr, x + w - r, y + h - r, r, 0, M_PI / 2);
-    cairo_arc(cr, x + r, y + h - r, r, M_PI / 2, M_PI);
-    cairo_arc(cr, x + r, y + r, r, M_PI, 3 * M_PI / 2);
-    cairo_close_path(cr);
-}
 
 static void draw_heart_shape(cairo_t* cr, double cx, double cy, double size) {
     // Simple heart shape using bezier curves
@@ -448,33 +391,6 @@ static void draw_icon(cairo_t* cr, double w, double h, gboolean start_is_dark, d
 
 // --- Tick Logic ---
 
-static void spawn_particle(DarkModePriv* priv, gboolean is_burst) {
-    if (!priv->particles) return;
-    
-    Particle p;
-    p.spawn_time = get_monotonic_time();
-    p.lifetime = HEARTS_LIFETIME_SEC;
-    
-    // Random params
-    double angle = g_random_double_range(0, 2 * M_PI);
-    double dist = is_burst ? g_random_double_range(0, HEARTS_CLICK_BURST_RADIUS) : 0;
-    
-    // Start pos relative to center (0,0)
-    double r_start = is_burst ? 5.0 : 12.0; // Burst starts close, Hover starts further out
-    
-    p.x = cos(angle) * r_start;
-    p.y = sin(angle) * r_start;
-    
-    double speed = g_random_double_range(HEARTS_SPEED_MIN, HEARTS_SPEED_MAX);
-    p.vx = cos(angle) * speed;
-    p.vy = sin(angle) * speed;
-    
-    p.size = g_random_double_range(HEARTS_MIN_SIZE, HEARTS_MAX_SIZE);
-    p.rotation = g_random_double_range(-0.5, 0.5);
-    
-    g_array_append_val(priv->particles, p);
-}
-
 static void spawn_click_burst(DarkModePriv* priv) {
     for (int i = 0; i < HEARTS_CLICK_BURST_COUNT; i++) {
         // Custom variant of spawn for burst
@@ -521,6 +437,7 @@ static void update_particles(DarkModePriv* priv, double current_time, double dt)
 }
 
 static void on_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
+    (void)area; // Unused
     DarkModePriv* priv = (DarkModePriv*)user_data;
     double current_time = get_monotonic_time();
     
@@ -553,7 +470,6 @@ static void on_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gp
 
 static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer user_data) {
     DarkModePriv* priv = (DarkModePriv*)user_data;
-    double current_time = get_monotonic_time();
     // Use frame time ideally but helper is fine? 
     // gdk_frame_clock_get_frame_time returns microseconds.
     // Let's use that for consistency.
