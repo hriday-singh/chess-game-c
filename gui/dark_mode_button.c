@@ -1,6 +1,10 @@
 #include "dark_mode_button.h"
 #include <math.h>
-#include <stdlib.h>
+
+#ifdef G_OS_WIN32
+#include <windows.h>
+#include <gdk/win32/gdkwin32.h>
+#endif
 
 // --- Configuration Constants ---
 
@@ -13,7 +17,7 @@
 #define ICON_LINE_WIDTH 1.5
 #define ICON_GLOW_ALPHA_IDLE 0.15
 #define ICON_GLOW_ALPHA_ANIM 0.4
-#define BREATHING_AMP 0.05
+#define BREATHING_AMP 0.1
 #define BREATHING_PERIOD_SEC 3.0
 
 // Animation
@@ -31,7 +35,7 @@
 #define HEARTS_COLOR_A 0.7
 #define HEARTS_GLOW_STRENGTH 0.5
 
-#define HEARTS_CLICK_BURST_COUNT 12
+#define HEARTS_CLICK_BURST_COUNT 30
 #define HEARTS_CLICK_BURST_RADIUS 20.0
 #define HEARTS_LIFETIME_SEC 2.5
 #define HEARTS_HOVER_RATE_PER_SEC 3.0
@@ -41,6 +45,15 @@
 #define HEARTS_MAX_SIZE 9.0
 #define HEARTS_SPEED_MIN 10.0
 #define HEARTS_SPEED_MAX 30.0
+
+// Overlay & Margins
+#define BUTTON_MARGIN 6
+#define OVERLAY_PADDING 200
+#define MAX_CONCURRENT_BURSTS 3
+
+// Debug
+#define DEBUG_DARKBTN_ANIM TRUE
+
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -58,28 +71,41 @@ typedef struct {
 } Particle;
 
 typedef struct {
-    // Widget Reference (for queue_draw)
+    double start_time;
+    GArray* particles; // Array of Particle
+} Burst;
+
+typedef struct {
+    // Widget Reference
     GtkWidget* widget;
+    
+    // Overlay
+    GtkWidget* overlay_window; // The transparent serialization window
+    GtkWidget* overlay_area;   // Drawing area inside overlay
     
     // State
     gboolean is_dark;
     gboolean is_hovered;
+    gboolean enable_hearts; // Master toggle for hearts
     
     // Animation State
     gboolean anim_running;
-    double anim_start_time; // monotonic seconds
-    double anim_progress;   // 0.0 to 1.0
+    double anim_start_time; 
+    double anim_progress;   
     
     // Breathing State
-    double breathing_time_base; // offset to keep breathing smooth
+    double breathing_time_base; 
     
-    // Particles
-    GArray* particles;
+    // Particle State
+    GList* active_bursts;      // List of Burst*
+    GArray* hover_particles;   // Continuous hover particles
     double last_hover_emit_time;
-    gboolean click_burst_active;
     
     // Tick Callback ID
     guint tick_id;
+    
+    // Time tracking
+    double last_frame_time;
     
 } DarkModePriv;
 
@@ -89,10 +115,169 @@ static void dark_mode_button_free_priv(gpointer data);
 static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer user_data);
 static void start_tick(DarkModePriv* priv);
 static void stop_tick_if_idle(DarkModePriv* priv);
+static void check_ensure_overlay(DarkModePriv* priv);
+static void update_overlay_position(DarkModePriv* priv);
 static void spawn_click_burst(DarkModePriv* priv);
-static void update_particles(DarkModePriv* priv, double current_time, double dt);
-static void draw_particles(cairo_t* cr, DarkModePriv* priv, double current_time);
+static void draw_overlay_particles(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data);
 static void draw_icon(cairo_t* cr, double w, double h, gboolean is_dark, double progress, double breathing_scale);
+
+// --- Overlay Helpers ---
+
+#ifdef G_OS_WIN32
+static void on_overlay_realize(GtkWidget *widget, gpointer user_data) {
+    (void)user_data;
+    GtkNative *native = gtk_widget_get_native(widget);
+    if (!native) return;
+    
+    GdkSurface *surface = gtk_native_get_surface(native);
+    if (!surface) return;
+    
+    HWND hwnd = (HWND)gdk_win32_surface_get_handle(surface);
+    if (!hwnd) return;
+    
+    // Make window Click-Through (TRANSPARENT) and Layered
+    LONG exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+    SetWindowLong(hwnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW);
+
+    SetLayeredWindowAttributes(hwnd, 0, 255, LWA_ALPHA);
+}
+#endif
+
+static void check_ensure_overlay(DarkModePriv* priv) {
+    if (priv->overlay_window) return;
+    
+    // Create bare window
+    priv->overlay_window = gtk_window_new();
+    gtk_window_set_decorated(GTK_WINDOW(priv->overlay_window), FALSE);
+    gtk_widget_set_focusable(priv->overlay_window, FALSE);
+    
+    // Styling for transparency - Scope strictly
+    GtkCssProvider *css = gtk_css_provider_new();
+    gtk_css_provider_load_from_string(css, 
+        "window.transparent-overlay { background: transparent; box-shadow: none; border: none; } "
+        "window.transparent-overlay > widget { background: transparent; }");
+    
+    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_USER + 200);
+    g_object_unref(css);
+    
+    // Apply class
+    gtk_widget_add_css_class(priv->overlay_window, "transparent-overlay");
+
+    // Drawing Area
+    priv->overlay_area = gtk_drawing_area_new();
+    
+    gtk_widget_set_hexpand(priv->overlay_area, TRUE);
+    gtk_widget_set_vexpand(priv->overlay_area, TRUE);
+    gtk_window_set_child(GTK_WINDOW(priv->overlay_window), priv->overlay_area);
+    
+    // We bind the draw callback manually since it's a separate widget
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(priv->overlay_area), 
+        (GtkDrawingAreaDrawFunc)draw_overlay_particles, priv, NULL);
+        
+#ifdef G_OS_WIN32
+    g_signal_connect(priv->overlay_window, "realize", G_CALLBACK(on_overlay_realize), NULL);
+#endif
+
+    // Show
+    gtk_widget_set_visible(priv->overlay_window, TRUE);
+    // Ensure realized for immediate handle access if possible (though signal handles it)
+    gtk_widget_realize(priv->overlay_window);
+}
+
+
+static void update_overlay_position(DarkModePriv* priv) {
+#ifdef G_OS_WIN32
+    if (!priv->overlay_window || !priv->widget) return;
+
+    // Get Main Window Handle
+    GtkNative *native = gtk_widget_get_native(priv->widget);
+    if (!native) return;
+    
+    GdkSurface *surface = gtk_native_get_surface(native);
+    if (!surface) return;
+    
+    HWND hMain = (HWND)gdk_win32_surface_get_handle(surface);
+    if (!hMain) return;
+    
+    // Get Overlay Handle
+    GtkNative *overlay_native = gtk_widget_get_native(priv->overlay_window);
+    HWND hOverlay = NULL;
+    if (overlay_native) {
+        GdkSurface *osurf = gtk_native_get_surface(overlay_native);
+        if (osurf) hOverlay = (HWND)gdk_win32_surface_get_handle(osurf);
+    }
+    if (!hOverlay) return;
+
+    // Set Owner to Main (Maintains Z-Order association)
+    SetWindowLongPtr(hOverlay, GWLP_HWNDPARENT, (LONG_PTR)hMain);
+
+    // Get Screen metrics
+    HMONITOR hMonitor = MonitorFromWindow(hMain, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {0};
+    mi.cbSize = sizeof(mi);
+    GetMonitorInfo(hMonitor, &mi);
+    
+    // Check Fullscreen / Maximized
+    GdkToplevelState state = gdk_toplevel_get_state(GDK_TOPLEVEL(surface));
+    gboolean is_fullscreen = (state & GDK_TOPLEVEL_STATE_FULLSCREEN);
+    
+    int target_x, target_y, target_w, target_h;
+    
+    if (is_fullscreen) {
+        // In Fullscreen, cover the entire monitor to ensure visibility
+        // and allow particles to fly freely.
+        target_x = mi.rcMonitor.left;
+        target_y = mi.rcMonitor.top;
+        target_w = mi.rcMonitor.right - mi.rcMonitor.left;
+        target_h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+    } else {
+        // Standard Mode: Main Rect + Padding
+        RECT rMain;
+        GetWindowRect(hMain, &rMain);
+        
+        int w = rMain.right - rMain.left;
+        int h = rMain.bottom - rMain.top;
+        int pad = OVERLAY_PADDING;
+        
+        target_x = rMain.left - pad;
+        target_y = rMain.top - pad;
+        target_w = w + pad * 2;
+        target_h = h + pad * 2;
+    }
+    
+    // Apply Size (GTK side)
+    gtk_window_set_default_size(GTK_WINDOW(priv->overlay_window), target_w, target_h);
+
+    // Apply Position (Win32 side)
+    // HWND_TOPMOST is critical for fullscreen overlay visibility
+    UINT flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+    
+    // If not visible yet, show it
+    if (!gtk_widget_get_visible(priv->overlay_window)) {
+         flags |= SWP_SHOWWINDOW;
+    }
+    
+    SetWindowPos(hOverlay, HWND_TOPMOST, target_x, target_y, target_w, target_h, flags);
+#else
+    // Fallback for non-Windows (linux etc)
+    // ... Minimal implementation preserved ...
+    if (!priv->overlay_window || !priv->widget) return;
+    GtkWindow* main_win = GTK_WINDOW(gtk_widget_get_root(priv->widget));
+    if (GTK_IS_WINDOW(main_win)) {
+        gtk_window_set_transient_for(GTK_WINDOW(priv->overlay_window), main_win);
+        int w = gtk_widget_get_width(GTK_WIDGET(main_win));
+        int h = gtk_widget_get_height(GTK_WIDGET(main_win));
+        gtk_window_set_default_size(GTK_WINDOW(priv->overlay_window), w + OVERLAY_PADDING * 2, h + OVERLAY_PADDING * 2);
+    }
+#endif
+}
+
+static void free_burst(gpointer data) {
+    Burst* b = (Burst*)data;
+    if (b->particles) g_array_free(b->particles, TRUE);
+    g_free(b);
+}
+
 
 // --- Helper Functions ---
 
@@ -140,15 +325,9 @@ static void on_click(GtkGestureClick* gesture, int n_press, double x, double y, 
     // User requested "At animation end: Set state".
     // But for accessibility, maybe toggle now? Let's stick to visual sync.
     
-    // Spawn Click Burst
-    if (HEARTS_ENABLED_CLICK && !priv->click_burst_active) {
+    // Spawn Click Burst (Concurrent)
+    if (priv->enable_hearts && HEARTS_ENABLED_CLICK) {
         spawn_click_burst(priv);
-        priv->click_burst_active = TRUE; // Reset when burst finishes? 
-        // Logic: "ignore new click bursts until current burst finishes".
-        // Since we can re-click after animation (0.9s) but hearts last 3s,
-        // we need to track if particles are still alive from the burst.
-        // Simplified: just reset flag when particle count drops to 0 or similar.
-        // Actually, let's just use a simple flag that clears after lifetime duration.
     }
     
     start_tick(priv);
@@ -177,38 +356,114 @@ static void draw_heart_shape(cairo_t* cr, double cx, double cy, double size) {
     cairo_close_path(cr);
 }
 
-static void draw_particles(cairo_t* cr, DarkModePriv* priv, double current_time) {
-    if (!priv->particles || priv->particles->len == 0) return;
-    
-    for (guint i = 0; i < priv->particles->len; i++) {
-        Particle* p = &g_array_index(priv->particles, Particle, i);
+static void draw_particles_array(cairo_t* cr, GArray* arr, double current_time) {
+     if (!arr) return;
+    for (guint i = 0; i < arr->len; i++) {
+        Particle* p = &g_array_index(arr, Particle, i);
         double age = current_time - p->spawn_time;
         if (age < 0) age = 0;
         double life_pct = age / p->lifetime;
         
         if (life_pct >= 1.0) continue;
         
-        // Alpha fade out
-        double alpha = HEARTS_COLOR_A * (1.0 - (life_pct * life_pct)); // Ease out fade
+        double alpha = HEARTS_COLOR_A * (1.0 - (life_pct * life_pct));
         
         cairo_save(cr);
-        
-        cairo_translate(cr, p->x, p->y);
+        cairo_translate(cr, p->x, p->y); // p->x,y are relative to button center
         cairo_rotate(cr, p->rotation);
         
-        // Color
         cairo_set_source_rgba(cr, HEARTS_COLOR_R, HEARTS_COLOR_G, HEARTS_COLOR_B, alpha);
-        
-        // Draw Heart
         draw_heart_shape(cr, 0, 0, p->size);
         cairo_fill_preserve(cr);
         
-        // Subtle stroke/glow
         cairo_set_source_rgba(cr, HEARTS_COLOR_R, HEARTS_COLOR_G, HEARTS_COLOR_B, alpha * 0.5);
         cairo_set_line_width(cr, 1.0);
         cairo_stroke(cr);
         
         cairo_restore(cr);
+    }
+}
+
+static void draw_overlay_particles(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
+    (void)area; (void)width; (void)height;
+    DarkModePriv* priv = (DarkModePriv*)user_data;
+    double now = get_monotonic_time();
+    
+    // We need to translate to Button Center in Overlay Space.
+    // Overlay is MainWin + Padding.
+    // So Button Center in Overlay = Button Center in MainWin + PADDING.
+    
+    // 1. Get Button Center in Main Window
+    double btn_w = gtk_widget_get_width(priv->widget);
+    double btn_h = gtk_widget_get_height(priv->widget);
+    
+    // Coordinate Calculation using compute_point (Modern GTK4)
+    graphene_point_t p_btn = { .x = btn_w / 2.0f, .y = btn_h / 2.0f };
+    graphene_point_t p_target = {0};
+    
+    GtkWidget* root = GTK_WIDGET(gtk_widget_get_root(priv->widget));
+    if (gtk_widget_compute_point(priv->widget, root, &p_btn, &p_target)) {
+        double gx = p_target.x;
+        double gy = p_target.y;
+        
+        // On Windows, GetWindowRect includes invisible borders (shadows).
+        // GTK Root coordinates start inside this border.
+        // Heuristic adjustment based on visual feedback.
+        // Previous (8, 8) was slightly Top-Right.
+        // Need to move Dot LEFT (decrease X) and DOWN (increase Y).
+        
+        double win32_offset_x = 0;
+        double win32_offset_y = 0;
+
+#ifdef G_OS_WIN32
+        // Dynamic Offset based on Window State (Shadows vs No Shadows)
+        GdkSurface *surf = gtk_native_get_surface(GTK_NATIVE(root));
+        GdkToplevelState state = gdk_toplevel_get_state(GDK_TOPLEVEL(surf));
+        gboolean is_max_or_full = (state & (GDK_TOPLEVEL_STATE_MAXIMIZED | GDK_TOPLEVEL_STATE_FULLSCREEN));
+
+        if (!is_max_or_full) {
+            // Windowed mode: Shadows are present (~8px on Win10/11)
+            // GetWindowRect includes them, GTK Root does not.
+            // We need to shift drawing RIGHT/DOWN to match GTK Root.
+            // User requested explicit offsets from (5,8) -> (13,10)
+            win32_offset_x = 13.0; 
+            win32_offset_y = 10.0; 
+        } else {
+            // Fullscreen/Maximized: No shadows. 
+            // GetWindowRect == GTK Root. No offset needed.
+            win32_offset_x = 0.0;
+            win32_offset_y = 0.0;
+        }
+#endif
+
+
+        double ox = gx + OVERLAY_PADDING + win32_offset_x;
+        double oy = gy + OVERLAY_PADDING + win32_offset_y;
+    
+    // DEBUG: Draw RED DOT at calculated center
+    /*
+    cairo_save(cr);
+    cairo_translate(cr, ox, oy);
+    cairo_set_source_rgba(cr, 1, 0, 0, 1);
+    cairo_arc(cr, 0, 0, 5, 0, 2*M_PI);
+    cairo_fill(cr);
+    cairo_restore(cr);
+    */
+    
+
+    cairo_save(cr);
+    cairo_translate(cr, ox, oy);
+        // if (DEBUG_DARKBTN_ANIM) printf("Draw Overlay: %d hover, %d bursts\n", priv->hover_particles->len, g_list_length(priv->active_bursts));
+
+        draw_particles_array(cr, priv->hover_particles, now);
+        
+        for (GList* l = priv->active_bursts; l != NULL; l = l->next) {
+            Burst* b = (Burst*)l->data;
+            draw_particles_array(cr, b->particles, now);
+        }
+        
+        cairo_restore(cr);
+    // } // Removed if(TRUE)
     }
 }
 
@@ -391,50 +646,109 @@ static void draw_icon(cairo_t* cr, double w, double h, gboolean start_is_dark, d
 
 // --- Tick Logic ---
 
+static void spawn_particle_in_array(GArray* arr, double base_x, double base_y, gboolean is_burst) {
+     Particle p;
+    p.spawn_time = get_monotonic_time();
+    p.lifetime = HEARTS_LIFETIME_SEC;
+    
+    // Random params
+    double angle = g_random_double_range(0, 2 * M_PI);
+    
+    // Start pos relative to CENTER (passed as base_x, base_y)
+    double r_start = is_burst ? 5.0 : 12.0; 
+    
+    p.x = base_x + cos(angle) * r_start;
+    p.y = base_y + sin(angle) * r_start;
+    
+    double speed = g_random_double_range(HEARTS_SPEED_MIN, HEARTS_SPEED_MAX);
+    if (is_burst) speed *= 2.0;
+    
+    p.vx = cos(angle) * speed;
+    p.vy = sin(angle) * speed;
+    
+    p.size = g_random_double_range(HEARTS_MIN_SIZE, HEARTS_MAX_SIZE);
+    p.rotation = g_random_double_range(-0.5, 0.5);
+    
+    g_array_append_val(arr, p);
+}
+
 static void spawn_click_burst(DarkModePriv* priv) {
+    // 1. Cap concurrent bursts
+    if (g_list_length(priv->active_bursts) >= MAX_CONCURRENT_BURSTS) {
+        // Drop oldest
+        GList* first = g_list_first(priv->active_bursts);
+        free_burst(first->data);
+        priv->active_bursts = g_list_delete_link(priv->active_bursts, first);
+    }
+
+    // 2. Create new burst
+    Burst* b = g_new0(Burst, 1);
+    b->start_time = get_monotonic_time();
+    b->particles = g_array_new(FALSE, FALSE, sizeof(Particle));
+    
     for (int i = 0; i < HEARTS_CLICK_BURST_COUNT; i++) {
-        // Custom variant of spawn for burst
+        // Use HEARTS_CLICK_BURST_RADIUS for initial random spread
         Particle p;
         p.spawn_time = get_monotonic_time();
         p.lifetime = HEARTS_LIFETIME_SEC;
         
         double angle = g_random_double_range(0, 2 * M_PI);
-        double speed = g_random_double_range(HEARTS_SPEED_MIN * 2.0, HEARTS_SPEED_MAX * 2.0); // Faster burst
+        // Random radius within burst radius
+        double r = sqrt(g_random_double()) * HEARTS_CLICK_BURST_RADIUS; 
         
-        p.x = 0; // Start at center
-        p.y = 0; 
+        p.x = cos(angle) * r;
+        p.y = sin(angle) * r;
         
-        p.vx = cos(angle) * speed;
-        p.vy = sin(angle) * speed;
+        double speed = g_random_double_range(HEARTS_SPEED_MIN, HEARTS_SPEED_MAX);
+        // Start velocity outwards
+        p.vx = cos(angle) * speed * 2.5; // High burst speed
+        p.vy = sin(angle) * speed * 2.5;
         
         p.size = g_random_double_range(HEARTS_MIN_SIZE, HEARTS_MAX_SIZE);
         p.rotation = g_random_double_range(-0.5, 0.5);
         
-        g_array_append_val(priv->particles, p);
+        g_array_append_val(b->particles, p);
+    }
+    
+    priv->active_bursts = g_list_append(priv->active_bursts, b);
+}
+
+static void update_particles_array(GArray* arr, double current_time, double dt) {
+    if (!arr) return;
+    for (guint i = 0; i < arr->len; i++) {
+        Particle* p = &g_array_index(arr, Particle, i);
+        p->x += p->vx * dt;
+        p->y += p->vy * dt;
+        
+        if (current_time - p->spawn_time > p->lifetime) {
+            g_array_remove_index_fast(arr, i);
+            i--;
+        }
     }
 }
 
 static void update_particles(DarkModePriv* priv, double current_time, double dt) {
-    if (!priv->particles) return;
+    // Update Hover
+    update_particles_array(priv->hover_particles, current_time, dt);
     
-    for (guint i = 0; i < priv->particles->len; i++) {
-        Particle* p = &g_array_index(priv->particles, Particle, i);
+    // Update Bursts
+    GList* l = priv->active_bursts;
+    while (l) {
+        Burst* b = (Burst*)l->data;
+        update_particles_array(b->particles, current_time, dt);
         
-        p->x += p->vx * dt;
-        p->y += p->vy * dt;
-        
-        // Remove dead
-        if (current_time - p->spawn_time > p->lifetime) {
-            g_array_remove_index_fast(priv->particles, i);
-            i--; // Adjust index
+        // Remove empty bursts
+        if (b->particles->len == 0) {
+            GList* next = l->next;
+            free_burst(b);
+            priv->active_bursts = g_list_delete_link(priv->active_bursts, l);
+            l = next;
+        } else {
+            l = l->next;
         }
     }
-    
-    // Check burst flag reset
-    if (priv->click_burst_active && priv->particles->len == 0) {
-        priv->click_burst_active = FALSE;
-    }
 }
+
 
 static void on_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
     (void)area; // Unused
@@ -444,11 +758,9 @@ static void on_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gp
     // 1. Draw Background (Optional)
     // No background
     
-    // 2. Draw Particles (Centered)
-    cairo_save(cr);
-    cairo_translate(cr, width / 2.0, height / 2.0);
-    draw_particles(cr, priv, current_time);
-    cairo_restore(cr);
+    // 2. Draw Particles (Moved to Overlay)
+    // Nothing here
+
     
     // 3. Draw Icon
     double breathing_scale = 1.0;
@@ -470,16 +782,13 @@ static void on_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gp
 
 static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer user_data) {
     DarkModePriv* priv = (DarkModePriv*)user_data;
-    // Use frame time ideally but helper is fine? 
     // gdk_frame_clock_get_frame_time returns microseconds.
-    // Let's use that for consistency.
     gint64 frame_time = gdk_frame_clock_get_frame_time(frame_clock);
     double now = frame_time / 1000000.0;
     
-    // double dt = ...; // Not strictly needed if we use absolute time for anims, but needed for particles integration.
-    static double last_time = 0;
-    double dt = (last_time == 0) ? 0.016 : (now - last_time);
-    last_time = now;
+    // Use instance-based dt
+    double dt = (priv->last_frame_time == 0) ? 0.016 : (now - priv->last_frame_time);
+    priv->last_frame_time = now;
     
     // 1. Update Animation
     if (priv->anim_running) {
@@ -502,44 +811,32 @@ static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer 
         }
     }
     
-    // 2. Hover Emission
-    if (priv->is_hovered && HEARTS_ENABLED_HOVER) {
+    // 2. Overlay Management
+    check_ensure_overlay(priv);
+    update_overlay_position(priv);
+    
+    // 3. Hover Emission
+    if (priv->is_hovered && priv->enable_hearts && HEARTS_ENABLED_HOVER) {
         if (now - priv->last_hover_emit_time > (1.0 / HEARTS_HOVER_RATE_PER_SEC)) {
-            // Check max count to avoid flooding
-            if (priv->particles->len < HEARTS_HOVER_MAX_COUNT + (priv->click_burst_active ? HEARTS_CLICK_BURST_COUNT : 0)) {
-                // Spawn one
-                Particle p;
-                p.spawn_time = now;
-                p.lifetime = HEARTS_LIFETIME_SEC;
-                p.size = g_random_double_range(HEARTS_MIN_SIZE, HEARTS_MAX_SIZE * 0.8);
-                p.rotation = g_random_double_range(-0.5, 0.5);
-                
-                // Random pos around center
-                double angle = g_random_double_range(0, 2*M_PI);
-                double r = g_random_double_range(10, 18);
-                p.x = cos(angle) * r;
-                p.y = sin(angle) * r;
-                
-                // Slow outward draft
-                double speed = g_random_double_range(5, 15);
-                p.vx = cos(angle) * speed;
-                p.vy = sin(angle) * speed;
-                
-                g_array_append_val(priv->particles, p);
-                priv->last_hover_emit_time = now;
-            }
+             spawn_particle_in_array(priv->hover_particles, 0, 0, FALSE);
+             priv->last_hover_emit_time = now;
         }
     }
     
-    // 3. Update Particles
+    // 4. Update Particles
     update_particles(priv, now, dt);
     
-    // 4. Request Redraw
-    gtk_widget_queue_draw(widget);
+    // 5. Request Redraw
+    gtk_widget_queue_draw(widget); // Redraw button (icon breathing)
+    if (priv->overlay_area) gtk_widget_queue_draw(priv->overlay_area); // Redraw particles
     
-    // 5. Check if we should stop
+    // 6. Check if we should stop
     stop_tick_if_idle(priv);
     
+    if (DEBUG_DARKBTN_ANIM && ((int)now % 5 == 0)) {
+       // printf("Tick Running. Bursts: %d\n", g_list_length(priv->active_bursts));
+    }
+
     return G_SOURCE_CONTINUE;
 }
 
@@ -558,7 +855,7 @@ static void stop_tick_if_idle(DarkModePriv* priv) {
     if (priv->anim_running) needs_tick = TRUE;
     
     // Particles alive?
-    if (priv->particles && priv->particles->len > 0) needs_tick = TRUE;
+    if (priv->active_bursts || (priv->hover_particles && priv->hover_particles->len > 0)) needs_tick = TRUE;
     
     // Hovers active?
     if (priv->is_hovered && HEARTS_ENABLED_HOVER) needs_tick = TRUE;
@@ -588,7 +885,9 @@ static void stop_tick_if_idle(DarkModePriv* priv) {
 
 static void dark_mode_button_free_priv(gpointer data) {
     DarkModePriv* priv = (DarkModePriv*)data;
-    if (priv->particles) g_array_free(priv->particles, TRUE);
+    if (priv->hover_particles) g_array_free(priv->hover_particles, TRUE);
+    if (priv->active_bursts) g_list_free_full(priv->active_bursts, free_burst);
+    if (priv->overlay_window) gtk_window_destroy(GTK_WINDOW(priv->overlay_window));
     g_free(priv);
 }
 
@@ -601,8 +900,12 @@ GtkWidget* dark_mode_button_new(void) {
     DarkModePriv* priv = g_new0(DarkModePriv, 1);
     priv->widget = area;
     priv->is_dark = FALSE; // Start Light Mode
-    priv->particles = g_array_new(FALSE, FALSE, sizeof(Particle));
+    priv->enable_hearts = TRUE; // Default ON
+    priv->hover_particles = g_array_new(FALSE, FALSE, sizeof(Particle));
     priv->breathing_time_base = g_random_double_range(0, 100); // Random phase
+    
+    gtk_widget_set_margin_start(area, BUTTON_MARGIN);
+    gtk_widget_set_margin_end(area, BUTTON_MARGIN);
     
     g_object_set_data_full(G_OBJECT(area), "dark_mode_priv", priv, dark_mode_button_free_priv);
     
