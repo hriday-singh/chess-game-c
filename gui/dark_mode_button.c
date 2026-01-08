@@ -801,9 +801,11 @@ static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer 
             // Commit State Change
             priv->is_dark = !priv->is_dark;
             
-            // Accessibility update
+            // Update tooltip and accessibility label to match new state
+            const char* new_label = priv->is_dark ? "Switch to Light Mode" : "Switch to Dark Mode";
+            gtk_widget_set_tooltip_text(widget, new_label);
             gtk_accessible_update_property(GTK_ACCESSIBLE(widget),
-                GTK_ACCESSIBLE_PROPERTY_LABEL, priv->is_dark ? "Switch to Light Mode" : "Switch to Dark Mode",
+                GTK_ACCESSIBLE_PROPERTY_LABEL, new_label,
                 -1);
 
         } else {

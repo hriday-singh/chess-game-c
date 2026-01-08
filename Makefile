@@ -52,12 +52,6 @@ SF_OBJECTS = $(OBJDIR)/sf_benchmark.o $(OBJDIR)/sf_bitboard.o $(OBJDIR)/sf_evalu
              $(OBJDIR)/sf_engine_sf.o $(OBJDIR)/sf_score.o $(OBJDIR)/sf_memory.o \
              $(OBJDIR)/sf_ai_engine.o
 
-# Compile stb_vorbis.c separately (needed for OGG support with miniaudio)
-# This must be compiled separately because it's included as header-only in sound_engine.c
-$(OBJDIR)/gui_stb_vorbis.o: $(GUIDIR)/stb_vorbis.c | $(OBJDIR)
-	@echo "Compiling GUI $< (stb_vorbis)..."
-	$(CC) $(CFLAGS) $(GTK_CFLAGS) -I$(SRCDIR) -I$(GUIDIR) -c $< -o $@
-
 # Test executables
 TEST_TARGET = $(BUILDDIR)/chessgamec_test.exe
 TEST_SUITE_TARGET = $(BUILDDIR)/test_suite.exe
@@ -71,8 +65,14 @@ SVG_TEST_TARGET = $(BUILDDIR)/test_svg_loader.exe
 # GdkPixbuf is included with GTK4, no extra flags needed for SVG test
 # (SVG support requires librsvg to be installed, but GdkPixbuf will use it if available)
 
-# Default target - build GUI executable
+# Default target - build GUI executable (MUST be first target in Makefile)
 all: $(GUI_TARGET)
+
+# Compile stb_vorbis.c separately (needed for OGG support with miniaudio)
+# This must be compiled separately because it's included as header-only in sound_engine.c
+$(OBJDIR)/gui_stb_vorbis.o: $(GUIDIR)/stb_vorbis.c | $(OBJDIR)
+	@echo "Compiling GUI $< (stb_vorbis)..."
+	$(CC) $(CFLAGS) $(GTK_CFLAGS) -I$(SRCDIR) -I$(GUIDIR) -c $< -o $@
 
 # Build everything including tests
 all-tests: $(TEST_TARGET) $(TEST_SUITE_TARGET) $(GUI_TARGET)

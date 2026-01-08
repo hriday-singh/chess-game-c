@@ -19,8 +19,6 @@
 #include "ai_dialog.h"
 #include "move.h"
 #include "ai_engine.h"
-#include "piece.h"
-#include "piece.h"
 #include "types.h"
 #include "puzzles.h"
 
@@ -872,6 +870,9 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     g_signal_connect(state->window, "destroy", G_CALLBACK(on_main_window_destroy), state);
     
     gtk_window_present(state->window);
+    
+    // Ensure board widget has focus on startup
+    gtk_widget_grab_focus(state->board);
 }
 int main(int argc, char** argv) {
     GtkApplication* app = gtk_application_new("com.hriday.chessc", G_APPLICATION_DEFAULT_FLAGS);
