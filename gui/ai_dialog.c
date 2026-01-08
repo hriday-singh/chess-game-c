@@ -36,7 +36,14 @@ struct _AiDialog {
     bool is_custom_configured;
     
     // State
-    int current_elo;
+    GtkAdjustment* int_elo_adj; 
+    GtkAdjustment* custom_elo_adj;
+    int int_elo;
+    int custom_elo;
+    
+    // Custom Engine specific
+    GtkWidget* custom_elo_slider;
+    GtkWidget* custom_elo_spin;
     
     AiSettingsChangedCallback change_cb;
     void* change_cb_data;
@@ -46,9 +53,15 @@ struct _AiDialog {
 
 #include <math.h>
 
-static void on_elo_changed(GtkAdjustment* adj, gpointer data) {
+static void on_int_elo_changed(GtkAdjustment* adj, gpointer data) {
     AiDialog* dialog = (AiDialog*)data;
-    dialog->current_elo = (int)gtk_adjustment_get_value(adj);
+    dialog->int_elo = (int)gtk_adjustment_get_value(adj);
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
+}
+
+static void on_custom_elo_changed(GtkAdjustment* adj, gpointer data) {
+    AiDialog* dialog = (AiDialog*)data;
+    dialog->custom_elo = (int)gtk_adjustment_get_value(adj);
     if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
@@ -151,10 +164,27 @@ static void on_custom_time_changed(GtkSpinButton* spin, gpointer user_data) {
     dialog->custom_manual_movetime = true;
 }
 
+static void update_custom_controls_state(AiDialog* dialog) {
+    bool has_engine = dialog->is_custom_configured;
+    
+    // Advanced Checkbox: Only enabled if we have a valid engine
+    gtk_widget_set_sensitive(dialog->custom_adv_check, has_engine);
+    
+    // Check current state (even if disabled)
+    bool adv_active = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->custom_adv_check));
+    
+    // ELO Controls: Enabled only if Engine Valid AND Advanced Mode OFF
+    bool elo_active = has_engine && !adv_active;
+    
+    if (dialog->custom_elo_slider) gtk_widget_set_sensitive(dialog->custom_elo_slider, elo_active);
+    if (dialog->custom_elo_spin) gtk_widget_set_sensitive(dialog->custom_elo_spin, elo_active);
+}
+
 static void on_custom_advanced_toggled(GtkCheckButton* btn, gpointer user_data) {
     AiDialog* dialog = (AiDialog*)user_data;
     bool active = gtk_check_button_get_active(btn);
     gtk_widget_set_visible(dialog->custom_adv_vbox, active);
+    update_custom_controls_state(dialog);
 }
 
 static void on_custom_reset_adv_clicked(GtkButton* btn, gpointer user_data) {
@@ -168,6 +198,9 @@ static void on_custom_reset_adv_clicked(GtkButton* btn, gpointer user_data) {
 static void on_clear_path_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn;
     AiDialog* dialog = (AiDialog*)user_data;
+    if (dialog->custom_adv_check) {
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->custom_adv_check), FALSE);
+    }
     gtk_editable_set_text(GTK_EDITABLE(dialog->custom_path_entry), "");
 }
 
@@ -190,6 +223,7 @@ static void on_custom_path_changed(GtkEditable* editable, gpointer user_data) {
         gtk_label_set_text(GTK_LABEL(dialog->custom_status_label), "");
         dialog->is_custom_configured = false;
     }
+    update_custom_controls_state(dialog);
 }
 
 static void on_browse_finished(GObject* src, GAsyncResult* r, gpointer d) {
@@ -356,6 +390,7 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_box_append(GTK_BOX(dialog->content_box), title);
     
     dialog->notebook = gtk_notebook_new();
+    gtk_widget_set_vexpand(dialog->notebook, TRUE);
     gtk_box_append(GTK_BOX(dialog->content_box), dialog->notebook);
     
     // --- TAB 1: Internal Engine ---
@@ -375,14 +410,14 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_widget_set_halign(elo_label, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(int_tab), elo_label);
     
-    GtkAdjustment* elo_adj = gtk_adjustment_new(1500, 100, 3600, 50, 500, 0);
-    g_signal_connect(elo_adj, "value-changed", G_CALLBACK(on_elo_changed), dialog);
+    dialog->int_elo_adj = gtk_adjustment_new(1500, 100, 3600, 50, 500, 0);
+    g_signal_connect(dialog->int_elo_adj, "value-changed", G_CALLBACK(on_int_elo_changed), dialog);
     
-    dialog->elo_slider = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, elo_adj);
+    dialog->elo_slider = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, dialog->int_elo_adj);
     gtk_scale_set_draw_value(GTK_SCALE(dialog->elo_slider), FALSE);
     gtk_box_append(GTK_BOX(int_tab), dialog->elo_slider);
     
-    dialog->elo_spin = gtk_spin_button_new(elo_adj, 50, 0);
+    dialog->elo_spin = gtk_spin_button_new(dialog->int_elo_adj, 50, 0);
     gtk_box_append(GTK_BOX(int_tab), dialog->elo_spin);
 
     // UCI Usage Instructions for Inbuilt
@@ -475,7 +510,13 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_widget_set_visible(dialog->nnue_toggle, FALSE);
     gtk_box_append(GTK_BOX(int_tab), dialog->nnue_toggle);
 
-    gtk_notebook_append_page(GTK_NOTEBOOK(dialog->notebook), int_tab, gtk_label_new("Internal Engine"));
+    // Wrap Internal Tab in Scroller
+    GtkWidget* int_scroller = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(int_scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(int_scroller), FALSE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(int_scroller), int_tab);
+
+    gtk_notebook_append_page(GTK_NOTEBOOK(dialog->notebook), int_scroller, gtk_label_new("Internal Engine"));
 
     // --- TAB 2: Custom Engine ---
     GtkWidget* custom_tab = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
@@ -501,7 +542,7 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     g_signal_connect(browse_btn, "clicked", G_CALLBACK(on_browse_clicked), dialog);
     gtk_box_append(GTK_BOX(path_hbox), browse_btn);
 
-    GtkWidget* clear_btn = gtk_button_new_from_icon_name("edit-clear-symbolic");
+    GtkWidget* clear_btn = gtk_button_new_from_icon_name("edit-delete-symbolic");
     gtk_widget_set_tooltip_text(clear_btn, "Clear Path / Remove Engine");
     g_signal_connect(clear_btn, "clicked", G_CALLBACK(on_clear_path_clicked), dialog);
     gtk_box_append(GTK_BOX(path_hbox), clear_btn);
@@ -510,6 +551,23 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     
     dialog->custom_status_label = gtk_label_new("");
     gtk_box_append(GTK_BOX(custom_tab), dialog->custom_status_label);
+
+    gtk_box_append(GTK_BOX(custom_tab), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    // Custom ELO (Synced with Internal)
+    GtkWidget* c_elo_label = gtk_label_new("Difficulty (ELO):");
+    gtk_widget_set_halign(c_elo_label, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(custom_tab), c_elo_label);
+
+    dialog->custom_elo_adj = gtk_adjustment_new(1500, 100, 3600, 50, 500, 0);
+    g_signal_connect(dialog->custom_elo_adj, "value-changed", G_CALLBACK(on_custom_elo_changed), dialog);
+
+    dialog->custom_elo_slider = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, dialog->custom_elo_adj);
+    gtk_scale_set_draw_value(GTK_SCALE(dialog->custom_elo_slider), FALSE);
+    gtk_box_append(GTK_BOX(custom_tab), dialog->custom_elo_slider);
+
+    dialog->custom_elo_spin = gtk_spin_button_new(dialog->custom_elo_adj, 50, 0);
+    gtk_box_append(GTK_BOX(custom_tab), dialog->custom_elo_spin);
 
     gtk_box_append(GTK_BOX(custom_tab), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 
@@ -572,12 +630,21 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_box_append(GTK_BOX(usage_vbox), usage_label);
     gtk_box_append(GTK_BOX(custom_tab), usage_vbox);
 
-    gtk_notebook_append_page(GTK_NOTEBOOK(dialog->notebook), custom_tab, gtk_label_new("Custom Engine"));
+    // Wrap Custom Tab in Scroller
+    GtkWidget* cust_scroller = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(cust_scroller), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(cust_scroller), FALSE);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(cust_scroller), custom_tab);
+
+    gtk_notebook_append_page(GTK_NOTEBOOK(dialog->notebook), cust_scroller, gtk_label_new("Custom Engine"));
 
     // Focus clearing gesture on main box
     GtkGesture* gesture = gtk_gesture_click_new();
     g_signal_connect(gesture, "pressed", G_CALLBACK(on_focus_lost_gesture), dialog->content_box);
     gtk_widget_add_controller(dialog->content_box, GTK_EVENT_CONTROLLER(gesture));
+    
+    // Init state
+    update_custom_controls_state(dialog);
 }
 
 // --- Public API ---
@@ -586,12 +653,18 @@ AiDialog* ai_dialog_new_embedded(void) {
     AiDialog* dialog = (AiDialog*)calloc(1, sizeof(AiDialog));
     if (!dialog) return NULL;
     
-    dialog->current_elo = 1500;
+    dialog->int_elo = 1500;
+    dialog->custom_elo = 1500;
     dialog->int_manual_movetime = false;
     dialog->custom_manual_movetime = false;
     
     ai_dialog_build_ui(dialog);
     // Only construct content, no window
+    
+    // Take ownership of the content box to prevent destruction when removed from parents
+    if (dialog->content_box) {
+        g_object_ref_sink(dialog->content_box);
+    }
     
     return dialog;
 }
@@ -647,12 +720,21 @@ void ai_dialog_show(AiDialog* dialog) {
 void ai_dialog_free(AiDialog* dialog) {
     if (dialog) {
         if (dialog->nnue_path) g_free(dialog->nnue_path);
+        // If we have a window, destroying it handles the content (if it's child)
+        // But if we hold a hard ref (embedded), we must release it.
+        // Identify if we need to release content_box:
+        if (dialog->content_box) {
+            g_object_unref(dialog->content_box);
+        }
         if (dialog->window) gtk_window_destroy(dialog->window);
         free(dialog);
     }
 }
 
-int ai_dialog_get_elo(AiDialog* dialog) { return dialog ? dialog->current_elo : 1500; }
+int ai_dialog_get_elo(AiDialog* dialog, bool is_custom) { 
+    if (!dialog) return 1500;
+    return is_custom ? dialog->custom_elo : dialog->int_elo;
+}
 
 bool ai_dialog_is_advanced_enabled(AiDialog* dialog, bool is_custom) {
     if (!dialog) return false;
@@ -707,12 +789,19 @@ void ai_dialog_show_tab(AiDialog* dialog, int tab_index) {
     }
 }
 
-void ai_dialog_set_elo(AiDialog* dialog, int elo) {
+void ai_dialog_set_elo(AiDialog* dialog, int elo, bool is_custom) {
     if (!dialog) return;
-    dialog->current_elo = elo;
-    // Update UI if exists (internal engine only primarily)
-    if (dialog->elo_slider) {
-        gtk_range_set_value(GTK_RANGE(dialog->elo_slider), (double)elo);
+    
+    if (is_custom) {
+        dialog->custom_elo = elo;
+        if (dialog->custom_elo_slider) {
+            gtk_range_set_value(GTK_RANGE(dialog->custom_elo_slider), (double)elo);
+        }
+    } else {
+        dialog->int_elo = elo;
+        if (dialog->elo_slider) {
+            gtk_range_set_value(GTK_RANGE(dialog->elo_slider), (double)elo);
+        }
     }
 }
 

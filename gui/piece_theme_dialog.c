@@ -93,12 +93,6 @@ static void update_preview(PieceThemeDialog* dialog);
 static void check_update_preview_cache(PieceThemeDialog* dialog);
 static gboolean on_window_close_request(GtkWindow* window, gpointer user_data);
 
-// Helper to nullify pointer when widget is destroyed
-static void on_widget_destroyed(GtkWidget* widget, gpointer* pointer) {
-    (void)widget;
-    if (pointer) *pointer = NULL;
-}
-
 // Helpers
 static char* capitalize_string(const char* str) {
     if (!str || !str[0]) return NULL;
@@ -688,8 +682,9 @@ static gboolean on_window_close_request(GtkWindow* window, gpointer user_data) {
 // UI Construction
 static void piece_theme_dialog_build_ui(PieceThemeDialog* dialog) {
     dialog->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
-    // Connect destroy signal to nullify the pointer in the struct
-    g_signal_connect(dialog->content_box, "destroy", G_CALLBACK(on_widget_destroyed), &dialog->content_box);
+    dialog->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
+    // Explicit ownership management - no destroy signal needed
+
 
     gtk_widget_set_margin_top(dialog->content_box, 24);
     gtk_widget_set_margin_bottom(dialog->content_box, 24);
@@ -917,6 +912,12 @@ PieceThemeDialog* piece_theme_dialog_new_embedded(ThemeData* theme, PieceThemeUp
     }
     
     piece_theme_dialog_build_ui(dialog);
+    
+    // Take ownership of the widget to prevent destruction by parent
+    if (dialog->content_box) {
+        g_object_ref_sink(dialog->content_box);
+    }
+    
     return dialog;
 }
 
@@ -962,9 +963,10 @@ void piece_theme_dialog_free(PieceThemeDialog* dialog) {
     if (!dialog) return;
     
     // [DEBUG] Fix: Disconnect destroy handler to prevent use-after-free
-    if (dialog->content_box && GTK_IS_WIDGET(dialog->content_box)) {
-        if (debug_mode) printf("[PieceTheme] Disconnecting destroy handler %p\n", (void*)dialog->content_box);
-        g_signal_handlers_disconnect_by_func(dialog->content_box, G_CALLBACK(on_widget_destroyed), &dialog->content_box);
+    // Release our reference to the widget
+    if (dialog->content_box) {
+        g_object_unref(dialog->content_box);
+        dialog->content_box = NULL;
     }
 
     // Free fonts/surfaces cache

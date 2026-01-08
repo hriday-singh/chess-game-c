@@ -155,6 +155,40 @@ typedef struct {
     bool is_black;
 } SideCallbackData;
 
+static void
+set_ai_adv_ui(GtkWidget *elo_box,
+              GtkWidget *adv_box,
+              GtkLabel  *depth_label,
+              GtkLabel  *time_label,
+              gboolean   adv,
+              int        depth,
+              int        time_ms)
+{
+    gtk_widget_set_visible(elo_box, !adv);
+    gtk_widget_set_visible(adv_box,  adv);
+
+    if (!adv) return;
+
+    gtk_label_set_xalign(depth_label, 0.0f);
+    gtk_label_set_xalign(time_label,  0.0f);
+
+    g_autofree char *depth_markup = g_strdup_printf(
+        "Depth\n<span size='xx-large' weight='bold'>%d</span>",
+        depth
+    );
+
+    g_autofree char *time_markup = g_strdup_printf(
+        "Time\n<span size='xx-large' weight='bold'>%d</span><span size='large' weight='bold'>ms</span>",
+        time_ms
+    );
+
+    gtk_label_set_use_markup(depth_label, TRUE);
+    gtk_label_set_use_markup(time_label,  TRUE);
+
+    gtk_label_set_markup(depth_label, depth_markup);
+    gtk_label_set_markup(time_label,  time_markup);
+}
+
 // Helper to build a side's AI settings block
 static GtkWidget* create_ai_side_block(InfoPanel* panel, bool is_black, const char* title) {
     GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -1284,26 +1318,21 @@ void info_panel_update_ai_settings(GtkWidget* info_panel, bool white_adv, int wh
     if (!panel) return;
 
     // White AI
-    gtk_widget_set_visible(panel->white_ai.elo_box, !white_adv);
-    gtk_widget_set_visible(panel->white_ai.adv_box, white_adv);
-    if (white_adv) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "Depth: %d", white_depth);
-        gtk_label_set_text(GTK_LABEL(panel->white_ai.depth_label), buf);
-        snprintf(buf, sizeof(buf), "Time: %dms", white_time);
-        gtk_label_set_text(GTK_LABEL(panel->white_ai.time_label), buf);
-    }
+    set_ai_adv_ui(panel->white_ai.elo_box,
+              panel->white_ai.adv_box,
+              GTK_LABEL(panel->white_ai.depth_label),
+              GTK_LABEL(panel->white_ai.time_label),
+              white_adv,
+              white_depth,
+              white_time);
 
-    // Black AI
-    gtk_widget_set_visible(panel->black_ai.elo_box, !black_adv);
-    gtk_widget_set_visible(panel->black_ai.adv_box, black_adv);
-    if (black_adv) {
-        char buf[64]; // Declare buf here
-        snprintf(buf, sizeof(buf), "Depth: %d", black_depth);
-        gtk_label_set_text(GTK_LABEL(panel->black_ai.depth_label), buf);
-        snprintf(buf, sizeof(buf), "Time: %dms", black_time);
-        gtk_label_set_text(GTK_LABEL(panel->black_ai.time_label), buf);
-    }
+    set_ai_adv_ui(panel->black_ai.elo_box,
+                panel->black_ai.adv_box,
+                GTK_LABEL(panel->black_ai.depth_label),
+                GTK_LABEL(panel->black_ai.time_label),
+                black_adv,
+                black_depth,
+                black_time);
 }
 
 void info_panel_set_elo(GtkWidget* info_panel, int elo, bool is_black) {

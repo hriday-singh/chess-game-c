@@ -26,6 +26,7 @@
 
 #include "app_state.h"
 #include "tutorial.h"
+#include "dark_mode_button.h"
 
 // Globals
 static AppState* g_app_state = NULL;
@@ -88,9 +89,9 @@ static void open_settings_page(AppState* app, const char* page) {
 }
 
 static void show_ai_settings_dialog(int tab_index, gpointer user_data) {
-    (void)tab_index; // Unused for now
     AppState* state = (AppState*)user_data;
     if (state->ai_dialog) {
+        ai_dialog_show_tab(state->ai_dialog, tab_index);
         open_settings_page(state, "ai");
     }
 }
@@ -240,6 +241,9 @@ static void update_ui_callback(void) {
 
 
 
+// Forward declaration
+static gboolean sync_ai_settings_to_panel(gpointer user_data);
+
 static void on_ai_settings_changed(void* user_data) {
     AppState* state = (AppState*)user_data;
     // Reset board only if not in tutorial
@@ -251,6 +255,8 @@ static void on_ai_settings_changed(void* user_data) {
              if (state->info_panel) info_panel_rebuild_layout(state->info_panel);
         }
     }
+    // Force immediate sync to panel
+    sync_ai_settings_to_panel(state);
 }
 
 
@@ -636,16 +642,24 @@ static gboolean sync_ai_settings_to_panel(gpointer user_data) {
     if (!state || !state->ai_dialog || !state->info_panel) return G_SOURCE_CONTINUE;
     
     // Sync Advanced Mode visibility / Labels
-    bool w_adv = ai_dialog_is_advanced_enabled(state->ai_dialog, false); // false = not custom
-    int w_depth = ai_dialog_get_depth(state->ai_dialog, false);
-    int w_time = ai_dialog_get_movetime(state->ai_dialog, false);
+    // Check if Custom Engine is selected for White/Black to fetch correct settings
+    bool white_uses_custom = info_panel_is_custom_selected(state->info_panel, false); // false = white
+    bool black_uses_custom = info_panel_is_custom_selected(state->info_panel, true);  // true = black
+
+    bool w_adv = ai_dialog_is_advanced_enabled(state->ai_dialog, white_uses_custom);
+    int w_depth = ai_dialog_get_depth(state->ai_dialog, white_uses_custom);
+    int w_time = ai_dialog_get_movetime(state->ai_dialog, white_uses_custom);
     
-    bool b_adv = ai_dialog_is_advanced_enabled(state->ai_dialog, false); // Assuming same settings for now or internal
-    int b_depth = w_depth; 
-    int b_time = w_time;
+    bool b_adv = ai_dialog_is_advanced_enabled(state->ai_dialog, black_uses_custom);
+    int b_depth = ai_dialog_get_depth(state->ai_dialog, black_uses_custom); 
+    int b_time = ai_dialog_get_movetime(state->ai_dialog, black_uses_custom);
     
     info_panel_update_ai_settings(state->info_panel, w_adv, w_depth, w_time, b_adv, b_depth, b_time);
     
+    // Sync Custom Engine Availability
+    bool has_custom = ai_dialog_has_valid_custom_engine(state->ai_dialog);
+    info_panel_set_custom_available(state->info_panel, has_custom);
+
     return G_SOURCE_CONTINUE;
 }
 
@@ -687,7 +701,8 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         ".capture-count { font-size: 10px; font-weight: bold; color: #555; margin-left: 2px; }"
     );
     gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(cssProvider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    state->ai_dialog = ai_dialog_new(state->window);
+    // Initialize AI Dialog as embedded (View managed by SettingsDialog)
+    state->ai_dialog = ai_dialog_new_embedded();
     ai_dialog_set_settings_changed_callback(state->ai_dialog, on_ai_settings_changed, state);
     sound_engine_init();
     state->theme = theme_data_new();
@@ -707,6 +722,12 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     // Set default target to empty string (will trigger logic to use last page)
     gtk_actionable_set_action_target(GTK_ACTIONABLE(settings_btn), "s", "");
     
+    // Create Dark Mode Toggle Button (UI Only)
+    GtkWidget* dark_mode_btn = dark_mode_button_new();
+    gtk_widget_set_valign(dark_mode_btn, GTK_ALIGN_CENTER);
+    // Pack it next to the settings button (end)
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), dark_mode_btn);
+
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), settings_btn);
     
     // Exit Tutorial Button

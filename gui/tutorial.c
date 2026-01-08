@@ -301,7 +301,7 @@ void on_tutorial_exit(GtkButton* btn, gpointer user_data) {
     gamelogic_reset(state->logic);
     
     // Set ELO to 100 on exit
-    if (state->ai_dialog) ai_dialog_set_elo(state->ai_dialog, 100);
+    if (state->ai_dialog) ai_dialog_set_elo(state->ai_dialog, 100, false);
     // Also update InfoPanel slider
     if (state->info_panel) info_panel_set_elo(state->info_panel, 100, true); 
     

@@ -321,30 +321,35 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     gtk_stack_add_named(GTK_STACK(dialog->stack), create_tutorial_page(dialog), "tutorial");
     
     // 2. AI Settings
-    // Reuse existing singleton logic if possible, or create embedded
-    // AppState has ai_dialog pointer. We can check if it's initialized.
-    // However, existing ai_dialog_new creates a window. We want embedded.
-    // We should reuse the underlying DATA/State but create new UI? 
-    // Or if we refactored correctly, we can create a new UI that updates shared state?
-    // AiDialog implementation stores state internally. 
-    // We should prefer using the existing dialog structure if we refactored it to just be the content.
-    // But `ai_dialog` in AppState is `AiDialog*`. 
-    // If we want to PERSIST settings, we should use the one in AppState or equivalent.
-    
-    // Refactoring check: We changed AiDialog struct. It holds the data.
-    // If we create a NEW AiDialog, it has default 1500 ELO. That's bad.
-    // We should pass the AppState's AiDialog if it exists, and REPARENT its content?
-    // Reparenting is tricky if the widget is already in a window.
-    // Plan: Create a new embedded AiDialog, but init it with values from AppState (if we can read them).
-    // Or better: The AppState holds the logic/engine handle. The Dialog is just UI.
-    // Let's create a NEW embedded AiDialog. We can sync it later.
-    
-    dialog->ai_dialog = ai_dialog_new_embedded();
-    ai_dialog_set_parent_window(dialog->ai_dialog, dialog->window);
-    GtkWidget* ai_widget = ai_dialog_get_widget(dialog->ai_dialog);
-    gtk_widget_set_margin_start(ai_widget, 20);
-    gtk_widget_set_margin_end(ai_widget, 20);
-    gtk_stack_add_named(GTK_STACK(dialog->stack), ai_widget, "ai");
+    // Use the shared AI Dialog from AppState
+    if (app_state && app_state->ai_dialog) {
+        dialog->ai_dialog = app_state->ai_dialog;
+        ai_dialog_set_parent_window(dialog->ai_dialog, dialog->window);
+        GtkWidget* ai_widget = ai_dialog_get_widget(dialog->ai_dialog);
+        
+        // Ensure we own a reference so it survives stack removal
+        // (If it was previously floating, stack took ownership. If reused, we need to handle reparenting)
+        GtkWidget* parent = gtk_widget_get_parent(ai_widget);
+        if (parent) {
+             g_object_ref(ai_widget);
+             if (GTK_IS_BOX(parent)) gtk_box_remove(GTK_BOX(parent), ai_widget); // Should not happen with current logic if handled correctly
+             else if (GTK_IS_WINDOW(parent)) gtk_window_set_child(GTK_WINDOW(parent), NULL);
+             else {
+                 // Try to remove from stack if we know it?
+                 // For now assume safely unparented
+             }
+        }
+        
+        gtk_widget_set_margin_start(ai_widget, 20);
+        gtk_widget_set_margin_end(ai_widget, 20);
+        gtk_stack_add_named(GTK_STACK(dialog->stack), ai_widget, "ai");
+    } else {
+         // Fallback (Should not happen)
+         dialog->ai_dialog = ai_dialog_new_embedded();
+         ai_dialog_set_parent_window(dialog->ai_dialog, dialog->window);
+         GtkWidget* ai_widget = ai_dialog_get_widget(dialog->ai_dialog);
+         gtk_stack_add_named(GTK_STACK(dialog->stack), ai_widget, "ai");
+    }
     
     // 3. Board Theme
     // We need ThemeData.
@@ -478,8 +483,22 @@ void settings_dialog_free(SettingsDialog* dialog) {
     if (dialog) {
         
         if (dialog->ai_dialog) {
-            if (debug_mode) printf("[Settings] Freeing ai_dialog\n");
-            ai_dialog_free(dialog->ai_dialog);
+            if (dialog->app_state && dialog->ai_dialog == dialog->app_state->ai_dialog) {
+                // Shared dialog: Prevent destruction handling by ref'ing and removing from stack
+                if (debug_mode) printf("[Settings] Preserving shared ai_dialog\n");
+                GtkWidget* w = ai_dialog_get_widget(dialog->ai_dialog);
+                if (w) {
+                    g_object_ref(w); // Ensure we hold a strong ref (total 2: AiDialog + Us)
+                    GtkWidget* parent = gtk_widget_get_parent(w);
+                    if (parent && parent == GTK_WIDGET(dialog->stack)) {
+                        gtk_stack_remove(GTK_STACK(dialog->stack), w); // Unparents, drops 1 ref. Total 1 (AiDialog).
+                    }
+                    g_object_unref(w); // Drop our local safety ref. Total 1.
+                }
+            } else {
+                if (debug_mode) printf("[Settings] Freeing ai_dialog\n");
+                ai_dialog_free(dialog->ai_dialog);
+            }
         }
         if (dialog->board_dialog) {
             if (debug_mode) printf("[Settings] Freeing board_dialog\n");

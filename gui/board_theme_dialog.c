@@ -44,12 +44,6 @@ static void update_template_selection(BoardThemeDialog* dialog);
 static void on_template_changed(GObject* object, GParamSpec* pspec, gpointer user_data);
 static gboolean on_window_close_request(GtkWindow* window, gpointer user_data);
 
-// Helper to nullify pointer when widget is destroyed
-static void on_widget_destroyed(GtkWidget* widget, gpointer* pointer) {
-    (void)widget;
-    if (pointer) *pointer = NULL;
-}
-
 // Preview drawing function - shows a chessboard preview
 static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
     (void)area;
@@ -397,8 +391,7 @@ static void update_preview(BoardThemeDialog* dialog) {
 static void board_theme_dialog_build_ui(BoardThemeDialog* dialog) {
     // Main container - vertical layout
     dialog->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
-    // Connect destroy signal to nullify the pointer in the struct
-    g_signal_connect(dialog->content_box, "destroy", G_CALLBACK(on_widget_destroyed), &dialog->content_box);
+    // Explicit ownership management - no destroy signal needed
     
     gtk_widget_set_margin_top(dialog->content_box, 24);
     gtk_widget_set_margin_bottom(dialog->content_box, 24);
@@ -571,6 +564,11 @@ BoardThemeDialog* board_theme_dialog_new_embedded(ThemeData* theme, BoardThemeUp
     
     board_theme_dialog_build_ui(dialog);
     
+    // Take ownership of the widget
+    if (dialog->content_box) {
+        g_object_ref_sink(dialog->content_box);
+    }
+    
     return dialog;
 }
 
@@ -648,9 +646,9 @@ void board_theme_dialog_free(BoardThemeDialog* dialog) {
     if (debug_mode) printf("[BoardTheme] Freeing dialog %p\n", (void*)dialog);
     if (!dialog) return;
 
-    if (dialog->content_box && GTK_IS_WIDGET(dialog->content_box)) {
-        if (debug_mode) printf("[BoardTheme] Disconnecting destroy handler %p\n", (void*)dialog->content_box);
-        g_signal_handlers_disconnect_by_func(dialog->content_box, G_CALLBACK(on_widget_destroyed), &dialog->content_box);
+    if (dialog->content_box) {
+        g_object_unref(dialog->content_box);
+        dialog->content_box = NULL;
     }
 
     if (dialog->window) {

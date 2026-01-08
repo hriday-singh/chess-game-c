@@ -19,8 +19,8 @@ void ai_dialog_show(AiDialog* dialog);
 void ai_dialog_free(AiDialog* dialog);
 
 // Difficulty parameters
-int ai_dialog_get_elo(AiDialog* dialog);
-void ai_dialog_set_elo(AiDialog* dialog, int elo);
+int ai_dialog_get_elo(AiDialog* dialog, bool is_custom);
+void ai_dialog_set_elo(AiDialog* dialog, int elo, bool is_custom);
 void ai_dialog_set_settings_changed_callback(AiDialog* dialog, AiSettingsChangedCallback cb, void* data);
 bool ai_dialog_is_advanced_enabled(AiDialog* dialog, bool for_custom);
 int ai_dialog_get_depth(AiDialog* dialog, bool for_custom);
