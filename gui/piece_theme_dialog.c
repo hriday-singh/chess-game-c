@@ -25,6 +25,8 @@
 #define MAX_PIECE_SETS 100
 #define MAX_STROKE_WIDTH 4.0
 
+static bool debug_mode = false;
+
 // Helper to print RAM usage
 static void print_memory_usage() {
 #ifdef _WIN32
@@ -90,6 +92,12 @@ static void refresh_dialog(PieceThemeDialog* dialog);
 static void update_preview(PieceThemeDialog* dialog);
 static void check_update_preview_cache(PieceThemeDialog* dialog);
 static gboolean on_window_close_request(GtkWindow* window, gpointer user_data);
+
+// Helper to nullify pointer when widget is destroyed
+static void on_widget_destroyed(GtkWidget* widget, gpointer* pointer) {
+    (void)widget;
+    if (pointer) *pointer = NULL;
+}
 
 // Helpers
 static char* capitalize_string(const char* str) {
@@ -229,10 +237,10 @@ static void on_dropdown_item_draw(GtkDrawingArea* area, cairo_t* cr, int width, 
     cairo_fill(cr);
 
     if (folder_name) {
-        if (strcmp(folder_name, "Default (Segoe UI)") == 0) {
+        if (strcmp(folder_name, "Default") == 0 || strcmp(folder_name, "Default (Segoe UI)") == 0) {
             cairo_set_source_rgb(cr, 1, 1, 1);
             cairo_select_font_face(cr, "Segoe UI Symbol", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-            cairo_set_font_size(cr, height * 0.6);
+            cairo_set_font_size(cr, height * 0.9);
             cairo_text_extents_t extents;
             cairo_text_extents(cr, "\u2658", &extents);
             cairo_move_to(cr, (width - extents.width)/2.0 - extents.x_bearing, (height - extents.height)/2.0 - extents.y_bearing);
@@ -245,7 +253,8 @@ static void on_dropdown_item_draw(GtkDrawingArea* area, cairo_t* cr, int width, 
                 path = g_strdup_printf("build/assets/images/piece/%s/wN.svg", folder_name);
             }
             GError* err = NULL;
-            GdkPixbuf* pixbuf = gdk_pixbuf_new_from_file_at_scale(path, width - 8, height - 8, TRUE, &err);
+            int pad = 6;
+            GdkPixbuf* pixbuf = gdk_pixbuf_new_from_file_at_scale(path, width - pad, height - pad, TRUE, &err);
             if (pixbuf) {
                 cairo_surface_t* s = pixbuf_to_cairo_surface(pixbuf);
                 int sw = cairo_image_surface_get_width(s);
@@ -354,6 +363,7 @@ static void bind_list_item(GtkSignalListItemFactory* factory, GtkListItem* list_
     gulong id = g_signal_connect(dialog->piece_set_combo, "notify::selected", G_CALLBACK(on_dropdown_selected_changed_for_row), list_item);
     g_object_set_data(G_OBJECT(list_item), "sel_notify_id", (gpointer)(uintptr_t)id);
     update_row_selected_state(dialog, list_item);
+    gtk_widget_queue_draw(icon_area);
 }
 
 static void setup_button_item(GtkSignalListItemFactory* factory, GtkListItem* list_item, gpointer user_data) {
@@ -388,6 +398,7 @@ static void bind_button_item(GtkSignalListItemFactory* factory, GtkListItem* lis
     }
     g_object_set_data(G_OBJECT(icon_area), "dialog", dialog);
     g_object_set_data(G_OBJECT(icon_area), "folder_name", (gpointer)folder_name);
+    gtk_widget_queue_draw(icon_area);
 }
 
 // Drawing Preview
@@ -442,8 +453,8 @@ static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int he
     if (!dialog || !dialog->theme) return;
     
     int cols = 6; int rows = 2;
-    double padding = 20.0;
-    double headerHeight = 50.0;
+    double padding = 0.0;
+    double headerHeight = 0.0; 
     double availableHeight = height - 2 * padding - headerHeight;
     double sqW = (width - 2 * padding) / cols;
     double sqH = availableHeight / rows;
@@ -451,15 +462,15 @@ static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int he
     double gridWidth = squareSize * cols;
     double gridHeight = squareSize * rows;
     double startX = (width - gridWidth) / 2.0;
-    double startY = (height - gridHeight - headerHeight) / 2.0 + headerHeight;
+    double startY = (height - gridHeight) / 2.0;
     
-    cairo_set_source_rgb(cr, 0.1, 0.1, 0.1); 
-    cairo_select_font_face(cr, "Inter, Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-    cairo_set_font_size(cr, 20.0);
-    cairo_text_extents_t ext;
-    cairo_text_extents(cr, "Preview", &ext);
-    cairo_move_to(cr, (width - ext.width)/2.0 - ext.x_bearing, startY - 25.0);
-    cairo_show_text(cr, "Preview");
+    // cairo_set_source_rgb(cr, 0.1, 0.1, 0.1); 
+    // cairo_select_font_face(cr, "Inter, Sans", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    // cairo_set_font_size(cr, 20.0);
+    // cairo_text_extents_t ext;
+    // cairo_text_extents(cr, "Preview", &ext);
+    // cairo_move_to(cr, (width - ext.width)/2.0 - ext.x_bearing, startY - 25.0);
+    // cairo_show_text(cr, "Preview");
     
     double lightR, lightG, lightB, darkR, darkG, darkB;
     theme_data_get_light_square_color(dialog->theme, &lightR, &lightG, &lightB);
@@ -685,28 +696,46 @@ static gboolean on_window_close_request(GtkWindow* window, gpointer user_data) {
 // UI Construction
 static void piece_theme_dialog_build_ui(PieceThemeDialog* dialog) {
     dialog->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
+    // Connect destroy signal to nullify the pointer in the struct
+    g_signal_connect(dialog->content_box, "destroy", G_CALLBACK(on_widget_destroyed), &dialog->content_box);
+
     gtk_widget_set_margin_top(dialog->content_box, 24);
     gtk_widget_set_margin_bottom(dialog->content_box, 24);
     gtk_widget_set_margin_start(dialog->content_box, 24);
     gtk_widget_set_margin_end(dialog->content_box, 24);
     
     GtkWidget* title = gtk_label_new("Customize Piece Style");
-    gtk_widget_add_css_class(title, "title-1"); 
+    PangoAttrList* attrs = pango_attr_list_new();
+    PangoAttribute* weight = pango_attr_weight_new(PANGO_WEIGHT_BOLD);
+    PangoAttribute* size = pango_attr_size_new(24 * PANGO_SCALE);
+    pango_attr_list_insert(attrs, weight);
+    pango_attr_list_insert(attrs, size);
+    gtk_label_set_attributes(GTK_LABEL(title), attrs);
+    pango_attr_list_unref(attrs);
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(dialog->content_box), title);
     
     GtkWidget* main_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 32);
     gtk_box_append(GTK_BOX(dialog->content_box), main_hbox);
     
-    // Left controls
+    // Left Container (Holds Scroll + Fixed Actions)
+    GtkWidget* left_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_size_request(left_vbox, 300, -1);
+    gtk_box_append(GTK_BOX(main_hbox), left_vbox);
+
+    // Left controls (Scrollable)
     GtkWidget* controls_scroll = gtk_scrolled_window_new();
-    gtk_widget_set_size_request(controls_scroll, 300, -1);
     gtk_widget_set_vexpand(controls_scroll, TRUE);
     GtkWidget* controls_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_set_margin_end(controls_box, 12); // Add some padding for scrollbar
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(controls_scroll), controls_box);
-    gtk_box_append(GTK_BOX(main_hbox), controls_scroll);
+    gtk_box_append(GTK_BOX(left_vbox), controls_scroll);
     
     // Piece Set
-    gtk_box_append(GTK_BOX(controls_box), gtk_label_new("Piece Set"));
+    GtkWidget* ps_label = gtk_label_new("Piece Set");
+    gtk_widget_set_halign(ps_label, GTK_ALIGN_START);
+    gtk_widget_add_css_class(ps_label, "heading");
+    gtk_box_append(GTK_BOX(controls_box), ps_label);
     GtkStringList* sl = gtk_string_list_new(NULL);
     for (int i=0; i<dialog->piece_set_count; i++) gtk_string_list_append(sl, dialog->piece_sets[i].display_name);
     
@@ -727,6 +756,15 @@ static void piece_theme_dialog_build_ui(PieceThemeDialog* dialog) {
     if (pop) g_signal_connect(pop, "notify::visible", G_CALLBACK(on_piece_dropdown_popover_visible), dialog);
     
     gtk_box_append(GTK_BOX(controls_box), dialog->piece_set_combo);
+
+    // Separator
+    gtk_box_append(GTK_BOX(controls_box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    
+    // Custom Style
+    GtkWidget* colors_label = gtk_label_new("Custom Colors & Style");
+    gtk_widget_set_halign(colors_label, GTK_ALIGN_START);
+    gtk_widget_add_css_class(colors_label, "heading");
+    gtk_box_append(GTK_BOX(controls_box), colors_label);
     
     // Colors
     // White Piece Color
@@ -800,7 +838,7 @@ static void piece_theme_dialog_build_ui(PieceThemeDialog* dialog) {
     // Black Stroke Width
     GtkWidget* bsw_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     GtkWidget* bsw_label = gtk_label_new("Black Stroke Width");
-    gtk_widget_set_hexpand(bsw_label, TRUE);
+    gtk_widget_set_hexpand(wsw_label, TRUE);
     gtk_widget_set_halign(bsw_label, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(bsw_box), bsw_label);
     
@@ -809,44 +847,64 @@ static void piece_theme_dialog_build_ui(PieceThemeDialog* dialog) {
     gtk_box_append(GTK_BOX(bsw_box), dialog->black_stroke_width_spin);
     gtk_box_append(GTK_BOX(controls_box), bsw_box);
     
-    // Actions
+    // Actions (Fixed at bottom, outside scroll)
+    GtkWidget* actions_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+    gtk_box_append(GTK_BOX(left_vbox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL)); // Optional separator
+    
     dialog->reset_colors_button = gtk_button_new_with_label("Reset Colors & Thickness");
     g_signal_connect(dialog->reset_colors_button, "clicked", G_CALLBACK(on_reset_colors_clicked), dialog);
-    gtk_box_append(GTK_BOX(controls_box), dialog->reset_colors_button);
+    gtk_box_append(GTK_BOX(actions_box), dialog->reset_colors_button);
     
     dialog->reset_piece_type_button = gtk_button_new_with_label("Reset Piece Set");
     g_signal_connect(dialog->reset_piece_type_button, "clicked", G_CALLBACK(on_reset_piece_type_clicked), dialog);
-    gtk_box_append(GTK_BOX(controls_box), dialog->reset_piece_type_button);
+    gtk_box_append(GTK_BOX(actions_box), dialog->reset_piece_type_button);
+    
+    gtk_box_append(GTK_BOX(left_vbox), actions_box);
     
     // Right: Preview
+    // Tighter spacing (2px)
+    GtkWidget* preview_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_hexpand(preview_box, TRUE);
+    gtk_widget_set_vexpand(preview_box, TRUE);
+    gtk_widget_set_halign(preview_box, GTK_ALIGN_CENTER);
+
+    GtkWidget* preview_label = gtk_label_new("Preview");
+    gtk_widget_set_halign(preview_label, GTK_ALIGN_CENTER);
+    gtk_widget_add_css_class(preview_label, "heading");
+    gtk_widget_set_margin_bottom(preview_label, 0); // Force 0 bottom margin
+    gtk_box_append(GTK_BOX(preview_box), preview_label);
+
     dialog->preview_area = gtk_drawing_area_new();
     gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(dialog->preview_area), 600);
-    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(dialog->preview_area), 500);
+    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(dialog->preview_area), 250);
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(dialog->preview_area), on_preview_draw, dialog, NULL);
-    gtk_widget_set_hexpand(dialog->preview_area, TRUE);
-    gtk_widget_set_vexpand(dialog->preview_area, TRUE);
-    gtk_box_append(GTK_BOX(main_hbox), dialog->preview_area);
+    gtk_widget_set_halign(dialog->preview_area, GTK_ALIGN_CENTER);
+    
+    gtk_box_append(GTK_BOX(preview_box), dialog->preview_area);
+
+    gtk_box_append(GTK_BOX(main_hbox), preview_box);
     
     // Set initial values
     double r, g, b;
     theme_data_get_white_piece_color(dialog->theme, &r, &g, &b);
     GdkRGBA c = {r, g, b, 1.0};
-    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->white_piece_color_button), &c);
+    if (dialog->white_piece_color_button) gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->white_piece_color_button), &c);
     
     theme_data_get_white_piece_stroke(dialog->theme, &r, &g, &b); c = (GdkRGBA){r, g, b, 1.0};
-    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->white_stroke_color_button), &c);
+    if (dialog->white_stroke_color_button) gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->white_stroke_color_button), &c);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->white_stroke_width_spin), theme_data_get_white_stroke_width(dialog->theme));
     
     theme_data_get_black_piece_color(dialog->theme, &r, &g, &b); c = (GdkRGBA){r, g, b, 1.0};
-    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->black_piece_color_button), &c);
+    if (dialog->black_piece_color_button) gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->black_piece_color_button), &c);
     
     theme_data_get_black_piece_stroke(dialog->theme, &r, &g, &b); c = (GdkRGBA){r, g, b, 1.0};
-    gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->black_stroke_color_button), &c);
+    if (dialog->black_stroke_color_button) gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(dialog->black_stroke_color_button), &c);
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->black_stroke_width_spin), theme_data_get_black_stroke_width(dialog->theme));
 }
 
 // Public API
 PieceThemeDialog* piece_theme_dialog_new_embedded(ThemeData* theme, PieceThemeUpdateCallback on_update, void* user_data) {
+    if (debug_mode) printf("[PieceTheme] Creating embedded dialog. Theme=%p\n", (void*)theme);
     if (!theme) return NULL;
     PieceThemeDialog* dialog = (PieceThemeDialog*)calloc(1, sizeof(PieceThemeDialog));
     if (!dialog) return NULL;
@@ -906,13 +964,23 @@ void piece_theme_dialog_show(PieceThemeDialog* dialog) {
 }
 
 void piece_theme_dialog_free(PieceThemeDialog* dialog) {
+    if (debug_mode) printf("[PieceTheme] Freeing dialog %p\n", (void*)dialog);
     if (!dialog) return;
     
+    // [DEBUG] Fix: Disconnect destroy handler to prevent use-after-free
+    if (dialog->content_box && GTK_IS_WIDGET(dialog->content_box)) {
+        if (debug_mode) printf("[PieceTheme] Disconnecting destroy handler %p\n", (void*)dialog->content_box);
+        g_signal_handlers_disconnect_by_func(dialog->content_box, G_CALLBACK(on_widget_destroyed), &dialog->content_box);
+    }
+
     // Free fonts/surfaces cache
     clear_preview_cache(dialog);
     free_piece_sets(dialog);
 
-    if (dialog->window) gtk_window_destroy(dialog->window);
+    if (dialog->window) {
+        if (debug_mode) printf("[PieceTheme] Destroying window\n");
+        gtk_window_destroy(dialog->window);
+    }
     
     // Unref color dialogs
     if (dialog->white_piece_dialog && G_IS_OBJECT(dialog->white_piece_dialog)) g_object_unref(dialog->white_piece_dialog);
@@ -921,4 +989,5 @@ void piece_theme_dialog_free(PieceThemeDialog* dialog) {
     if (dialog->black_stroke_dialog && G_IS_OBJECT(dialog->black_stroke_dialog)) g_object_unref(dialog->black_stroke_dialog);
     
     free(dialog);
+    if (debug_mode) printf("[PieceTheme] Dialog freed\n");
 }

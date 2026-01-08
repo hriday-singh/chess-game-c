@@ -2,11 +2,11 @@
 #include <gtk/gtk.h>
 #include "app_state.h"
 #include "puzzles.h"
+#include "board_widget.h"
 
 struct _SettingsDialog {
     GtkWindow* window;
     AppState* app_state;
-    // ...
     GtkWidget* sidebar; 
     GtkWidget* stack;   
     AiDialog* ai_dialog;
@@ -18,14 +18,16 @@ struct _SettingsDialog {
 #include "board_theme_dialog.h"
 #include "piece_theme_dialog.h"
 #include "tutorial.h"
-#include "puzzles.h"
+#include <ctype.h>
 
-// Helper: Update board when theme changes
+static bool debug_mode = false;
+
+// --- Helper: Create Sidebar Row ---when theme changes
 static void on_theme_update(void* user_data) {
     if (!user_data) return;
     AppState* app = (AppState*)user_data;
     if (app->board) {
-        gtk_widget_queue_draw(app->board);
+        board_widget_refresh(app->board);
     }
 }
 
@@ -187,30 +189,35 @@ static GtkWidget* create_puzzles_page(SettingsDialog* dialog) {
     
     // Title
     GtkWidget* title = gtk_label_new("Puzzles");
+    PangoAttrList* attrs = pango_attr_list_new();
+    PangoAttribute* weight = pango_attr_weight_new(PANGO_WEIGHT_BOLD);
+    PangoAttribute* size = pango_attr_size_new(24 * PANGO_SCALE);
+    pango_attr_list_insert(attrs, weight);
+    pango_attr_list_insert(attrs, size);
+    gtk_label_set_attributes(GTK_LABEL(title), attrs);
+    pango_attr_list_unref(attrs);
     gtk_widget_set_halign(title, GTK_ALIGN_START);
-    gtk_widget_add_css_class(title, "title-1");
     gtk_box_append(GTK_BOX(vbox), title);
     
-    // Create / Import Section
-    GtkWidget* action_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-    GtkWidget* create_btn = gtk_button_new_with_label("Create / Import Puzzles");
-    gtk_widget_add_css_class(create_btn, "suggested-action");
-    gtk_widget_set_size_request(create_btn, -1, 40); // Taller button
-    g_signal_connect(create_btn, "clicked", G_CALLBACK(on_create_puzzle_clicked), dialog);
-    gtk_box_append(GTK_BOX(action_box), create_btn);
-    gtk_box_append(GTK_BOX(vbox), action_box);
+    // Create Button (Immediately under title)
+    GtkWidget* add_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    GtkWidget* add_btn = gtk_button_new_with_label("Create / Import Puzzle");
+    gtk_widget_add_css_class(add_btn, "suggested-action");
+    gtk_widget_set_size_request(add_btn, -1, 36);
+    g_signal_connect(add_btn, "clicked", G_CALLBACK(on_create_puzzle_clicked), dialog);
+    gtk_box_append(GTK_BOX(add_box), add_btn);
+    gtk_box_append(GTK_BOX(vbox), add_box);
     
-    // Separator
     gtk_box_append(GTK_BOX(vbox), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     
-    // List Header
-    // TODO: Distinguish between User and Built-in puzzles if API allows
+    // List Header Section
     char buffer[64];
     int count = puzzles_get_count();
     snprintf(buffer, sizeof(buffer), "Available Puzzles (%d)", count);
     
     GtkWidget* list_header = gtk_label_new(buffer);
     gtk_widget_set_halign(list_header, GTK_ALIGN_START);
+    gtk_widget_set_hexpand(list_header, TRUE);
     gtk_widget_add_css_class(list_header, "heading");
     gtk_box_append(GTK_BOX(vbox), list_header);
     
@@ -253,6 +260,7 @@ static GtkWidget* create_puzzles_page(SettingsDialog* dialog) {
 // --- Main Construction ---
 
 SettingsDialog* settings_dialog_new(AppState* app_state) {
+    if (debug_mode) printf("[Settings] Creating new SettingsDialog\n");
     SettingsDialog* dialog = (SettingsDialog*)calloc(1, sizeof(SettingsDialog));
     if (!dialog) return NULL;
     
@@ -262,7 +270,7 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     GtkWidget* win = gtk_window_new();
     dialog->window = GTK_WINDOW(win);
     gtk_window_set_title(dialog->window, "Settings");
-    gtk_window_set_default_size(dialog->window, 1000, 650);
+    gtk_window_set_default_size(dialog->window, 850, 580);
     gtk_window_set_modal(dialog->window, TRUE);
     if (app_state && app_state->window) {
         gtk_window_set_transient_for(dialog->window, app_state->window);
@@ -342,7 +350,7 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     // Currently `main.c` handles updates via callback.
     // We can pass a callback that calls `gtk_widget_queue_draw(app_state->board)`.
     
-    dialog->board_dialog = board_theme_dialog_new_embedded(theme_data, NULL, NULL); 
+    dialog->board_dialog = board_theme_dialog_new_embedded(theme_data, on_theme_update, app_state); 
     // Note: We need to set the callback! But we don't have access to main's static callback `update_board_theme`.
     // Should we expose it? Or just pass NULL and rely on the fact that theme_data changes might trigger something?
     // `board_theme_dialog.c` logic: calls callback on update.
@@ -394,7 +402,11 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
         ".sidebar row:selected { background: #3584e4; color: #ffffff; font-weight: bold; } "
         ".title-1 { font-size: 24px; font-weight: bold; margin-bottom: 8px; } "
         ".title-2 { font-size: 18px; font-weight: bold; margin-bottom: 12px; } "
-        ".dim-label { opacity: 0.7; } ";
+        ".dim-label { opacity: 0.7; } "
+        ".heading { font-weight: 700; font-size: 18px; color: #2c3e50; margin-bottom: 8px; } "
+        ".preview-frame { border: 2px solid #e0e0e0; border-radius: 8px; background: white; } "
+        "entry { padding: 6px 8px; border-radius: 6px; } "
+        "checkbutton, radiobutton { padding: 4px; } ";
     gtk_css_provider_load_from_string(provider, css);
     gtk_style_context_add_provider_for_display(
         gtk_widget_get_display(GTK_WIDGET(dialog->window)),
@@ -458,29 +470,23 @@ void settings_dialog_open_page(SettingsDialog* dialog, const char* page_name) {
 }
 
 void settings_dialog_free(SettingsDialog* dialog) {
+    if (debug_mode) printf("[Settings] Freeing SettingsDialog %p\n", (void*)dialog);
     if (dialog) {
-        // Embedded dialogs need to be freed?
-        // They were created with _new_embedded. Their widgets are in the stack.
-        // When window is destroyed, widgets are destroyed.
-        // BUT the *structs* (AiDialog, BoardThemeDialog) need freeing.
-        // And we need to ensure we don't double-free widgets.
-        // Ideally we should have `ai_dialog_destroy_embedded` which frees struct but leaves widget management to GTK?
-        // Or `ai_dialog_free` destroys the window. If window is NULL, it just frees struct?
-        // Let's check `ai_dialog_free`: `if (window) gtk_window_destroy(window); free(dialog);`
-        // If embedded, `window` is NULL. So it just frees struct.
-        // BUT content_box is child of stack. If we free struct, pointers inside it might be invalid?
-        // No, GtkWidgets are ref-counted.
         
-        if (dialog->ai_dialog) ai_dialog_free(dialog->ai_dialog);
-        if (dialog->board_dialog) board_theme_dialog_free(dialog->board_dialog);
-        if (dialog->piece_dialog) piece_theme_dialog_free(dialog->piece_dialog);
-        
-        // Note: We don't free AppState or close window explicitly here as this is called BY destroy signal
-        // But if called manually, we should destroy window?
-        // `g_signal_connect_swapped(..., settings_dialog_free, ...)`
-        // If called by destroy signal, window is being destroyed. `dialog->window` is invalid?
-        // We should just free the struct.
+        if (dialog->ai_dialog) {
+            if (debug_mode) printf("[Settings] Freeing ai_dialog\n");
+            ai_dialog_free(dialog->ai_dialog);
+        }
+        if (dialog->board_dialog) {
+            if (debug_mode) printf("[Settings] Freeing board_dialog\n");
+            board_theme_dialog_free(dialog->board_dialog);
+        }
+        if (dialog->piece_dialog) {
+            if (debug_mode) printf("[Settings] Freeing piece_dialog\n");
+            piece_theme_dialog_free(dialog->piece_dialog);
+        }
         
         free(dialog);
     }
+    if (debug_mode) printf("[Settings] Freed SettingsDialog\n");
 }

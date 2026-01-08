@@ -209,6 +209,15 @@ static void on_browse_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn;
     AiDialog* dialog = (AiDialog*)user_data;
     GtkFileDialog* fd = gtk_file_dialog_new();
+    GtkFileFilter* filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "UCI Engine (*.exe)");
+    gtk_file_filter_add_pattern(filter, "*.exe");
+    
+    GListStore* filter_list = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filter_list, filter);
+    gtk_file_dialog_set_filters(fd, G_LIST_MODEL(filter_list));
+    g_object_unref(filter_list);
+    
     gtk_file_dialog_set_title(fd, "Select Engine Binary");
     // Use dialog->window if available, else parent_window
     GtkWindow* w = dialog->window ? dialog->window : dialog->parent_window;
@@ -273,6 +282,15 @@ static void on_nnue_import_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn;
     AiDialog* dialog = (AiDialog*)user_data;
     GtkFileDialog* fd = gtk_file_dialog_new();
+    GtkFileFilter* filter = gtk_file_filter_new();
+    gtk_file_filter_set_name(filter, "NNUE Evaluation (*.nnue)");
+    gtk_file_filter_add_pattern(filter, "*.nnue");
+    
+    GListStore* filter_list = g_list_store_new(GTK_TYPE_FILE_FILTER);
+    g_list_store_append(filter_list, filter);
+    gtk_file_dialog_set_filters(fd, G_LIST_MODEL(filter_list));
+    g_object_unref(filter_list);
+    
     gtk_file_dialog_set_title(fd, "Select NNUE File");
     GtkWindow* w = dialog->window ? dialog->window : dialog->parent_window;
     gtk_file_dialog_open(fd, w, NULL, on_nnue_import_finished, dialog);
@@ -318,25 +336,37 @@ static void on_focus_lost_gesture(GtkGestureClick* gesture, int n_press, double 
 // --- Construction Helper ---
 
 static void ai_dialog_build_ui(AiDialog* dialog) {
-    dialog->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_widget_set_margin_top(dialog->content_box, 15);
-    gtk_widget_set_margin_bottom(dialog->content_box, 5); 
-    gtk_widget_set_margin_start(dialog->content_box, 15);
-    gtk_widget_set_margin_end(dialog->content_box, 15);
+    dialog->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
+    gtk_widget_set_margin_top(dialog->content_box, 24);
+    gtk_widget_set_margin_bottom(dialog->content_box, 24); 
+    gtk_widget_set_margin_start(dialog->content_box, 24);
+    gtk_widget_set_margin_end(dialog->content_box, 24);
     gtk_widget_set_focusable(dialog->content_box, TRUE); // Allow it to take focus to clear entries
+    
+    // Main Title
+    GtkWidget* title = gtk_label_new("AI Configuration");
+    PangoAttrList* attrs = pango_attr_list_new();
+    PangoAttribute* weight = pango_attr_weight_new(PANGO_WEIGHT_BOLD);
+    PangoAttribute* size = pango_attr_size_new(24 * PANGO_SCALE);
+    pango_attr_list_insert(attrs, weight);
+    pango_attr_list_insert(attrs, size);
+    gtk_label_set_attributes(GTK_LABEL(title), attrs);
+    pango_attr_list_unref(attrs);
+    gtk_widget_set_halign(title, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(dialog->content_box), title);
     
     dialog->notebook = gtk_notebook_new();
     gtk_box_append(GTK_BOX(dialog->content_box), dialog->notebook);
     
     // --- TAB 1: Internal Engine ---
-    GtkWidget* int_tab = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_widget_set_margin_top(int_tab, 15);
-    gtk_widget_set_margin_bottom(int_tab, 15);
-    gtk_widget_set_margin_start(int_tab, 15);
-    gtk_widget_set_margin_end(int_tab, 15);
+    GtkWidget* int_tab = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_set_margin_top(int_tab, 24);
+    gtk_widget_set_margin_bottom(int_tab, 24);
+    gtk_widget_set_margin_start(int_tab, 24);
+    gtk_widget_set_margin_end(int_tab, 24);
     
-    GtkWidget* int_header = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(int_header), "<span size='large' weight='bold'>Stockfish 17.1 (Inbuilt)</span>");
+    GtkWidget* int_header = gtk_label_new("Stockfish 17.1 (Inbuilt)");
+    gtk_widget_add_css_class(int_header, "heading");
     gtk_widget_set_halign(int_header, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(int_tab), int_header);
 
@@ -358,12 +388,15 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     // UCI Usage Instructions for Inbuilt
     GtkWidget* inbuilt_instr_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_widget_set_margin_top(inbuilt_instr_vbox, 5);
+    gtk_widget_set_halign(inbuilt_instr_vbox, GTK_ALIGN_START); // Align container to start
     GtkWidget* inbuilt_instr_label = gtk_label_new(
         "<span size='small' font_style='italic'>This inbuilt Stockfish 17.1 can be used via UCI protocol.\n"
         "It supports standard options like Skill Level (ELO), Depth, and NNUE.</span>"
     );
     gtk_label_set_use_markup(GTK_LABEL(inbuilt_instr_label), TRUE);
     gtk_label_set_wrap(GTK_LABEL(inbuilt_instr_label), TRUE);
+    gtk_widget_set_halign(inbuilt_instr_label, GTK_ALIGN_START); // Align label text to start
+    gtk_label_set_xalign(GTK_LABEL(inbuilt_instr_label), 0.0); // Ensure text lines align left
     gtk_widget_set_opacity(inbuilt_instr_label, 0.7);
     gtk_box_append(GTK_BOX(inbuilt_instr_vbox), inbuilt_instr_label);
     gtk_box_append(GTK_BOX(int_tab), inbuilt_instr_vbox);
@@ -372,23 +405,38 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
 
     // Internal Advanced
     dialog->int_adv_check = gtk_check_button_new_with_label("Use Advanced Search Mode");
+    // gtk_widget_add_css_class(dialog->int_adv_check, "selection-mode"); // Optional trial
     g_signal_connect(dialog->int_adv_check, "toggled", G_CALLBACK(on_int_advanced_toggled), dialog);
     gtk_box_append(GTK_BOX(int_tab), dialog->int_adv_check);
 
-    dialog->int_adv_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    dialog->int_adv_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16); // Increased spacing
+    gtk_widget_set_margin_top(dialog->int_adv_vbox, 12);
     gtk_widget_set_visible(dialog->int_adv_vbox, FALSE);
     
-    GtkWidget* d_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_box_append(GTK_BOX(d_hbox), gtk_label_new("Target Depth:"));
+    GtkWidget* d_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    GtkWidget* d_label = gtk_label_new("Target Depth:");
+    gtk_widget_set_visible(d_label, TRUE); // Ensure visible
+    gtk_widget_set_size_request(d_label, 140, -1); // Fixed width for alignment
+    gtk_widget_set_halign(d_label, GTK_ALIGN_START); // Text start
+    gtk_label_set_xalign(GTK_LABEL(d_label), 0.0);
+    // gtk_widget_set_margin_end(d_label, 12); // Margin less critical with fixed width but kept if needed
+    gtk_box_append(GTK_BOX(d_hbox), d_label);
     dialog->int_depth_spin = gtk_spin_button_new_with_range(1, 100, 1);
+    gtk_widget_set_size_request(dialog->int_depth_spin, 120, -1); // Fixed width
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_depth_spin), 10);
     g_signal_connect(dialog->int_depth_spin, "value-changed", G_CALLBACK(on_int_depth_changed), dialog);
     gtk_box_append(GTK_BOX(d_hbox), dialog->int_depth_spin);
     gtk_box_append(GTK_BOX(dialog->int_adv_vbox), d_hbox);
     
-    GtkWidget* t_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_box_append(GTK_BOX(t_hbox), gtk_label_new("Move Time (ms):"));
+    GtkWidget* t_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    GtkWidget* t_label = gtk_label_new("Move Time (ms):");
+    gtk_widget_set_size_request(t_label, 140, -1); // Fixed width for alignment
+    gtk_widget_set_halign(t_label, GTK_ALIGN_START);
+    gtk_label_set_xalign(GTK_LABEL(t_label), 0.0);
+    // gtk_widget_set_margin_end(t_label, 12);
+    gtk_box_append(GTK_BOX(t_hbox), t_label);
     dialog->int_time_spin = gtk_spin_button_new_with_range(10, 600000, 100);
+    gtk_widget_set_size_request(dialog->int_time_spin, 120, -1); // Fixed width
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_time_spin), 500);
     g_signal_connect(dialog->int_time_spin, "value-changed", G_CALLBACK(on_int_time_changed), dialog);
     gtk_box_append(GTK_BOX(t_hbox), dialog->int_time_spin);
@@ -404,6 +452,7 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
 
     // NNUE Section
     GtkWidget* nnue_header = gtk_label_new("NNUE Evaluation");
+    gtk_widget_add_css_class(nnue_header, "heading");
     gtk_widget_set_halign(nnue_header, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(int_tab), nnue_header);
 
@@ -428,14 +477,14 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_notebook_append_page(GTK_NOTEBOOK(dialog->notebook), int_tab, gtk_label_new("Internal Engine"));
 
     // --- TAB 2: Custom Engine ---
-    GtkWidget* custom_tab = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_widget_set_margin_top(custom_tab, 15);
-    gtk_widget_set_margin_bottom(custom_tab, 15);
-    gtk_widget_set_margin_start(custom_tab, 15);
-    gtk_widget_set_margin_end(custom_tab, 15);
+    GtkWidget* custom_tab = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_set_margin_top(custom_tab, 24);
+    gtk_widget_set_margin_bottom(custom_tab, 24);
+    gtk_widget_set_margin_start(custom_tab, 24);
+    gtk_widget_set_margin_end(custom_tab, 24);
 
-    GtkWidget* cust_header = gtk_label_new(NULL);
-    gtk_label_set_markup(GTK_LABEL(cust_header), "<span size='large' weight='bold'>Custom UCI Engine</span>");
+    GtkWidget* cust_header = gtk_label_new("Custom UCI Engine");
+    gtk_widget_add_css_class(cust_header, "heading");
     gtk_widget_set_halign(cust_header, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(custom_tab), cust_header);
     
@@ -468,20 +517,33 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     g_signal_connect(dialog->custom_adv_check, "toggled", G_CALLBACK(on_custom_advanced_toggled), dialog);
     gtk_box_append(GTK_BOX(custom_tab), dialog->custom_adv_check);
 
-    dialog->custom_adv_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    dialog->custom_adv_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_set_margin_top(dialog->custom_adv_vbox, 12);
     gtk_widget_set_visible(dialog->custom_adv_vbox, FALSE);
 
-    GtkWidget* cd_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_box_append(GTK_BOX(cd_hbox), gtk_label_new("Target Depth:"));
+    GtkWidget* cd_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    GtkWidget* cd_label = gtk_label_new("Target Depth:");
+    gtk_widget_set_size_request(cd_label, 140, -1);
+    gtk_widget_set_halign(cd_label, GTK_ALIGN_START);
+    gtk_label_set_xalign(GTK_LABEL(cd_label), 0.0);
+    // gtk_widget_set_margin_end(cd_label, 12);
+    gtk_box_append(GTK_BOX(cd_hbox), cd_label);
     dialog->custom_depth_spin = gtk_spin_button_new_with_range(1, 100, 1);
+    gtk_widget_set_size_request(dialog->custom_depth_spin, 120, -1); // Fixed width
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_depth_spin), 10);
     g_signal_connect(dialog->custom_depth_spin, "value-changed", G_CALLBACK(on_custom_depth_changed), dialog);
     gtk_box_append(GTK_BOX(cd_hbox), dialog->custom_depth_spin);
     gtk_box_append(GTK_BOX(dialog->custom_adv_vbox), cd_hbox);
 
-    GtkWidget* ct_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
-    gtk_box_append(GTK_BOX(ct_hbox), gtk_label_new("Move Time (ms):"));
+    GtkWidget* ct_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    GtkWidget* ct_label = gtk_label_new("Move Time (ms):");
+    gtk_widget_set_size_request(ct_label, 140, -1);
+    gtk_widget_set_halign(ct_label, GTK_ALIGN_START);
+    gtk_label_set_xalign(GTK_LABEL(ct_label), 0.0);
+    // gtk_widget_set_margin_end(ct_label, 12);
+    gtk_box_append(GTK_BOX(ct_hbox), ct_label);
     dialog->custom_time_spin = gtk_spin_button_new_with_range(10, 600000, 100);
+    gtk_widget_set_size_request(dialog->custom_time_spin, 120, -1); // Fixed width
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_time_spin), 500);
     g_signal_connect(dialog->custom_time_spin, "value-changed", G_CALLBACK(on_custom_time_changed), dialog);
     gtk_box_append(GTK_BOX(ct_hbox), dialog->custom_time_spin);
@@ -497,8 +559,9 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
 
     // Instructions
     GtkWidget* usage_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
-    GtkWidget* usage_title = gtk_label_new("<b>How to use:</b>");
-    gtk_label_set_use_markup(GTK_LABEL(usage_title), TRUE);
+
+    GtkWidget* usage_title = gtk_label_new("How to use:");
+    gtk_widget_add_css_class(usage_title, "heading");
     gtk_widget_set_halign(usage_title, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(usage_vbox), usage_title);
     GtkWidget* usage_label = gtk_label_new("Browse for a UCI compatible executable. Once selected, it will be available in the game panel dropdown.");

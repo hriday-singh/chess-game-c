@@ -15,10 +15,6 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-// Debug disabled for production
-#define DEBUG_BOARD 0
-#define DBG_PRINT(...) ((void)0)
-
 // Define M_PI if not available (C standard doesn't require it)
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -170,28 +166,33 @@ static bool is_last_move_square(BoardWidget* board, int r, int c) {
 }
 
 // Centralized move execution helper
-static void execute_move_with_updates(BoardWidget* board, Move* move, bool skipStandardSound) {
-    if (!board || !move || !board->logic) return;
-
-    // Execute logic
-    gamelogic_perform_move(board->logic, move);
+static void execute_move_with_updates(BoardWidget* board, Move* move, bool playStandardSound) {
+    if (!board || !move) return;
     
-    // CRITICAL: Clear move cache to prevent stale data corruption
-    extern void gamelogic_clear_cache(struct GameLogic* logic);
-    gamelogic_clear_cache(board->logic);
-
-    // Play sound (always called, but might skip standard move sound)
-    play_move_sound(board, move, skipStandardSound);
-
-    // Refresh UI
+    // 1. Update Game Logic
+    bool moved = gamelogic_perform_move(board->logic, move);
+    if (!moved) return;
+    
+    // 2. Play Sound (if enabled)
+    // IMPORTANT: Play sound AFTER move so we can detect check/checkmate
+    if (board->theme && sound_engine_is_enabled()) {
+        if (playStandardSound) {
+            // Standard move sound (delayed only for animation start, but here we are executing)
+             play_move_sound(board, move, false); // false = DON'T skip standard sound
+        } else {
+             // If standard sound was skipped (e.g. played via delay), 
+             // we STILL need to check for Capture/Check/Checkmate overrides!
+             play_move_sound(board, move, true); // true = SKIP standard sound (only play special)
+        }
+    }
+    
+    // 3. Refresh Board
     refresh_board(board);
     
     // Clear selection/valid moves as move is done
     board->selectedRow = -1;
     board->selectedCol = -1;
     free_valid_moves(board);
-    
-    DBG_PRINT("  Move executed. Turn is now %d\n", board->logic->turn);
 }
 
 // Helper to draw piece from cache or fallback to text
@@ -633,30 +634,23 @@ static void on_drag_press(GtkGestureClick* gesture, int n_press, double x, doubl
     (void)gesture; (void)n_press;
     BoardWidget* board = (BoardWidget*)user_data;
     
-    DBG_PRINT("on_drag_press: x=%.1f y=%.1f isDragging=%d dragPrepared=%d isAnimating=%d turn=%d\n", 
-              x, y, board->isDragging, board->dragPrepared, board->isAnimating, board->logic->turn);
-    
     // Disable interaction in CvC mode
     if (board->logic->gameMode == GAME_MODE_CVC) {
-        DBG_PRINT("  Skipping drag: CvC mode active\n");
         return;
     }
 
     // Skip if game is over (checkmate/stalemate)
     if (board->logic->isGameOver) {
-        DBG_PRINT("  Skipping drag: game is over\n");
         return;
     }
     
     // Don't prepare new drag if currently animating
     if (board->isAnimating) {
-        DBG_PRINT("  Currently animating, ignoring drag press\n");
         return;
     }
     
     // Don't prepare new drag if already dragging or prepared
     if (board->isDragging || board->dragPrepared) {
-        DBG_PRINT("  Already dragging/prepared, ignoring\n");
         return;
     }
     
@@ -669,8 +663,6 @@ static void on_drag_press(GtkGestureClick* gesture, int n_press, double x, doubl
     visual_to_logical(board, visualR, visualC, &r, &c);
     
     Piece* piece = board->logic->board[r][c];
-    DBG_PRINT("  Square [%d,%d] (visual [%d,%d]) piece=%p turn=%d\n", r, c, visualR, visualC, piece, board->logic->turn);
-    
     
     // Prepare drag if piece belongs to current player
     if (piece && piece->owner == board->logic->turn) {
@@ -678,17 +670,14 @@ static void on_drag_press(GtkGestureClick* gesture, int n_press, double x, doubl
         if (board->logic->gameMode == GAME_MODE_PVC) {
             // Check if it's AI's turn (human cannot move)
             if (gamelogic_is_computer(board->logic, board->logic->turn)) {
-                DBG_PRINT("  PvC mode: cannot move on AI's turn\n");
                 return;
             }
             // Additional safety: verify piece belongs to human player
             if (gamelogic_is_computer(board->logic, piece->owner)) {
-                DBG_PRINT("  PvC mode: cannot select AI pieces\n");
                 return;
             }
         }
 
-        DBG_PRINT("  Preparing drag from [%d,%d] (will start on motion)\n", r, c);
         board->dragPrepared = true;  // Mark as prepared, but NOT dragging yet
         board->isDragging = false;   // Not dragging until mouse moves
         board->dragSourceRow = r;  // Store logical coordinates
@@ -714,12 +703,6 @@ static void on_drag_press(GtkGestureClick* gesture, int n_press, double x, doubl
         free_valid_moves(board); // Clear old moves/array
         board->validMoves = gamelogic_get_valid_moves_for_piece(
             board->logic, r, c, &board->validMovesCount);
-        
-        // NOTE: on_square_clicked already printed debug, so we skip it here
-        
-    } else {
-        DBG_PRINT("  Not preparing drag: piece=%p owner=%d turn=%d\n", 
-                  piece, piece ? (int)piece->owner : -1, (int)board->logic->turn);
     }
 }
 
@@ -739,7 +722,6 @@ static void on_grid_motion(GtkEventControllerMotion* motion, double x, double y,
         
         // If mouse moved more than 5 pixels, start actual dragging
         if (distance > 5.0) {
-            DBG_PRINT("on_grid_motion: Mouse moved %.1f pixels, starting drag\n", distance);
             board->isDragging = true;  // NOW we're actually dragging
             
             // Create overlay if needed
@@ -781,10 +763,7 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
     (void)gesture; (void)n_press; (void)x; (void)y;
     BoardWidget* board = (BoardWidget*)user_data;
     if (board->logic->gameMode == GAME_MODE_CVC) return;
-
-    DBG_PRINT("on_release: isDragging=%d dragPrepared=%d isAnimating=%d x=%.1f y=%.1f\n", 
-              board->isDragging, board->dragPrepared, board->isAnimating, x, y);
-    
+        
     // If we were dragging, check if we dropped on a valid square
     if (board->isDragging && board->dragSourceRow >= 0) {
         // Use the current drag position (which is in grid coordinates) to find the drop square
@@ -808,10 +787,7 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
             // Convert visual coordinates to logical
             visual_to_logical(board, visualDropRow, visualDropCol, &dropRow, &dropCol);
         }
-        
-        DBG_PRINT("  Drag release at grid coords: dropRow=%d dropCol=%d source=[%d,%d]\n",
-                  dropRow, dropCol, board->dragSourceRow, board->dragSourceCol);
-        
+                        
         // Check if this is a valid destination
         if (dropRow >= 0 && dropCol >= 0) {
             bool isValid = false;
@@ -847,7 +823,6 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
                         moveToMake->endRow != board->allowedEndRow ||
                         moveToMake->endCol != board->allowedEndCol) {
                         
-                        DBG_PRINT("  Tutorial Restriction: Move not allowed\n");
                         // Trigger callback
                         if (board->invalidMoveCb) {
                             board->invalidMoveCb(board->invalidMoveData);
@@ -860,11 +835,7 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
                 }
             }
 
-            if (isValid && moveToMake) {
-                DBG_PRINT("  Valid drop: move from [%d,%d] to [%d,%d]\n", 
-                          moveToMake->startRow, moveToMake->startCol,
-                          moveToMake->endRow, moveToMake->endCol);
-                
+            if (isValid && moveToMake) {               
                 // Check if this is a promotion move (pawn reaching last rank)
                 Piece* movingPiece = board->logic->board[moveToMake->startRow][moveToMake->startCol];
                 if (movingPiece && movingPiece->type == PIECE_PAWN && 
@@ -907,7 +878,6 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
         board->dragPrepared = false;
     } else if (board->dragPrepared && !board->isDragging) {
         // Was just a click - let on_square_clicked handle it
-        DBG_PRINT("  Click detected (not drag), clearing drag state\n");
         board->dragPrepared = false;
         board->dragSourceRow = -1;
         board->dragSourceCol = -1;
@@ -924,32 +894,20 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
     // Disable interaction in CvC mode
     if (board->logic->gameMode == GAME_MODE_CVC) return;
     
-    DBG_PRINT("on_square_clicked: isDragging=%d dragPrepared=%d dragMode=%d isAnimating=%d turn=%d\n", 
-              board->isDragging, board->dragPrepared, board->dragMode, board->isAnimating, board->logic->turn);
-    
     // Skip if game is over (checkmate/stalemate)
     if (board->logic->isGameOver) {
-        DBG_PRINT("  Skipping click: game is over\n");
         return;
     }
     
     // Skip if currently dragging or animating
     if (board->isDragging || board->isAnimating) {
-        DBG_PRINT("  Skipping click: dragging=%d or animating=%d\n", board->isDragging, board->isAnimating);
         return;
     }
     
     // Skip if in drag mode (drag will be handled by on_drag_press)
     if (board->dragMode) {
-        DBG_PRINT("  Skipping click: drag mode enabled\n");
         return;
     }
-    
-    // Process clicks immediately on press
-    // Note: on_drag_press also runs on press and sets dragPrepared
-    // If dragPrepared is true here, it means on_drag_press ran first
-    // We'll process the click anyway - if it becomes a drag, the drag handlers will handle it
-    // If it's just a click, the release handler will clear dragPrepared
     
     GtkWidget* widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
     int visualR = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "row"));
@@ -969,7 +927,6 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
             if (board->logic->gameMode == GAME_MODE_PVC) {
                 if (gamelogic_is_computer(board->logic, board->logic->turn) ||
                     gamelogic_is_computer(board->logic, piece->owner)) {
-                    DBG_PRINT("  PvC mode (click): cannot select AI pieces or move on AI turn\n");
                     return;
                 }
             }
@@ -1011,8 +968,6 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
                     moveToMake->startCol != board->allowedStartCol ||
                     moveToMake->endRow != board->allowedEndRow ||
                     moveToMake->endCol != board->allowedEndCol) {
-                    
-                    DBG_PRINT("  Tutorial Restriction: Click Move not allowed\n");
                     if (board->invalidMoveCb) {
                         board->invalidMoveCb(board->invalidMoveData);
                     }
@@ -1024,25 +979,19 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
         }
 
         if (isValid && moveToMake) {
-            DBG_PRINT("  Valid click move: [%d,%d] to [%d,%d]\n",
-                      moveToMake->startRow, moveToMake->startCol,
-                      moveToMake->endRow, moveToMake->endCol);
             // Clear selection and hints immediately when valid move is clicked
             board->selectedRow = -1;
             board->selectedCol = -1;
             free_valid_moves(board);
             refresh_board(board);  // Update display to remove hints immediately
             // Valid move - execute with animation (or immediate if disabled)
-            DBG_PRINT("  Valid click move: executing\n");
             animate_move(board, moveToMake, NULL);
             
             // Clear selection after move initiated
             board->selectedRow = -1;
             board->selectedCol = -1;
             free_valid_moves(board);
-        } else {
-            DBG_PRINT("  Invalid click move, deselecting\n");
-            
+        } else {           
             // If restricted and clicked a distinct square (not re-clicking same piece), trigger callback
             if (board->restrictMoves && board->invalidMoveCb) {
                 // If we clicked strictly outside, or on a piece that wasn't the target
@@ -1092,7 +1041,6 @@ static gboolean animation_tick(gpointer user_data) {
         
         // Execute the move using centralized helper
         Move* move = board->animatingMove;
-        DBG_PRINT("animation_tick: Animation complete, executing move\n");
         
         // Determine if standard sound should be skipped.
         // For regular moves, sound was scheduled at 200ms, so we SKIP it now.
@@ -1102,7 +1050,9 @@ static gboolean animation_tick(gpointer user_data) {
                              !move->isEnPassant;
         
         // USE CENTRALIZED HELPER
-        execute_move_with_updates(board, move, isRegularMove);
+        // If it was a regular move, sound was played via delay, so pass FALSE to skip standard sound.
+        // If it was NOT regular (capture etc), sound was NOT played, so pass TRUE to play it.
+        execute_move_with_updates(board, move, !isRegularMove);
         
         move_free(move);
         board->animatingMove = NULL;
@@ -1119,8 +1069,6 @@ static gboolean animation_tick(gpointer user_data) {
             // Also hide it visually when not animating
             gtk_widget_set_visible(board->animOverlay, FALSE);
         }
-        
-        DBG_PRINT("  Animation cleanup complete\n");
         return G_SOURCE_REMOVE;
     }
     
@@ -1141,17 +1089,23 @@ static void animate_move(BoardWidget* board, Move* move, void (*on_finished)(voi
     Piece* movingPiece = board->logic->board[move->startRow][move->startCol];
     // CRITICAL: Store now - animation will look up piece AFTER it's moved!
     if (movingPiece) move->mover = movingPiece->owner;
+    
+    // Only show dialog if promotion piece is NOT set (User move)
+    // AI moves will already have promotionPiece set
     if (movingPiece && movingPiece->type == PIECE_PAWN && 
         (move->endRow == 0 || move->endRow == 7)) {
-        // Show promotion dialog
-        GtkWidget* window = gtk_widget_get_ancestor(GTK_WIDGET(board->grid), GTK_TYPE_WINDOW);
-        PieceType selected = promotion_dialog_show(GTK_WINDOW(window), board->theme, movingPiece->owner);
-        if (selected == NO_PROMOTION) {
-            // User cancelled - don't make the move
-            move_free(move);
-            return;
+        
+        if (move->promotionPiece == NO_PROMOTION) {
+            // Show promotion dialog
+            GtkWidget* window = gtk_widget_get_ancestor(GTK_WIDGET(board->grid), GTK_TYPE_WINDOW);
+            PieceType selected = promotion_dialog_show(GTK_WINDOW(window), board->theme, movingPiece->owner);
+            if (selected == NO_PROMOTION) {
+                // User cancelled - don't make the move
+                move_free(move);
+                return;
+            }
+            move->promotionPiece = selected;
         }
-        move->promotionPiece = selected;
     }
     
     if (!board->animationsEnabled) {
@@ -1210,7 +1164,6 @@ static void animate_move(BoardWidget* board, Move* move, void (*on_finished)(voi
 
 // Animate piece return (for invalid drag)
 static void animate_return_piece(BoardWidget* board) {
-    DBG_PRINT("animate_return_piece: Resetting drag state\n");
     // Reset drag state and refresh display
     board->isDragging = false;
     board->dragPrepared = false;
@@ -1228,8 +1181,6 @@ static void animate_return_piece(BoardWidget* board) {
         // Hide it when not dragging
         gtk_widget_set_visible(board->animOverlay, FALSE);
     }
-    DBG_PRINT("  Drag state reset complete, valid moves still visible (turn=%d, isDragging=%d, dragPrepared=%d)\n", 
-              board->logic->turn, board->isDragging, board->dragPrepared);
 }
 
 // Cleanup function
@@ -1527,6 +1478,18 @@ void board_widget_animate_move(GtkWidget* board_widget, Move* move) {
     if (board && move) {
         animate_move(board, move, NULL);
     }
+}
+
+// Check if animating
+bool board_widget_is_animating(GtkWidget* board_widget) {
+    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
+    if (!board) {
+        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
+        if (grid) {
+            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
+        }
+    }
+    return board ? board->isAnimating : false;
 }
 
 // Get hints mode: true = dots, false = squares

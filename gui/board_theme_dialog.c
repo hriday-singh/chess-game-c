@@ -12,6 +12,8 @@
 #include <stdbool.h>
 #include <stdbool.h>
 
+static bool debug_mode = false;
+
 struct BoardThemeDialog {
     ThemeData* theme;
     BoardThemeUpdateCallback on_update;
@@ -41,6 +43,12 @@ static void refresh_dialog(BoardThemeDialog* dialog);
 static void update_template_selection(BoardThemeDialog* dialog);
 static void on_template_changed(GObject* object, GParamSpec* pspec, gpointer user_data);
 static gboolean on_window_close_request(GtkWindow* window, gpointer user_data);
+
+// Helper to nullify pointer when widget is destroyed
+static void on_widget_destroyed(GtkWidget* widget, gpointer* pointer) {
+    (void)widget;
+    if (pointer) *pointer = NULL;
+}
 
 // Preview drawing function - shows a chessboard preview
 static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
@@ -389,6 +397,9 @@ static void update_preview(BoardThemeDialog* dialog) {
 static void board_theme_dialog_build_ui(BoardThemeDialog* dialog) {
     // Main container - vertical layout
     dialog->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
+    // Connect destroy signal to nullify the pointer in the struct
+    g_signal_connect(dialog->content_box, "destroy", G_CALLBACK(on_widget_destroyed), &dialog->content_box);
+    
     gtk_widget_set_margin_top(dialog->content_box, 24);
     gtk_widget_set_margin_bottom(dialog->content_box, 24);
     gtk_widget_set_margin_start(dialog->content_box, 24);
@@ -411,7 +422,7 @@ static void board_theme_dialog_build_ui(BoardThemeDialog* dialog) {
     
     // Left: Controls
     GtkWidget* controls_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
-    gtk_widget_set_size_request(controls_box, 280, -1);
+    gtk_widget_set_size_request(controls_box, 300, -1);
     
     // Templates section
     GtkWidget* template_label = gtk_label_new("Quick Templates");
@@ -528,8 +539,8 @@ static void board_theme_dialog_build_ui(BoardThemeDialog* dialog) {
     
     // Preview drawing area
     dialog->preview_area = gtk_drawing_area_new();
-    gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(dialog->preview_area), 320);
-    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(dialog->preview_area), 320);
+    gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(dialog->preview_area), 380);
+    gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(dialog->preview_area), 380);
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(dialog->preview_area), on_preview_draw, dialog, NULL);
     
     gtk_frame_set_child(GTK_FRAME(preview_frame), dialog->preview_area);
@@ -547,6 +558,7 @@ static void board_theme_dialog_build_ui(BoardThemeDialog* dialog) {
 }
 
 BoardThemeDialog* board_theme_dialog_new_embedded(ThemeData* theme, BoardThemeUpdateCallback on_update, void* user_data) {
+    if(debug_mode) printf("[BoardTheme] Creating embedded dialog. Theme=%p\n", (void*)theme);
     if (!theme) return NULL;
     
     BoardThemeDialog* dialog = (BoardThemeDialog*)calloc(1, sizeof(BoardThemeDialog));
@@ -584,11 +596,7 @@ BoardThemeDialog* board_theme_dialog_new(ThemeData* theme, BoardThemeUpdateCallb
         gtk_window_set_child(dialog->window, dialog->content_box);
     }
     
-    // CSS styling (Only needs to assume global CSS info or we can inject it here again, 
-    // but better to inject style provider to display)
-    // The previous code injected it to display. Let's do it here or better, assume caller/main does it?
-    // The previous code had it inside _new. Let's add it back.
-    
+    // CSS styling
     GtkCssProvider* provider = gtk_css_provider_new();
     const char* css = 
         ".heading { font-weight: 600; font-size: 14px; color: #2c3e50; } "
@@ -618,14 +626,12 @@ static gboolean on_window_close_request(GtkWindow* window, gpointer user_data) {
     (void)window; // Unused
     BoardThemeDialog* dialog = (BoardThemeDialog*)user_data;
     if (dialog && dialog->window) {
-        // Hide the window instead of destroying it
         gtk_widget_set_visible(GTK_WIDGET(dialog->window), FALSE);
-        // Focus back to main app
         if (dialog->parent_window) {
             gtk_window_present(dialog->parent_window);
         }
     }
-    return TRUE; // Prevent default close behavior (destruction)
+    return TRUE; 
 }
 
 void board_theme_dialog_show(BoardThemeDialog* dialog) {
@@ -638,18 +644,27 @@ void board_theme_dialog_show(BoardThemeDialog* dialog) {
 }
 
 void board_theme_dialog_free(BoardThemeDialog* dialog) {
-    if (dialog) {
-        if (dialog->window) {
-            gtk_window_destroy(dialog->window);
-        }
-        if (dialog->light_color_dialog && G_IS_OBJECT(dialog->light_color_dialog)) {
-            g_object_unref(dialog->light_color_dialog);
-        }
-        if (dialog->dark_color_dialog && G_IS_OBJECT(dialog->dark_color_dialog)) {
-            g_object_unref(dialog->dark_color_dialog);
-        }
-        free(dialog);
+    if (debug_mode) printf("[BoardTheme] Freeing dialog %p\n", (void*)dialog);
+    if (!dialog) return;
+
+    if (dialog->content_box && GTK_IS_WIDGET(dialog->content_box)) {
+        if (debug_mode) printf("[BoardTheme] Disconnecting destroy handler %p\n", (void*)dialog->content_box);
+        g_signal_handlers_disconnect_by_func(dialog->content_box, G_CALLBACK(on_widget_destroyed), &dialog->content_box);
     }
+
+    if (dialog->window) {
+        if (debug_mode) printf("[BoardTheme] Destroying window\n");
+        gtk_window_destroy(dialog->window);
+    }
+    
+    if (dialog->light_color_dialog && G_IS_OBJECT(dialog->light_color_dialog)) {
+        g_object_unref(dialog->light_color_dialog);
+    }
+    if (dialog->dark_color_dialog && G_IS_OBJECT(dialog->dark_color_dialog)) {
+        g_object_unref(dialog->dark_color_dialog);
+    }
+    free(dialog);
+    if (debug_mode) printf("[BoardTheme] Dialog freed\n");
 }
 
 GtkWidget* board_theme_dialog_get_widget(BoardThemeDialog* dialog) {

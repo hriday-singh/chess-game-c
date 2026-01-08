@@ -50,6 +50,11 @@ void board_widget_animate_move(GtkWidget* board_widget, Move* move);
 // Restrict navigation (for tutorial mode)
 void board_widget_set_nav_restricted(GtkWidget* board_widget, bool restricted, int r1, int c1, int r2, int c2);
 
+/**
+ * Check if board is currently animating a move.
+ */
+bool board_widget_is_animating(GtkWidget* board_widget);
+
 // Invalid move callback (for tutorial feedback)
 typedef void (*BoardInvalidMoveCallback)(void* user_data);
 void board_widget_set_invalid_move_callback(GtkWidget* board_widget, BoardInvalidMoveCallback cb, void* data);

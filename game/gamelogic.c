@@ -672,7 +672,7 @@ void gamelogic_get_captured_pieces(GameLogic* logic, Player capturer, void* piec
     for (int i = count - 1; i >= 0; i--) {
         Move* m = moves[i];
         if (m && m->capturedPiece) {
-            // If the captured piece belonged to the opponent of capturer, add it
+            // Check m->capturedPiece pointer validity?
             if (m->capturedPiece->owner != capturer) {
                 piece_type_list_add(list, m->capturedPiece->type);
             }

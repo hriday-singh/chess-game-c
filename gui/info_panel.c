@@ -623,12 +623,44 @@ static void on_undo_clicked(GtkButton* button, gpointer user_data) {
     InfoPanel* panel = (InfoPanel*)user_data;
     if (!panel || !panel->logic) return;
     
-    // Stop AI if running (we'll need a function for this)
-    // board_widget_stop_ai(panel->board_widget);
+    // Determine how many moves to undo based on mode
+    int moves_to_undo = 0;
     
-    // Undo twice (always undo two moves - player + opponent)
-    gamelogic_undo_move(panel->logic);
-    gamelogic_undo_move(panel->logic);
+    if (panel->logic->gameMode == GAME_MODE_PVP) {
+        // PvP: Undo 1 move
+        moves_to_undo = 1;
+    } else if (panel->logic->gameMode == GAME_MODE_CVC) {
+        // CvC: Undo 1 move
+        moves_to_undo = 1;
+    } else if (panel->logic->gameMode == GAME_MODE_PVC) {
+        // PvC: Dynamic
+        Player current_turn = gamelogic_get_turn(panel->logic);
+        bool is_ai_turn = gamelogic_is_computer(panel->logic, current_turn);
+        
+        if (is_ai_turn) {
+            // AI is thinking (Player just moved) -> Undo 1 (Player's move)
+            moves_to_undo = 1;
+            
+            // Also stop AI if it's thinking!
+            // We need to tell main.c to stop thinking or ignore result?
+            // Since we don't have direct access to AppState here easily without casting user_data or similar...
+            // But board_widget usually has the logic.
+            // For now, gamelogic_undo_move updates state which might invalidat AI move?
+        } else {
+            // It's Player's turn (AI already moved) -> Undo 2 (AI + Player)
+            moves_to_undo = 2;
+        }
+    } else {
+        // Default (Puzzle, etc)
+        moves_to_undo = 1; 
+    }
+    
+    // Execute undos
+    for (int i = 0; i < moves_to_undo; i++) {
+        if (gamelogic_get_move_count(panel->logic) > 0) {
+            gamelogic_undo_move(panel->logic);
+        }
+    }
     
     // Reset selection and update
     board_widget_reset_selection(panel->board_widget);
@@ -705,6 +737,7 @@ static void on_game_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_
             } else {
                 printf("ERROR: Application not valid for launching puzzles!\n");
             }
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->game_mode_dropdown), GAME_MODE_PVC);
         }
         // Reset dropdown back to previous mode (will be set by puzzle logic)
         return;
@@ -1217,6 +1250,7 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
 void info_panel_update_status(GtkWidget* info_panel) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
     if (!panel) return;
+    
     update_captured_pieces(panel);
     update_status_display(panel);
 

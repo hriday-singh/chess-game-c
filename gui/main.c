@@ -40,6 +40,8 @@ static gboolean ai_think_thread_timeout(gpointer user_data);
 
 static void on_cvc_control_action(CvCMatchState action, gpointer user_data) {
     AppState* state = (AppState*)user_data;
+    if (!state) return;
+    
     state->cvc_match_state = action;
     
     // If stopped, just pause the match state (no reset)
@@ -49,8 +51,10 @@ static void on_cvc_control_action(CvCMatchState action, gpointer user_data) {
     }
     
     // Update Info Panel Status
-    info_panel_update_status(state->info_panel);
+    // CRITICAL: Set CvC state FIRST to prevent infinite recursion
+    // (info_panel_update_status checks state, if mismatch it calls this callback again!)
     info_panel_set_cvc_state(state->info_panel, action);
+    info_panel_update_status(state->info_panel);
     
     // Trigger generic idle check
     if (action == CVC_STATE_RUNNING) {
@@ -109,24 +113,40 @@ static void on_puzzle_next(GtkButton* btn, gpointer user_data);
 static void refresh_puzzle_list(AppState* state);
 // Removed unused forward declaration
 
-// Callbacks
-
-
+// Callback from game logic when state changes (e.g. move made)
 static void update_ui_callback(void) {
     if (!g_app_state) return;
     AppState* state = g_app_state;
     
-    // Refresh board widget
-    if (state->board) board_widget_refresh(state->board);
-    
-    // Update Info Panel Status
-    if (state->info_panel) {
-        info_panel_update_status(state->info_panel);
+    // Check game over state
+    if (g_app_state->logic->isGameOver) {
+        // Ensure AI thinking is off
+        g_app_state->ai_thinking = FALSE;
+        
+        // Stop CvC if running
+        if (g_app_state->cvc_match_state == CVC_STATE_RUNNING) {
+            g_app_state->cvc_match_state = CVC_STATE_STOPPED;
+            
+            // Re-enable controls immediately
+             if (g_app_state->info_panel) {
+                // We need to force update controls
+                // info_panel_update_controls(g_app_state->info_panel); // If available
+            }
+        }
+    } else {
+        // Only trigger AI if game NOT over
+        g_idle_add(check_trigger_ai_idle, g_app_state);
     }
     
-    // Trigger AI if it's AI's turn
-    g_idle_add(check_trigger_ai_idle, state);
+    // Refresh UI
+    if (g_app_state->board) {
+        board_widget_refresh(g_app_state->board);
+    }
     
+    if (g_app_state->info_panel) {
+        info_panel_update_status(g_app_state->info_panel);
+    }
+
     // Update Puzzle Status (Turn Indicator)
     if (state->logic->gameMode == GAME_MODE_PUZZLE && !state->puzzle_wait) {
         // Only update if not solved (solved message is static)
@@ -544,6 +564,10 @@ static void request_ai_move(AppState* state) {
     if (mode == GAME_MODE_PUZZLE) return; // Don't trigger AI in puzzle mode
     if (mode == GAME_MODE_CVC && state->cvc_match_state != CVC_STATE_RUNNING) return;
     if (mode == GAME_MODE_PVC && !gamelogic_is_computer(state->logic, current_turn)) return;
+    
+    // CRITICAL: Don't request AI move if board is still animating previous move
+    // This prevents race conditions in CvC where logic hasn't updated yet
+    if (board_widget_is_animating(state->board)) return;
 
     state->ai_thinking = TRUE;
     bool is_black = (current_turn == PLAYER_BLACK);
