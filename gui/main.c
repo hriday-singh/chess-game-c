@@ -47,6 +47,16 @@ static void trigger_ai_after_reset(gpointer user_data) {
     check_trigger_ai_idle(user_data);
 }
 
+// Explicit callback for animation finished (Debug requirements)
+static gboolean on_animation_finished(gpointer user_data) {
+    AppState* state = (AppState*)user_data;
+    printf("[DEBUG] Turn complete (animation finished).\n");
+    printf("[DEBUG] Requesting AI now.\n");
+    // Directly request AI move - the check_trigger_ai_idle does the same thing
+    request_ai_move(state);
+    return FALSE;
+}
+
 // --- CvC Orchestration ---
 
 static void on_cvc_control_action(CvCMatchState action, gpointer user_data) {
@@ -895,7 +905,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     // state->board is the frame, we need the grid child where the callback is invoked
     GtkWidget* grid_child = gtk_frame_get_child(GTK_FRAME(state->board));
     if (grid_child) {
-        g_object_set_data(G_OBJECT(grid_child), "anim-finish-cb", (gpointer)check_trigger_ai_idle);
+        g_object_set_data(G_OBJECT(grid_child), "anim-finish-cb", (gpointer)on_animation_finished);
         g_object_set_data(G_OBJECT(grid_child), "anim-finish-data", state);
     }
 
