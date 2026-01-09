@@ -1,7 +1,7 @@
 #include "theme_manager.h"
 
 static GtkCssProvider *global_provider = NULL;
-static bool current_is_dark = false;
+static bool current_is_dark = true;
 
 // --- CSS Definitions ---
 
@@ -131,12 +131,18 @@ static const char *CSS_STRUCTURAL =
     /* -------------------- Preview Frame -------------------- */
     ".preview-frame { border: 2px solid @border_color; border-radius: 8px; background: @bg_color; box-shadow: 0 2px 8px @border_color; }\n"
 
-    /* Scrollbars */
-    "scrollbar { background: transparent; }\n"
-    "scrollbar trough { background-color: alpha(@border_color, 0.35); border-radius: 999px; min-width: 10px; min-height: 10px; }\n"
-    "scrollbar slider { background-color: alpha(@fg_color, 0.35); border-radius: 999px; min-width: 10px; min-height: 24px; }\n"
-    "scrollbar slider:hover { background-color: alpha(@fg_color, 0.50); }\n"
-    "scrollbar slider:active { background-color: alpha(@fg_color, 0.65); }\n"
+    /* Scrollbars - Rounded & Defined */
+    "scrollbar { background-color: transparent; border: none; }\n"
+    "scrollbar trough { background-color: alpha(@border_color, 0.2); border-radius: 999px; min-width: 10px; min-height: 10px; margin: 2px; }\n"
+    "scrollbar slider { background-color: alpha(@fg_color, 0.4); border-radius: 999px; min-width: 8px; min-height: 24px; margin: 1px; border: 1px solid @bg_color; }\n"
+    "scrollbar slider:hover { background-color: alpha(@fg_color, 0.6); }\n"
+    "scrollbar slider:active { background-color: @accent_color; }\n"
+    "\n"
+    /* -------------------- Sliders (Scale) -------------------- */
+    "scale trough { background-color: alpha(@border_color, 0.5); border-radius: 999px; min-height: 6px; min-width: 6px; }\n"
+    "scale highlight { background-color: @accent_color; border-radius: 999px; }\n"
+    "scale slider { background-color: @fg_color; border-radius: 999px; min-width: 18px; min-height: 18px; margin: -6px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); border: 1px solid @bg_color; }\n"
+    "scale slider:hover { background-color: shade(@fg_color, 0.9); }\n"
     "\n"
     "/* -------------------- Header Buttons (Explicitly Transparent) -------------------- */\n"
     ".header-button { background-color: transparent; background-image: none; border: 1px solid @border_color; border-radius: 6px; box-shadow: none; color: @fg_color; }\n"
@@ -307,14 +313,23 @@ static const char *CSS_STRUCTURAL =
     "dropdown arrow { color: @entry_fg; }\n"
     "dropdown label { color: inherit; }\n"
 
-    "listview, listbox { background-color: @entry_bg; color: @entry_fg; }\n"
+    "listview, listbox { background-color: transparent; color: @fg_color; }\n"
     "listview row, listbox row {\n"
     "  padding: 8px;\n"
     "  border-radius: 8px;\n"
     "  margin: 2px 6px;\n"
+    "  color: @fg_color;\n"
     "}\n"
+    "/* Force labels to use the color, don't rely on inherit */\n"
+    "listview label, listbox label, .boxed-list label { color: @fg_color; }\n"
     "listview row:hover, listbox row:hover { background-color: alpha(@button_hover, 0.75); }\n"
     "listview row:selected, listbox row:selected { background-color: @accent_color; color: @accent_fg; }\n"
+    "listview row:selected label, listbox row:selected label { color: @accent_fg; }\n"
+    "\n"
+    "/* Boxed List Specifics (Puzzle List) */\n"
+    ".boxed-list { background-color: @bg_color; border-radius: 8px; }\n"
+    ".boxed-list row { border-bottom: 1px solid alpha(@border_color, 0.5); }\n"
+    ".boxed-list row:last-child { border-bottom: none; }\n"
 
     /* -------------------- Sidebar / settings -------------------- */
     ".settings-sidebar, .sidebar { background-color: @panel_bg; border-right: 1px solid @border_color; }\n"

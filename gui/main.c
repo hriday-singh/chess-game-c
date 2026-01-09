@@ -1065,6 +1065,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gboolean show_onboarding = TRUE; // Could save/load this pref
     if (show_onboarding) {
         GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
+        gtk_popover_set_has_arrow(popover, FALSE);
         gtk_widget_set_parent(GTK_WIDGET(popover), GTK_WIDGET(header));
         
         GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);

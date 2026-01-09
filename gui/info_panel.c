@@ -971,6 +971,7 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     
     panel->puzzle_ui.puzzle_list_box = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), GTK_SELECTION_SINGLE);
+    gtk_widget_add_css_class(panel->puzzle_ui.puzzle_list_box, "boxed-list");
     gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), TRUE);
     
     // Add Click Gesture to absolutely guarantee clicks are caught
