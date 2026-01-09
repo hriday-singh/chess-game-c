@@ -249,7 +249,8 @@ static void update_overlay_position(DarkModePriv* priv) {
     gtk_window_set_default_size(GTK_WINDOW(priv->overlay_window), target_w, target_h);
 
     // Apply Position (Win32 side)
-    // HWND_TOPMOST is critical for fullscreen overlay visibility
+    // Use HWND_TOP instead of HWND_TOPMOST to allow dialogs/popovers to appear above
+    // SWP_NOACTIVATE prevents stealing focus from other windows
     UINT flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER;
     
     // If not visible yet, show it
@@ -257,7 +258,8 @@ static void update_overlay_position(DarkModePriv* priv) {
          flags |= SWP_SHOWWINDOW;
     }
     
-    SetWindowPos(hOverlay, HWND_TOPMOST, target_x, target_y, target_w, target_h, flags);
+    // Use HWND_TOP (not TOPMOST) so dialogs can appear above the overlay
+    SetWindowPos(hOverlay, HWND_TOP, target_x, target_y, target_w, target_h, flags);
 #else
     // Fallback for non-Windows (linux etc)
     // ... Minimal implementation preserved ...
@@ -887,9 +889,27 @@ static void stop_tick_if_idle(DarkModePriv* priv) {
 
 static void dark_mode_button_free_priv(gpointer data) {
     DarkModePriv* priv = (DarkModePriv*)data;
+    
+    // Stop tick callback first
+    if (priv->tick_id > 0) {
+        gtk_widget_remove_tick_callback(priv->widget, priv->tick_id);
+        priv->tick_id = 0;
+    }
+    
+    // Clean up particles
     if (priv->hover_particles) g_array_free(priv->hover_particles, TRUE);
     if (priv->active_bursts) g_list_free_full(priv->active_bursts, free_burst);
-    if (priv->overlay_window) gtk_window_destroy(GTK_WINDOW(priv->overlay_window));
+    
+    // Properly destroy overlay window
+    if (priv->overlay_window) {
+        // Hide first to prevent visual glitches
+        gtk_widget_set_visible(priv->overlay_window, FALSE);
+        // Destroy the window (this will also destroy overlay_area as its child)
+        gtk_window_destroy(GTK_WINDOW(priv->overlay_window));
+        priv->overlay_window = NULL;
+        priv->overlay_area = NULL;
+    }
+    
     g_free(priv);
 }
 

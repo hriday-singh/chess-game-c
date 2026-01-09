@@ -120,6 +120,10 @@ typedef struct {
     } puzzle_ui;
     
     GtkWidget* standard_controls_box; // Container for normal game controls
+    
+    // Game reset callback to trigger AI
+    GameResetCallback game_reset_callback;
+    gpointer game_reset_callback_data;
 } InfoPanel;
 
 // Forward declarations
@@ -750,6 +754,11 @@ static void reset_game(InfoPanel* panel) {
     
     // Refresh board display
     board_widget_refresh(panel->board_widget);
+    
+    // Trigger AI if needed (PvC with AI to move, or CvC)
+    if (panel->game_reset_callback) {
+        panel->game_reset_callback(panel->game_reset_callback_data);
+    }
 }
 
 // Game mode dropdown callback - reset game on change
@@ -1636,6 +1645,13 @@ void info_panel_show_ai_settings(GtkWidget* info_panel) {
 void info_panel_set_sensitive(GtkWidget* info_panel, bool sensitive) {
     if (!info_panel) return;
     gtk_widget_set_sensitive(info_panel, sensitive);
+}
+
+void info_panel_set_game_reset_callback(GtkWidget* info_panel, GameResetCallback callback, gpointer user_data) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (!panel) return;
+    panel->game_reset_callback = callback;
+    panel->game_reset_callback_data = user_data;
 }
 
 // Puzzle List Management

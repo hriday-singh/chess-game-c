@@ -53,4 +53,8 @@ void info_panel_refresh_graveyard(GtkWidget* info_panel);
 
 void info_panel_set_game_mode(GtkWidget* info_panel, GameMode mode);
 
+// Callback for game reset/side change to trigger AI
+typedef void (*GameResetCallback)(gpointer user_data);
+void info_panel_set_game_reset_callback(GtkWidget* info_panel, GameResetCallback callback, gpointer user_data);
+
 #endif // INFO_PANEL_H

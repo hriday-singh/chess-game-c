@@ -62,6 +62,10 @@ typedef struct AppState {
     
     // Settings State
     char last_settings_page[32];
+    
+    // Onboarding Timer (to cancel on destroy)
+    guint onboarding_timer_id;
+    GtkWidget* onboarding_popover;
 } AppState;
 
 #endif

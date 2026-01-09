@@ -4,9 +4,8 @@
 #include <stdbool.h>
 
 typedef struct {
-    int skill_level;
-    int depth;
-    int move_time_ms;
+    int depth;         // derived from ELO in ELO-mode, or from advanced mode
+    int move_time_ms;  // derived from ELO in ELO-mode, or from advanced mode
 } AiDifficultyParams;
 
 // Opaque handle for an engine instance

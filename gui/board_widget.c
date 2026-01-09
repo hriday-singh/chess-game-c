@@ -68,6 +68,9 @@ typedef struct {
     void* invalidMoveData;
 } BoardWidget;
 
+// Safe lookup key
+#define BOARD_DATA_KEY "board-data"
+
 // Forward declarations (must be before any usage)
 static void animate_move(BoardWidget* board, Move* move, void (*on_finished)(void));
 static void animate_return_piece(BoardWidget* board);
@@ -76,6 +79,36 @@ static void on_grid_motion(GtkEventControllerMotion* motion, double x, double y,
 static void on_release(GtkGestureClick* gesture, int n_press, double x, double y, gpointer user_data);
 static void refresh_board(BoardWidget* board);
 static void free_valid_moves(BoardWidget* board);
+
+/**
+ * 6. Centralized lookup helper
+ * Finds BoardWidget data from a widget, checking parent/child hierarchy if needed.
+ */
+static BoardWidget* find_board_data(GtkWidget* widget) {
+    if (!widget || !GTK_IS_WIDGET(widget)) return NULL;
+
+    // 1. Check the widget itself
+    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(widget), BOARD_DATA_KEY);
+    if (board) return board;
+
+    // 2. Check immediate parent (common if widget is child of board frame)
+    GtkWidget* parent = gtk_widget_get_parent(widget);
+    if (parent) {
+        board = (BoardWidget*)g_object_get_data(G_OBJECT(parent), BOARD_DATA_KEY);
+        if (board) return board;
+    }
+
+    // 3. Optional: Check child if widget is a frame (common fallback)
+    if (GTK_IS_FRAME(widget)) {
+        GtkWidget* child = gtk_frame_get_child(GTK_FRAME(widget));
+        if (child) {
+            board = (BoardWidget*)g_object_get_data(G_OBJECT(child), BOARD_DATA_KEY);
+            if (board) return board;
+        }
+    }
+
+    return NULL; // Not found
+}
 // This plays the move sound 200ms into the animation for regular moves only
 static gboolean delayed_move_sound_callback(gpointer user_data) {
     (void)user_data;  // Unused parameter
@@ -1069,6 +1102,22 @@ static gboolean animation_tick(gpointer user_data) {
             // Also hide it visually when not animating
             gtk_widget_set_visible(board->animOverlay, FALSE);
         }
+        if (board->animOverlay) {
+            gtk_widget_queue_draw(board->animOverlay);
+            // Ensure overlay doesn't block input - hide it when animation is done
+            gtk_widget_set_sensitive(board->animOverlay, FALSE); // Don't block input
+            // Also hide it visually when not animating
+            gtk_widget_set_visible(board->animOverlay, FALSE);
+        }
+        
+        // Trigger generic animation finished callback (for AI immediate response)
+        // Stored on the grid widget by main controller
+        GSourceFunc finish_cb = (GSourceFunc)g_object_get_data(G_OBJECT(board->grid), "anim-finish-cb");
+        gpointer finish_data = g_object_get_data(G_OBJECT(board->grid), "anim-finish-data");
+        if (finish_cb) {
+            finish_cb(finish_data);
+        }
+        
         return G_SOURCE_REMOVE;
     }
     
@@ -1305,7 +1354,7 @@ GtkWidget* board_widget_new(GameLogic* logic) {
     gtk_widget_add_controller(board->grid, GTK_EVENT_CONTROLLER(grid_motion));
     
     // Set up cleanup - store data on frame instead of grid
-    g_object_set_data_full(G_OBJECT(frame), "board-data", board, 
+    g_object_set_data_full(G_OBJECT(frame), BOARD_DATA_KEY, board, 
                           board_widget_destroy);
     
     // Store reference to frame in board for CSS
@@ -1319,7 +1368,7 @@ GtkWidget* board_widget_new(GameLogic* logic) {
 
 // Set interaction mode
 void board_widget_set_drag_mode(GtkWidget* board_widget, bool drag_mode) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
+    BoardWidget* board = find_board_data(board_widget);
     if (board) {
         board->dragMode = drag_mode;
         // Clear selection when switching modes
@@ -1332,7 +1381,7 @@ void board_widget_set_drag_mode(GtkWidget* board_widget, bool drag_mode) {
 
 // Get interaction mode
 bool board_widget_get_drag_mode(GtkWidget* board_widget) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
+    BoardWidget* board = find_board_data(board_widget);
     return board ? board->dragMode : false;
 }
 
@@ -1342,7 +1391,7 @@ void board_widget_refresh(GtkWidget* board_widget) {
         return;
     }
     
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
+    BoardWidget* board = find_board_data(board_widget);
     
     if (board) {
         refresh_board(board);
@@ -1351,22 +1400,7 @@ void board_widget_refresh(GtkWidget* board_widget) {
 
 // Reset selection (clear selected piece)
 void board_widget_reset_selection(GtkWidget* board_widget) {
-    // board_widget can be either the frame or the grid
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    if (!board) {
-        // Try getting from grid if board_widget is the frame
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-        }
-    }
-    if (!board) {
-        // Try getting from frame if board_widget is the grid
-        GtkWidget* frame = (GtkWidget*)g_object_get_data(G_OBJECT(board_widget), "board-frame");
-        if (frame) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(frame), "board-data");
-        }
-    }
+    BoardWidget* board = find_board_data(board_widget);
     if (board) {
         board->selectedRow = -1;
         board->selectedCol = -1;
@@ -1387,14 +1421,7 @@ void board_widget_reset_selection(GtkWidget* board_widget) {
 
 // Set board orientation (flip board for black's perspective)
 void board_widget_set_flipped(GtkWidget* board_widget, bool flipped) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    if (!board) {
-        // Try getting from grid if board_widget is the frame
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-        }
-    }
+    BoardWidget* board = find_board_data(board_widget);
     if (board) {
         board->flipped = flipped;
         refresh_board(board);
@@ -1403,25 +1430,13 @@ void board_widget_set_flipped(GtkWidget* board_widget, bool flipped) {
 
 // Get board orientation
 bool board_widget_get_flipped(GtkWidget* board_widget) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    if (!board) {
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-        }
-    }
+    BoardWidget* board = find_board_data(board_widget);
     return board ? board->flipped : false;
 }
 
 // Set animations enabled
 void board_widget_set_animations_enabled(GtkWidget* board_widget, bool enabled) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    if (!board) {
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-        }
-    }
+    BoardWidget* board = find_board_data(board_widget);
     if (board) {
         board->animationsEnabled = enabled;
     }
@@ -1429,89 +1444,68 @@ void board_widget_set_animations_enabled(GtkWidget* board_widget, bool enabled) 
 
 // Get animations enabled
 bool board_widget_get_animations_enabled(GtkWidget* board_widget) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    if (!board) {
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-        }
-    }
+    BoardWidget* board = find_board_data(board_widget);
     return board ? board->animationsEnabled : true;
 }
 
 // Set hints mode: true = dots, false = squares
 void board_widget_set_hints_mode(GtkWidget* board_widget, bool use_dots) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    if (!board) {
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-        }
-    }
+    BoardWidget* board = find_board_data(board_widget);
     if (board) {
         board->useDots = use_dots;
     }
 }
 
 void board_widget_set_theme(GtkWidget* board_widget, ThemeData* theme) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    if (!board) {
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-        }
-    }
+    BoardWidget* board = find_board_data(board_widget);
     if (board) {
         board->theme = theme;
         board_widget_refresh(board_widget);
     }
 }
 
-void board_widget_animate_move(GtkWidget* board_widget, Move* move) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
+gboolean board_widget_animate_move(GtkWidget* board_widget, Move* move) {
+    // 1. Valid inputs check
+    if (!board_widget || !move) {
+        g_warning("board_widget_animate_move: Invalid input (widget=%p, move=%p)", board_widget, move);
+        return FALSE;
+    }
+    
+    // 2. Thread safety check - ensure we are on main thread
+    // Note: GTK calls usually happen on main thread, but as a safety measure for AI callbacks:
+    // Ideally we would check thread ID, but g_main_context_default() check is decent proxy if needed.
+    // For now, we rely on caller correctness as this is a widget method, 
+    // but the robust lookup prevents hard crashes.
+    
+    // 3. Centralized lookup
+    BoardWidget* board = find_board_data(board_widget);
+    
     if (!board) {
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-        }
+        g_warning("board_widget_animate_move: Could not find board data on widget type %s", 
+                  G_OBJECT_TYPE_NAME(board_widget));
+        return FALSE;
     }
-    if (board && move) {
-        animate_move(board, move, NULL);
-    }
+    
+    // 4. Execute
+    animate_move(board, move, NULL);
+    return TRUE;
 }
 
 // Check if animating
 bool board_widget_is_animating(GtkWidget* board_widget) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    if (!board) {
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-        }
-    }
+    BoardWidget* board = find_board_data(board_widget);
     return board ? board->isAnimating : false;
 }
 
 // Get hints mode: true = dots, false = squares
 bool board_widget_get_hints_mode(GtkWidget* board_widget) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    if (!board) {
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) {
-            board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-        }
-    }
+    BoardWidget* board = find_board_data(board_widget);
     return board ? board->useDots : true;
 }
 
 // Set nav restriction
 void board_widget_set_nav_restricted(GtkWidget* board_widget, bool restricted, int startR, int startC, int endR, int endC) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    // Handle frame/grid data lookup
-    if (!board) {
-         GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-         if (grid) board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-    }
+    BoardWidget* board = find_board_data(board_widget);
     if (board) {
         board->restrictMoves = restricted;
         board->allowedStartRow = startR;
@@ -1529,11 +1523,7 @@ void board_widget_set_nav_restricted(GtkWidget* board_widget, bool restricted, i
 }
 
 void board_widget_set_invalid_move_callback(GtkWidget* board_widget, BoardInvalidMoveCallback cb, void* data) {
-    BoardWidget* board = (BoardWidget*)g_object_get_data(G_OBJECT(board_widget), "board-data");
-    if (!board) {
-        GtkWidget* grid = gtk_frame_get_child(GTK_FRAME(board_widget));
-        if (grid) board = (BoardWidget*)g_object_get_data(G_OBJECT(grid), "board-data");
-    }
+    BoardWidget* board = find_board_data(board_widget);
     if (board) {
         board->invalidMoveCb = cb;
         board->invalidMoveData = data;

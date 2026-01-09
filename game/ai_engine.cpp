@@ -303,26 +303,34 @@ bool ai_engine_test_binary(const char* binary_path) {
     return success;
 }
 
+// Helper clamp function
+static inline int clampi(int v, int lo, int hi) {
+    return (v < lo) ? lo : (v > hi) ? hi : v;
+}
+
 AiDifficultyParams ai_get_difficulty_params(int elo) {
-    AiDifficultyParams params;
-    
-    if (elo < 2000) {
-        params.skill_level = (elo - 100) / 95; 
-        if (params.skill_level > 20) params.skill_level = 20;
-        if (params.skill_level < 0) params.skill_level = 0;
-        params.depth = (elo < 1000) ? 1 : (elo < 1500) ? 3 : 5;
-        params.move_time_ms = 50;
-    } else if (elo < 2800) {
-        params.skill_level = 20;
-        params.depth = 5 + (elo - 2000) / 160; 
-        params.move_time_ms = 100 + (elo - 2000) / 2;
-    } else {
-        params.skill_level = 20;
-        params.depth = 10 + (elo - 2800) / 80;
-        params.move_time_ms = 500 + (int)((elo - 2800) * 1.5);
-    }
-    
-    return params;
+    AiDifficultyParams p;
+
+    // 1) Clamp ELO to avoid nonsense
+    elo = clampi(elo, 200, 3600);
+
+    // 2) movetime = elo * 5 / 3  (ms)
+    int ms = (elo * 5) / 3;
+    ms = clampi(ms, 80, 3500);
+
+    // 3) depth mapping:
+    // 1500 -> 10
+    // 3600 -> 17
+    int depth;
+    if (elo <= 1500) depth = 10;
+    else if (elo >= 3600) depth = 17;
+    else depth = 10 + ((elo - 1500) * 7) / 2100;
+
+    depth = clampi(depth, 1, 17);
+
+    p.depth = depth;
+    p.move_time_ms = ms;
+    return p;
 }
 
 } // extern "C"

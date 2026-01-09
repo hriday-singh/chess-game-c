@@ -44,8 +44,9 @@ bool board_widget_get_hints_mode(GtkWidget* board_widget);
 /**
  * Animates a move on the board widget.
  * This is useful for AI moves to show smooth transition.
+ * Returns: TRUE if animation started, FALSE if invalid input or widget error.
  */
-void board_widget_animate_move(GtkWidget* board_widget, Move* move);
+gboolean board_widget_animate_move(GtkWidget* board_widget, Move* move);
 
 // Restrict navigation (for tutorial mode)
 void board_widget_set_nav_restricted(GtkWidget* board_widget, bool restricted, int r1, int c1, int r2, int c2);

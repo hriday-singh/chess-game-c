@@ -360,6 +360,19 @@ static void bind_list_item(GtkSignalListItemFactory* factory, GtkListItem* list_
     gtk_widget_queue_draw(icon_area);
 }
 
+static void unbind_list_item(GtkSignalListItemFactory* factory, GtkListItem* list_item, gpointer user_data) {
+    (void)factory;
+    PieceThemeDialog* dialog = (PieceThemeDialog*)user_data;
+    gulong old_id = (gulong)(uintptr_t)g_object_get_data(G_OBJECT(list_item), "sel_notify_id");
+    // Only disconnect if dialog and widget are still valid
+    if (old_id && dialog && dialog->piece_set_combo && GTK_IS_WIDGET(dialog->piece_set_combo)) {
+        if (g_signal_handler_is_connected(dialog->piece_set_combo, old_id)) {
+            g_signal_handler_disconnect(dialog->piece_set_combo, old_id);
+        }
+    }
+    g_object_set_data(G_OBJECT(list_item), "sel_notify_id", 0);
+}
+
 static void setup_button_item(GtkSignalListItemFactory* factory, GtkListItem* list_item, gpointer user_data) {
     (void)factory; (void)user_data;
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
@@ -730,6 +743,7 @@ static void piece_theme_dialog_build_ui(PieceThemeDialog* dialog) {
     GtkListItemFactory* lf = gtk_signal_list_item_factory_new();
     g_signal_connect(lf, "setup", G_CALLBACK(setup_list_item), dialog);
     g_signal_connect(lf, "bind", G_CALLBACK(bind_list_item), dialog);
+    g_signal_connect(lf, "unbind", G_CALLBACK(unbind_list_item), dialog);
     GtkListItemFactory* bf = gtk_signal_list_item_factory_new();
     g_signal_connect(bf, "setup", G_CALLBACK(setup_button_item), dialog);
     g_signal_connect(bf, "bind", G_CALLBACK(bind_button_item), dialog);
@@ -962,7 +976,6 @@ void piece_theme_dialog_free(PieceThemeDialog* dialog) {
     if (debug_mode) printf("[PieceTheme] Freeing dialog %p\n", (void*)dialog);
     if (!dialog) return;
     
-    // [DEBUG] Fix: Disconnect destroy handler to prevent use-after-free
     // Release our reference to the widget
     if (dialog->content_box) {
         g_object_unref(dialog->content_box);
@@ -978,11 +991,10 @@ void piece_theme_dialog_free(PieceThemeDialog* dialog) {
         gtk_window_destroy(dialog->window);
     }
     
-    // Unref color dialogs
-    if (dialog->white_piece_dialog && G_IS_OBJECT(dialog->white_piece_dialog)) g_object_unref(dialog->white_piece_dialog);
-    if (dialog->white_stroke_dialog && G_IS_OBJECT(dialog->white_stroke_dialog)) g_object_unref(dialog->white_stroke_dialog);
-    if (dialog->black_piece_dialog && G_IS_OBJECT(dialog->black_piece_dialog)) g_object_unref(dialog->black_piece_dialog);
-    if (dialog->black_stroke_dialog && G_IS_OBJECT(dialog->black_stroke_dialog)) g_object_unref(dialog->black_stroke_dialog);
+    // NOTE: Do NOT manually unref the GtkColorDialog objects!
+    // They are owned by the GtkColorDialogButton widgets and will be
+    // automatically freed when the parent widget (content_box) is destroyed.
+    // Manually unreferencing them causes a double-free segmentation fault.
     
     free(dialog);
     if (debug_mode) printf("[PieceTheme] Dialog freed\n");

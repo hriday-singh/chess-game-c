@@ -28,12 +28,24 @@
 
 // Globals
 static AppState* g_app_state = NULL;
+// Visual delay before AI move (can be used for "thinking" animation)
 static int g_ai_move_delay_ms = 250;
 
 // Forward declarations
-static void request_ai_move(AppState* state);
 static gboolean check_trigger_ai_idle(gpointer user_data);
-static gboolean ai_think_thread_timeout(gpointer user_data);
+static gboolean grab_board_focus_idle(gpointer user_data);
+static void request_ai_move(AppState* state);
+
+// Rule 3: AI triggered from EXACTLY ONE place
+static gboolean check_trigger_ai_idle(gpointer user_data) {
+    request_ai_move((AppState*)user_data);
+    return FALSE;
+}
+
+// Wrapper for game reset callback (void return type)
+static void trigger_ai_after_reset(gpointer user_data) {
+    check_trigger_ai_idle(user_data);
+}
 
 // --- CvC Orchestration ---
 
@@ -125,16 +137,13 @@ static void update_ui_callback(void) {
         // Stop CvC if running
         if (g_app_state->cvc_match_state == CVC_STATE_RUNNING) {
             g_app_state->cvc_match_state = CVC_STATE_STOPPED;
-            
-            // Re-enable controls immediately
-             if (g_app_state->info_panel) {
-                // We need to force update controls
-                // info_panel_update_controls(g_app_state->info_panel); // If available
-            }
         }
     } else {
-        // Only trigger AI if game NOT over
-        g_idle_add(check_trigger_ai_idle, g_app_state);
+        // Rule 4: Only trigger AI if NOT already thinking
+        // This prevents multiple idle callbacks from stacking
+        if (!g_app_state->ai_thinking) {
+            g_idle_add(check_trigger_ai_idle, g_app_state);
+        }
     }
     
     // Refresh UI
@@ -422,10 +431,12 @@ static void on_edit_piece_theme(GSimpleAction* action, GVariant* parameter, gpoi
 
 // Wrapper to show popover in timeout
 static gboolean popup_popover_delayed(gpointer user_data) {
-    GtkPopover* popover = GTK_POPOVER(user_data);
-    if (popover && GTK_IS_POPOVER(popover)) {
-        gtk_popover_popup(popover);
+    AppState* state = (AppState*)user_data;
+    if (state && state->onboarding_popover && GTK_IS_POPOVER(state->onboarding_popover)) {
+        gtk_popover_popup(GTK_POPOVER(state->onboarding_popover));
     }
+    // Clear timer ID as it's about to be removed automatically
+    if (state) state->onboarding_timer_id = 0;
     return FALSE;
 }
 
@@ -498,22 +509,32 @@ typedef struct {
     bool nnue_enabled;
 } AiTaskData;
 
+// Rule 1: UI thread ONLY applies move - no blocking calls
+typedef struct {
+    AppState* state;
+    char* fen;
+    char* bestmove;
+} AiResultData;
+
 static gboolean apply_ai_move_idle(gpointer user_data) {
-    AiTaskData* data = (AiTaskData*)user_data;
-    AppState* state = data->state;
-    char* bestmove_str = ai_engine_wait_for_bestmove(data->engine);
+    printf("[AI UI] applying move\n");
+    AiResultData* result = (AiResultData*)user_data;
+    AppState* state = result->state;
+    
+    // Rule 9: Validate position before applying
     char current_fen[256];
     gamelogic_generate_fen(state->logic, current_fen, sizeof(current_fen));
-    if (strcmp(current_fen, data->fen) != 0) {
-        if (bestmove_str) ai_engine_free_response(bestmove_str);
+    if (strcmp(current_fen, result->fen) != 0) {
+        printf("[AI UI] FEN mismatch! Position changed. Aborting.\n");
         state->ai_thinking = FALSE;
-        g_free(data->fen);
-        if (data->nnue_path) g_free(data->nnue_path);
-        g_free(data);
+        g_free(result->fen);
+        g_free(result->bestmove);
+        g_free(result);
         return FALSE;
     }
-    if (bestmove_str) {
-        const char* move_ptr = bestmove_str + 9;
+    
+    if (result->bestmove) {
+        const char* move_ptr = result->bestmove;
         if (strlen(move_ptr) >= 4) {
             int c1 = move_ptr[0] - 'a', r1 = 8 - (move_ptr[1] - '0');
             int c2 = move_ptr[2] - 'a', r2 = 8 - (move_ptr[3] - '0');
@@ -528,89 +549,172 @@ static gboolean apply_ai_move_idle(gpointer user_data) {
             }
             board_widget_animate_move(state->board, m);
         }
-        ai_engine_free_response(bestmove_str);
     }
+    
     state->ai_thinking = FALSE;
-    g_free(data->fen);
-    if (data->nnue_path) g_free(data->nnue_path);
-    g_free(data);
+    printf("[AI UI] done\n");
+    g_free(result->fen);
+    g_free(result->bestmove);
+    g_free(result);
     return FALSE;
 }
 
+// Rule 6: Worker thread does ALL engine communication including wait
 static gpointer ai_think_thread(gpointer user_data) {
+    printf("[AI THREAD] started\n");
     AiTaskData* data = (AiTaskData*)user_data;
+    
     ai_engine_send_command(data->engine, "ucinewgame");
+    
     char pos_cmd[512];
     snprintf(pos_cmd, sizeof(pos_cmd), "position fen %s", data->fen);
     ai_engine_send_command(data->engine, pos_cmd);
+    
     if (data->nnue_enabled && data->nnue_path) {
         ai_engine_set_option(data->engine, "Use NNUE", "true");
         ai_engine_set_option(data->engine, "EvalFile", data->nnue_path);
     }
-    if (data->params.skill_level >= 0) {
-        char opt_cmd[128];
-        snprintf(opt_cmd, sizeof(opt_cmd), "setoption name Skill Level value %d", data->params.skill_level);
-        ai_engine_send_command(data->engine, opt_cmd);
-    }
+    
+    // Send go command
+    // Advanced mode: use depth if >0, otherwise movetime
+    // ELO mode: use depth (primary control for difficulty curve)
     char go_cmd[128];
-    if (data->params.depth > 0) snprintf(go_cmd, sizeof(go_cmd), "go depth %d", data->params.depth);
-    else snprintf(go_cmd, sizeof(go_cmd), "go movetime %d", data->params.move_time_ms);
+    if (data->params.depth > 0) {
+        snprintf(go_cmd, sizeof(go_cmd), "go depth %d", data->params.depth);
+    } else {
+        snprintf(go_cmd, sizeof(go_cmd), "go movetime %d", data->params.move_time_ms);
+    }
     ai_engine_send_command(data->engine, go_cmd);
-    g_idle_add(apply_ai_move_idle, data);
+    
+    // Rule 1: Blocking wait happens ONLY in worker thread
+    char* bestmove_str = ai_engine_wait_for_bestmove(data->engine);
+    printf("[AI THREAD] bestmove ready\n");
+    
+    if (bestmove_str && strlen(bestmove_str) > 9) {
+        // Prepare result for UI thread
+        AiResultData* result = g_new0(AiResultData, 1);
+        result->state = data->state;
+        result->fen = data->fen;  // Transfer ownership
+        result->bestmove = g_strdup(bestmove_str + 9);  // Skip "bestmove "
+        
+        ai_engine_free_response(bestmove_str);
+        if (data->nnue_path) g_free(data->nnue_path);
+        g_free(data);
+        
+        // Add visual delay to make AI move feel more natural
+        g_timeout_add(g_ai_move_delay_ms, apply_ai_move_idle, result);
+    } else {
+        // Error case or shutdown
+        if (bestmove_str) {
+            printf("[AI THREAD] ERROR: Invalid bestmove: '%s'\n", bestmove_str);
+        } else {
+            printf("[AI THREAD] No bestmove (likely engine shutdown)\n");
+        }
+        
+        data->state->ai_thinking = FALSE;
+        ai_engine_free_response(bestmove_str);
+        g_free(data->fen);
+        if (data->nnue_path) g_free(data->nnue_path);
+        g_free(data);
+    }
+    
     return NULL;
 }
 
 static void request_ai_move(AppState* state) {
-    if (state->ai_thinking || state->logic->isGameOver) return;
+    printf("[AI] request_ai_move: thinking=%d mode=%d turn=%d anim=%d\n",
+        state->ai_thinking,
+        gamelogic_get_game_mode(state->logic),
+        gamelogic_get_turn(state->logic),
+        board_widget_is_animating(state->board));
+    
+    // Rule 2: ABSOLUTE guard - only ONE AI request at a time
+    if (state->ai_thinking) {
+        printf("[AI] Already thinking, aborting\n");
+        return;
+    }
+    
+    if (state->logic->isGameOver) {
+        printf("[AI] Game over, aborting\n");
+        return;
+    }
+    
     GameMode mode = gamelogic_get_game_mode(state->logic);
     Player current_turn = gamelogic_get_turn(state->logic);
-    if (mode == GAME_MODE_PVP) return;
-    if (mode == GAME_MODE_PUZZLE) return; // Don't trigger AI in puzzle mode
-    if (mode == GAME_MODE_CVC && state->cvc_match_state != CVC_STATE_RUNNING) return;
-    if (mode == GAME_MODE_PVC && !gamelogic_is_computer(state->logic, current_turn)) return;
     
-    // CRITICAL: Don't request AI move if board is still animating previous move
-    // This prevents race conditions in CvC where logic hasn't updated yet
-    if (board_widget_is_animating(state->board)) return;
-
+    // Rule 10: Puzzle mode HARD-blocks AI
+    if (mode == GAME_MODE_PUZZLE) {
+        printf("[AI] Puzzle mode, aborting\n");
+        return;
+    }
+    
+    if (mode == GAME_MODE_PVP) {
+        printf("[AI] PVP mode, aborting\n");
+        return;
+    }
+    
+    if (mode == GAME_MODE_CVC && state->cvc_match_state != CVC_STATE_RUNNING) {
+        printf("[AI] CvC not running, aborting\n");
+        return;
+    }
+    
+    if (mode == GAME_MODE_PVC && !gamelogic_is_computer(state->logic, current_turn)) {
+        printf("[AI] PvC but not AI turn, aborting\n");
+        return;
+    }
+    
+    // Rule 5: If animating, DO NOTHING - let animation completion trigger naturally
+    if (board_widget_is_animating(state->board)) {
+        printf("[AI] Board animating, aborting (will retry after animation)\n");
+        return;
+    }
+    
+    // Rule 2: Set ai_thinking IMMEDIATELY before any scheduling
+    printf("[AI] Setting ai_thinking=TRUE\n");
     state->ai_thinking = TRUE;
+    
     bool is_black = (current_turn == PLAYER_BLACK);
     bool use_custom = info_panel_is_custom_selected(state->info_panel, is_black);
+    
     AiTaskData* data = g_new0(AiTaskData, 1);
     data->state = state;
     data->fen = g_malloc(256);
     gamelogic_generate_fen(state->logic, data->fen, 256);
+    printf("[AI] FEN: %s\n", data->fen);
+    
     if (use_custom) {
         const char* path = ai_dialog_get_custom_path(state->ai_dialog);
-        if (!state->custom_engine) state->custom_engine = ai_engine_init_external(path);
+        if (!state->custom_engine) {
+            printf("[AI] Initializing CUSTOM engine: %s\n", path);
+            state->custom_engine = ai_engine_init_external(path);
+        }
         data->engine = state->custom_engine;
     } else {
-        if (!state->internal_engine) state->internal_engine = ai_engine_init_internal();
+        if (!state->internal_engine) {
+            printf("[AI] Initializing INTERNAL engine\n");
+            state->internal_engine = ai_engine_init_internal();
+        }
         data->engine = state->internal_engine;
     }
+    
     if (ai_dialog_is_advanced_enabled(state->ai_dialog, use_custom)) {
-        data->params.skill_level = -1;
         data->params.depth = ai_dialog_get_depth(state->ai_dialog, use_custom);
         data->params.move_time_ms = ai_dialog_get_movetime(state->ai_dialog, use_custom);
+        printf("[AI] Advanced mode: depth=%d, movetime=%dms\n", data->params.depth, data->params.move_time_ms);
     } else {
         int elo = info_panel_get_elo(state->info_panel, is_black);
         data->params = ai_get_difficulty_params(elo);
+        printf("[AI] ELO mode: elo=%d, depth=%d, movetime=%dms\n", 
+               elo, data->params.depth, data->params.move_time_ms);
     }
+    
     const char* nn_path = ai_dialog_get_nnue_path(state->ai_dialog, &data->nnue_enabled);
     if (nn_path) data->nnue_path = g_strdup(nn_path);
+    printf("[AI] NNUE: enabled=%d, path=%s\n", data->nnue_enabled, nn_path ? nn_path : "NULL");
     
-    // Use the configurable delay
-    g_timeout_add(g_ai_move_delay_ms, (GSourceFunc)ai_think_thread_timeout, data);
-}
-
-static gboolean ai_think_thread_timeout(gpointer user_data) {
-    g_thread_new("ai-think", ai_think_thread, user_data);
-    return FALSE;
-}
-
-static gboolean check_trigger_ai_idle(gpointer user_data) {
-    request_ai_move((AppState*)user_data);
-    return FALSE;
+    // Rule 8: Spawn thread immediately - no delay complexity
+    printf("[AI] Spawning AI thread immediately\n");
+    g_thread_new("ai-think", ai_think_thread, data);
 }
 
 static void on_app_shutdown(GApplication* app, gpointer user_data) {
@@ -669,6 +773,21 @@ static void on_main_window_destroy(GtkWidget* widget, gpointer user_data) {
     if (state->settings_timer_id > 0) {
         g_source_remove(state->settings_timer_id);
         state->settings_timer_id = 0;
+    }
+
+    // Stop Onboarding Popover Timer
+    if (state->onboarding_timer_id > 0) {
+        g_source_remove(state->onboarding_timer_id);
+        state->onboarding_timer_id = 0;
+    }
+
+    // Explicitly unparent popover to prevent "children left" warning
+    if (state->onboarding_popover) {
+        if (GTK_IS_POPOVER(state->onboarding_popover)) {
+            gtk_popover_popdown(GTK_POPOVER(state->onboarding_popover));
+        }
+        gtk_widget_unparent(state->onboarding_popover);
+        state->onboarding_popover = NULL;
     }
     
     // Nullify widget pointers to prevent access in any remaining callbacks
@@ -771,12 +890,25 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
 
     GtkWidget* main_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     state->board = board_widget_new(state->logic);
+    
+    // Fix AI Latency: Register animation finish callback to trigger AI immediately
+    // state->board is the frame, we need the grid child where the callback is invoked
+    GtkWidget* grid_child = gtk_frame_get_child(GTK_FRAME(state->board));
+    if (grid_child) {
+        g_object_set_data(G_OBJECT(grid_child), "anim-finish-cb", (gpointer)check_trigger_ai_idle);
+        g_object_set_data(G_OBJECT(grid_child), "anim-finish-data", state);
+    }
+
     board_widget_set_theme(state->board, state->theme);
     
     state->info_panel = info_panel_new(state->logic, state->board, state->theme);
     info_panel_set_cvc_callback(state->info_panel, on_cvc_control_action, state);
     info_panel_set_ai_settings_callback(state->info_panel, (GCallback)show_ai_settings_dialog, state);
     info_panel_set_puzzle_list_callback(state->info_panel, G_CALLBACK(on_panel_puzzle_selected_safe), state);
+    
+    // Set game reset callback to trigger AI after reset/side changes
+    info_panel_set_game_reset_callback(state->info_panel, trigger_ai_after_reset, state);
+    
     refresh_puzzle_list(state);
     gtk_widget_set_size_request(state->info_panel, 300, -1);
     gtk_widget_set_hexpand(state->info_panel, FALSE);
@@ -796,8 +928,6 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gboolean show_onboarding = TRUE; // Could save/load this pref
     if (show_onboarding) {
         GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
-        // Parent to header instead of menu button to avoid "children left" warning on button finalization
-        // But pointing to the button
         gtk_widget_set_parent(GTK_WIDGET(popover), GTK_WIDGET(header));
         
         GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
@@ -816,18 +946,15 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         // Connect actions
         g_signal_connect(btn_start, "clicked", G_CALLBACK(activate_tutorial_action), state);
         g_signal_connect_swapped(btn_start, "clicked", G_CALLBACK(gtk_popover_popdown), popover);
-        g_signal_connect_swapped(btn_start, "clicked", G_CALLBACK(gtk_popover_popdown), popover);
-        // Ensure focus returns to board (although starting tutorial will likely handle its own focus via dialogs)
-        // But for completeness:
-        // (Assuming tutorial start shows a dialog, which takes focus, so this might be redundant but safe)
+        
+        // Store button reference for focus grabbing on startup
+        g_object_set_data(G_OBJECT(state->window), "tutorial-start-btn", btn_start);
         
         gtk_box_append(GTK_BOX(box), btn_start);
         
         // Close Button
-        GtkWidget* btn_close = gtk_button_new_with_label("Close"); // Or use "X"
-        // Close popover
+        GtkWidget* btn_close = gtk_button_new_with_label("Close");
         g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_popover_popdown), popover);
-        // Grab focus on board
         g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_widget_grab_focus), state->board);
         gtk_box_append(GTK_BOX(box), btn_close);
         
@@ -835,33 +962,12 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         gtk_popover_set_position(popover, GTK_POS_BOTTOM);
         gtk_popover_set_autohide(popover, TRUE);
         
-        // Point to the menu button
-        // We need to set pointing_to relative to the parent (header)
-        // Since MB is in header, we can try to get its allocation? 
-        // Or simpler: Just keep parenting to MB but handle destroy?
-        // Actually parenting to header is safer. We won't set pointing_to for now, 
-        // it will point to header (top left) or center? 
-        // Let's set pointing to the menu button allocation if possible.
-        // For simplicity in GTK4, if we want it to point to MB, it's best to be child of MB.
-        // But to fix valid warning: we must unparent it before MB is finalized?
-        // Let's rely on weak ref or signal to unparent.
-        // Or just suppress warning by unparenting on popdown? NO.
-        
-        // Alternative: Use gtk_widget_set_parent(popover, mb) but add cleanup.
-        // Cleanup: g_signal_connect(mb, "destroy", G_CALLBACK(gtk_widget_unparent), popover);
-        // But mb destroys children automatically. Why warning?
-        // Because GtkMenuButton destroys its internal popover? 
-        // Maybe it doesn't like extra children.
-        
-        // Let's try parenting to header and moving on.
-        // If we parent to header, it will pop up relative to header.
-        
-        // Show after a delay
-        g_timeout_add_seconds(1, popup_popover_delayed, popover);
-        
-        // Clean up popover when header is destroyed to avoid "children left" warning
-        g_signal_connect_swapped(header, "destroy", G_CALLBACK(gtk_widget_unparent), popover);
+        // Show after a delay - GTK will handle cleanup when header is destroyed
+        // Store ID to cancel on destroy
+        state->onboarding_popover = GTK_WIDGET(popover);
+        state->onboarding_timer_id = g_timeout_add_seconds(1, popup_popover_delayed, state);
     }
+
 
     gamelogic_set_callback(state->logic, update_ui_callback);
     state->settings_timer_id = g_timeout_add(500, sync_ai_settings_to_panel, state);
@@ -869,10 +975,29 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     // Connect destroy signal to stop timers immediately
     g_signal_connect(state->window, "destroy", G_CALLBACK(on_main_window_destroy), state);
     
+    // Enable focus visibility
+    gtk_window_set_focus_visible(state->window, TRUE);
+    
+    // Present window
     gtk_window_present(state->window);
     
-    // Ensure board widget has focus on startup
-    gtk_widget_grab_focus(state->board);
+    // Schedule focus grab after window is fully realized
+    g_idle_add(grab_board_focus_idle, state);
+}
+
+// Helper to grab focus after window is fully realized
+static gboolean grab_board_focus_idle(gpointer user_data) {
+    AppState* state = (AppState*)user_data;
+    // Focus on the tutorial start button (stored in user_data of the popover)
+    // This ensures users see the tutorial notification on startup
+    GtkWidget* tutorial_btn = (GtkWidget*)g_object_get_data(G_OBJECT(state->window), "tutorial-start-btn");
+    if (tutorial_btn && GTK_IS_WIDGET(tutorial_btn)) {
+        gtk_widget_grab_focus(tutorial_btn);
+    } else if (state && state->board) {
+        // Fallback to board if button not found
+        gtk_widget_grab_focus(state->board);
+    }
+    return FALSE;
 }
 int main(int argc, char** argv) {
     GtkApplication* app = gtk_application_new("com.hriday.chessc", G_APPLICATION_DEFAULT_FLAGS);
