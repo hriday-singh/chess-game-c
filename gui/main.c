@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
+#include "theme_manager.h"
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -949,20 +950,8 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gtk_window_set_title(state->window, "HAL :) Chess");
     gtk_window_set_default_size(state->window, 1020, 780);
     
-    GtkCssProvider* cssProvider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(cssProvider,
-        "window { border-radius: 12px; }"
-        "headerbar { border-radius: 12px 12px 0 0; }"
-        ".info-panel { background: #f5f5f5; border-right: 1px solid #ddd; border-radius: 0 0 0 12px; }" 
-        ".board-frame { border: 2px solid #333; border-radius: 12px; margin: 10px; }"
-        ".capture-box { background: #e0e0e0; border-radius: 4px; padding: 4px; min-height: 32px; }"
-        ".undo-button { color: #fff; background: #2196F3; border-radius: 4px; padding: 4px 12px; }"
-        ".reset-button { color: #fff; background: #f44336; border-radius: 4px; padding: 4px 12px; }"
-        ".suggested-action { background: #1976D2; color: white; }"
-        ".destructive-action { background: #D32F2F; color: white; }"
-        ".capture-count { font-size: 10px; font-weight: bold; color: #555; margin-left: 2px; }"
-    );
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(cssProvider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    theme_manager_init(); // Initialize global theme manager
+    
     // Initialize AI Dialog as embedded (View managed by SettingsDialog)
     state->ai_dialog = ai_dialog_new_embedded();
     ai_dialog_set_settings_changed_callback(state->ai_dialog, on_ai_settings_changed, state);

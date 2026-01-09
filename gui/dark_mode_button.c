@@ -1,4 +1,6 @@
 #include "dark_mode_button.h"
+#include "theme_manager.h"
+#include <stdlib.h>
 #include <math.h>
 
 #ifdef G_OS_WIN32
@@ -151,14 +153,7 @@ static void check_ensure_overlay(DarkModePriv* priv) {
     gtk_window_set_decorated(GTK_WINDOW(priv->overlay_window), FALSE);
     gtk_widget_set_focusable(priv->overlay_window, FALSE);
     
-    // Styling for transparency - Scope strictly
-    GtkCssProvider *css = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(css, 
-        "window.transparent-overlay { background: transparent; box-shadow: none; border: none; } "
-        "window.transparent-overlay > widget { background: transparent; }");
-    
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(css), GTK_STYLE_PROVIDER_PRIORITY_USER + 200);
-    g_object_unref(css);
+    // Styling is now handled globally by theme_manager.c
     
     // Apply class
     gtk_widget_add_css_class(priv->overlay_window, "transparent-overlay");
@@ -323,9 +318,19 @@ static void on_click(GtkGestureClick* gesture, int n_press, double x, double y, 
     priv->anim_start_time = get_monotonic_time(); // Will be refined in tick
     priv->anim_progress = 0.0;
     
-    // Set accessibility label immediately for feedback, though state flips at end visually?
-    // User requested "At animation end: Set state".
-    // But for accessibility, maybe toggle now? Let's stick to visual sync.
+    // IMMEDIATE STATE CHANGE (User Request)
+    // We flip the logical state immediately so the entire app updates instantly.
+    gboolean target_dark = !priv->is_dark;
+    
+    // Update Global Theme
+    theme_manager_set_dark(target_dark);
+    
+    // Update Local State (to sync with global)
+    priv->is_dark = target_dark;
+
+    // Update tooltip
+    const char* new_label = target_dark ? "Switch to Light Mode" : "Switch to Dark Mode";
+    gtk_widget_set_tooltip_text(GTK_WIDGET(priv->widget), new_label);
     
     // Spawn Click Burst (Concurrent)
     if (priv->enable_hearts && HEARTS_ENABLED_CLICK) {
@@ -469,20 +474,9 @@ static void draw_overlay_particles(GtkDrawingArea* area, cairo_t* cr, int width,
     }
 }
 
-static void draw_sun_moon(cairo_t* cr, double cx, double cy, double size, gboolean to_dark, double t) {
-    // t: 0.0 = Start State, 1.0 = End State
-    // If to_dark is TRUE:  Start=Sun, End=Moon
-    // If to_dark is FALSE: Start=Moon, End=Sun
-    
-    // We can normalize this: always draw logic for Sun->Moon, 
-    // and if to_dark is FALSE (Moon->Sun), we just invert t (t = 1 - t).
-    
-    double morph_t = t;
-    if (!to_dark) {
-        morph_t = 1.0 - t;
-    }
-    
-    // Now morph_t=0 is full Sun, morph_t=1 is full Moon.
+static void draw_sun_moon(cairo_t* cr, double cx, double cy, double size, double morph_t) {
+    // morph_t=0 : full Sun
+    // morph_t=1 : full Moon
     
     double sun_radius = size * 0.35;
     double moon_outer_radius = size * 0.38;
@@ -492,10 +486,25 @@ static void draw_sun_moon(cairo_t* cr, double cx, double cy, double size, gboole
     cairo_save(cr);
     cairo_translate(cr, cx, cy);
     
+    // --- COLOR LOGIC ---
+    // The user wants:
+    // Light Mode (showing Moon) -> Dark color
+    // Dark Mode (showing Sun)  -> Light color
+    // If we are morphing, we blend the color between dark and light based on morph_t.
+    // Transitioning Moon(Dark) <-> Sun(Light)
+    
+    // Moon is morph_t=1.0. Sun is morph_t=0.0.
+    // Dark color for morph_t=1.0. Light color for morph_t=0.0.
+    double r, g, b;
+    double dark_val = 0.2;
+    double light_val = 0.9;
+    
+    r = g = b = light_val + (dark_val - light_val) * morph_t;
+    cairo_set_source_rgb(cr, r, g, b);
+    
     // --- DRAW RAYS (Sun feature) ---
-    // Rays retract as we go to Moon (morph_t 0 -> 1)
     if (morph_t < 1.0) {
-        double ray_scale = 1.0 - ease_in_out(morph_t); // Retract
+        double ray_scale = 1.0 - ease_in_out(morph_t);
         if (ray_scale > 0.01) {
             cairo_save(cr);
             int n_rays = 8;
@@ -503,37 +512,10 @@ static void draw_sun_moon(cairo_t* cr, double cx, double cy, double size, gboole
                 double angle = (2 * M_PI * i) / n_rays;
                 cairo_save(cr);
                 cairo_rotate(cr, angle);
-                
-                double r_len = ray_len * ray_scale;
-                
-                // Draw rounded line/rect for ray
                 cairo_move_to(cr, ray_start, 0);
-                cairo_line_to(cr, ray_start + r_len, 0);
-                
+                cairo_line_to(cr, ray_start + ray_len * ray_scale, 0);
                 cairo_set_line_cap(cr, CAIRO_LINE_CAP_ROUND);
                 cairo_set_line_width(cr, ICON_LINE_WIDTH);
-                
-                // Sets color logic
-                cairo_set_source_rgb(cr, 0.2, 0.2, 0.2); // Darker for sun rays usually? Or same as icon.
-                // Icon color: usually dark gray/black in Light mode, White in Dark mode.
-                // Wait, if button is in header (usually light background), default icon is dark.
-                // But dark mode toggle implies:
-                // Sun (Light Mode) -> Icon is Dark (representing "Current is Light" or "Switch to Dark"?)
-                // Usually: Sun = We are in Light Mode. Moon = We are in Dark Mode.
-                // Code matches: is_dark=FALSE -> Sun.
-                
-                if (to_dark) {
-                     // Morphing Sun(DarkColor) -> Moon(WhiteColor)?
-                     // Usually button icon color contrasts with background.
-                     // Assuming standard headerbar: light bg -> dark icon.
-                     // If we ignore theme change, we stick to one color strategy.
-                     // Let's use standard text color (approx dark gray).
-                     cairo_set_source_rgb(cr, 0.2, 0.2, 0.2);
-                } else {
-                     // Moon(DarkColor) -> Sun
-                     cairo_set_source_rgb(cr, 0.2, 0.2, 0.2); 
-                }
-                
                 cairo_stroke(cr);
                 cairo_restore(cr);
             }
@@ -541,106 +523,60 @@ static void draw_sun_moon(cairo_t* cr, double cx, double cy, double size, gboole
         }
     }
     
-    // --- DRAW BODY (Sun Disk -> Moon Crescent) ---
-    // Sun: Circle.
-    // Moon: Circle minus offset Circle.
-    // Transition:
-    // We draw the main circle.
-    // We "cut out" the shadow circle.
-    // Sun: Shadow circle is far away or 0 size.
-    // Moon: Shadow circle overlaps.
-    
-    // Main Body Color
-    cairo_set_source_rgb(cr, 0.2, 0.2, 0.2); // Std icon color
-    
-    // The main circle grows slightly from Sun to Moon?
-    // Sun radius vs Moon outer radius.
+    // --- DRAW BODY ---
     double main_r = sun_radius + (moon_outer_radius - sun_radius) * ease_in_out(morph_t);
-    
-    // The "Shadow" circle for the crescent cut
-    // For Sun (t=0): Shadow is fully outside or effectively creates full circle.
-    // For Moon (t=1): Shadow is offset.
-    
-    // Parametric offset
-    // Moon offset usually ~ r * 0.5
     double shadow_r = main_r * 0.85; 
     double max_offset = main_r * 0.6; 
-    double start_offset = main_r + shadow_r + 5.0; // Functionally far away
+    double start_offset = main_r + shadow_r + 10.0;
     
     double offset_x = start_offset * (1.0 - ease_in_out(morph_t)) + max_offset * ease_in_out(morph_t);
     
-    // Use clip or difference
-    // Simplest Cairo way for Crescent:
-    // Add outer arc.
-    // Add inner arc (shadow) in REVERSE.
-    // Fill.
-    
-    // Note: This only works if the shadow is fully contained or we handle the intersection points perfectly.
-    // Easier visual trick: Draw Full Main Circle, then set operator CLEAR and draw Shadow Circle.
-    // BUT this clears background too.
-    // Better: cairo_push_group(), draw main, set operator DEST_OUT, draw shadow, cairo_pop_group_to_source(), paint.
-    
     cairo_push_group(cr);
-    
-    // Draw Main Circle
-    cairo_set_source_rgb(cr, 0.2, 0.2, 0.2); 
     cairo_arc(cr, 0, 0, main_r, 0, 2 * M_PI);
     cairo_fill(cr);
     
-    // Cutout
     cairo_set_operator(cr, CAIRO_OPERATOR_DEST_OUT);
-    cairo_set_source_rgba(cr, 0, 0, 0, 1); // Alpha doesn't matter for DEST_OUT
-    cairo_arc(cr, offset_x, -main_r * 0.1, shadow_r, 0, 2 * M_PI); // Slight y-offset for tilted moon look
+    cairo_arc(cr, offset_x, -main_r * 0.1, shadow_r, 0, 2 * M_PI);
     cairo_fill(cr);
     
     cairo_pop_group_to_source(cr);
     cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
     cairo_paint(cr);
-    
-    // Restore
     cairo_restore(cr);
 }
 
 static void draw_icon(cairo_t* cr, double w, double h, gboolean start_is_dark, double progress, double breathing_scale) {
-    // 1. Setup Transform
     double cx = w / 2.0;
     double cy = h / 2.0;
     double size = fmin(w, h) - ICON_PADDING * 2;
     
     cairo_save(cr);
-    
     cairo_translate(cr, cx, cy);
     cairo_scale(cr, breathing_scale, breathing_scale);
 
-    // Rotation
     if (progress > 0.0) {
         double angle = 2 * M_PI * ease_in_out(progress);
         if (ROTATION_CLOCKWISE) cairo_rotate(cr, angle);
         else cairo_rotate(cr, -angle);
     }
     
-    // Morph Parameters
-    // progress 0..1 covers the whole rotation.
-    // morph happens between START and END.
+    // Mapping:
+    // start_is_dark = FALSE (Light Mode) -> Start=Moon (t=1). Target=Sun (t=0).
+    // start_is_dark = TRUE  (Dark Mode)  -> Start=Sun (t=0). Target=Moon (t=1).
     
-    double t_morph = 0.0;
-    if (progress < MORPH_START_PROGRESS) t_morph = 0.0;
-    else if (progress > MORPH_END_PROGRESS) t_morph = 1.0;
-    else {
-        t_morph = (progress - MORPH_START_PROGRESS) / (MORPH_END_PROGRESS - MORPH_START_PROGRESS);
+    double morph_t_start = start_is_dark ? 0.0 : 1.0;
+    double morph_t_end   = start_is_dark ? 1.0 : 0.0;
+    
+    double t_anim = 0.0;
+    if (progress >= MORPH_START_PROGRESS) {
+        if (progress >= MORPH_END_PROGRESS) t_anim = 1.0;
+        else t_anim = (progress - MORPH_START_PROGRESS) / (MORPH_END_PROGRESS - MORPH_START_PROGRESS);
     }
     
-    // Draw the procedural shape
-    // We are morphing FROM start_is_dark TO !start_is_dark.
-    // If start_is_dark=TRUE (Moon), we go to Sun. Target is Light. is_to_dark=FALSE.
-    // If start_is_dark=FALSE (Sun), we go to Moon. Target is Dark. is_to_dark=TRUE.
-    gboolean to_dark = !start_is_dark;
-    
-    // Since we centered at cx,cy, we effectively draw at 0,0 locally
-    cairo_translate(cr, -cx, -cy); // Undo translation for the helper which might expect center logic?
-    // Actually draw_sun_moon implementation above expects cx, cy as args.
-    
-    draw_sun_moon(cr, cx, cy, size, to_dark, t_morph);
+    double current_morph_t = morph_t_start + (morph_t_end - morph_t_start) * t_anim;
+
+    cairo_translate(cr, -cx, -cy);
+    draw_sun_moon(cr, cx, cy, size, current_morph_t);
     
     cairo_restore(cr);
 }
@@ -772,7 +708,15 @@ static void on_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gp
         breathing_scale = 1.0 + BREATHING_AMP * sin(phase);
     }
     
-    gboolean start_is_dark = priv->is_dark;
+    // If animating, priv->is_dark is ALREADY the target.
+    // So 'start' is the opposite.
+    gboolean start_is_dark;
+    if (priv->anim_running) {
+        start_is_dark = !priv->is_dark; 
+    } else {
+        start_is_dark = priv->is_dark;
+    }
+
     double progress = 0.0;
     
     if (priv->anim_running) {
@@ -805,16 +749,6 @@ static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer 
         if (elapsed >= duration) {
             priv->anim_progress = 1.0;
             priv->anim_running = FALSE;
-            // Commit State Change
-            priv->is_dark = !priv->is_dark;
-            
-            // Update tooltip and accessibility label to match new state
-            const char* new_label = priv->is_dark ? "Switch to Light Mode" : "Switch to Dark Mode";
-            gtk_widget_set_tooltip_text(widget, new_label);
-            gtk_accessible_update_property(GTK_ACCESSIBLE(widget),
-                GTK_ACCESSIBLE_PROPERTY_LABEL, new_label,
-                -1);
-
         } else {
             priv->anim_progress = elapsed / duration;
         }
@@ -953,12 +887,13 @@ GtkWidget* dark_mode_button_new(void) {
     gtk_widget_set_margin_start(area, 4);
     gtk_widget_set_margin_end(area, 4);
     
-    DarkModePriv* priv = g_new0(DarkModePriv, 1);
+    DarkModePriv* priv = (DarkModePriv*)calloc(1, sizeof(DarkModePriv));
     priv->widget = area;
-    priv->is_dark = FALSE; // Start Light Mode
-    priv->enable_hearts = TRUE; // Default ON
-    priv->hover_particles = g_array_new(FALSE, FALSE, sizeof(Particle));
-    priv->breathing_time_base = g_random_double_range(0, 100); // Random phase
+    
+    // Sync with global theme manager
+    priv->is_dark = theme_manager_is_dark();
+    // Initialize animation state to the target so we don'tanimate on startup
+    priv->anim_progress = priv->is_dark ? 1.0 : 0.0;
     
     gtk_widget_set_margin_start(area, BUTTON_MARGIN);
     gtk_widget_set_margin_end(area, BUTTON_MARGIN);

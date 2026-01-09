@@ -595,27 +595,7 @@ BoardThemeDialog* board_theme_dialog_new(ThemeData* theme, BoardThemeUpdateCallb
         gtk_window_set_child(dialog->window, dialog->content_box);
     }
     
-    // CSS styling
-    GtkCssProvider* provider = gtk_css_provider_new();
-    const char* css = 
-        ".heading { font-weight: 600; font-size: 14px; color: #2c3e50; } "
-        ".preview-frame { border: 2px solid #e0e0e0; border-radius: 8px; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); } "
-        "button { border-radius: 6px; } "
-        "button:hover { background: #f0f0f0; } "
-        "window.dialog { padding: 12px; } "
-        "window.dialog button { margin: 4px; padding: 8px 20px; min-width: 80px; } "
-        "window.dialog box.horizontal button { margin: 6px; } "
-        "window.dialog button:hover { background: inherit; color: inherit; } "
-        "window.dialog button.suggested-action:hover { background: inherit; }";
-    gtk_css_provider_load_from_string(provider, css);
-    GdkDisplay* display = gdk_display_get_default();
-    if (display) {
-        gtk_style_context_add_provider_for_display(
-            display,
-            GTK_STYLE_PROVIDER(provider),
-            GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    }
-    g_object_unref(provider);
+    // CSS styling is now handled globally by theme_manager.c
     
     return dialog;
 }

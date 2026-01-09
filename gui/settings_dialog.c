@@ -403,25 +403,12 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     gtk_list_box_select_row(GTK_LIST_BOX(dialog->sidebar), first);
     */
     
-    // CSS for Sidebar
-    GtkCssProvider* provider = gtk_css_provider_new();
-    const char* css = 
-        ".sidebar { background: #f0f0f0; border-right: 1px solid #e0e0e0; } "
-        ".sidebar row { padding: 10px; border-radius: 6px; margin: 4px; color: #333333; } "
-        ".sidebar row:selected { background: #3584e4; color: #ffffff; font-weight: bold; } "
-        ".title-1 { font-size: 24px; font-weight: bold; margin-bottom: 8px; } "
-        ".title-2 { font-size: 18px; font-weight: bold; margin-bottom: 12px; } "
-        ".dim-label { opacity: 0.7; } "
-        ".heading { font-weight: 700; font-size: 18px; color: #2c3e50; margin-bottom: 8px; } "
-        ".preview-frame { border: 2px solid #e0e0e0; border-radius: 8px; background: white; } "
-        "entry { padding: 6px 8px; border-radius: 6px; } "
-        "checkbutton, radiobutton { padding: 4px; } ";
-    gtk_css_provider_load_from_string(provider, css);
-    gtk_style_context_add_provider_for_display(
-        gtk_widget_get_display(GTK_WIDGET(dialog->window)),
-        GTK_STYLE_PROVIDER(provider),
-        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
+    /*
+    GtkListBoxRow* first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(dialog->sidebar), 0);
+    gtk_list_box_select_row(GTK_LIST_BOX(dialog->sidebar), first);
+    */
+    
+    // Styles are now handled by global theme_manager.c
     
     return dialog;
 }

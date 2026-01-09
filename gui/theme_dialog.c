@@ -734,19 +734,7 @@ ThemeDialog* theme_dialog_new(ThemeData* theme, ThemeUpdateCallback on_update, v
     gtk_box_append(GTK_BOX(main_box), preview_box);
     
     // CSS for preview frame
-    GtkCssProvider* provider = gtk_css_provider_new();
-    const char* css = 
-        ".preview-frame { "
-        "  border: 4px solid #666; "
-        "  border-radius: 4px; "
-        "  box-shadow: 0 0 20px rgba(0,0,0,0.4); "
-        "} ";
-    gtk_css_provider_load_from_string(provider, css);
-    gtk_style_context_add_provider_for_display(
-        gtk_widget_get_display(GTK_WIDGET(dialog->window)),
-        GTK_STYLE_PROVIDER(provider),
-        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
+    // CSS is now handled globally by theme_manager.c
     
     gtk_window_set_child(dialog->window, main_box);
     

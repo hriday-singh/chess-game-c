@@ -382,8 +382,8 @@ static void draw_graveyard_piece(GtkDrawingArea* area, cairo_t* cr, int width, i
         int surf_w = cairo_image_surface_get_width(surface);
         int surf_h = cairo_image_surface_get_height(surface);
         
-        // Scale to fit (roughly 80% of width/height)
-        double scale = (double)height * 0.9 / surf_h;
+        // Scale to fit (roughly 85% of width/height)
+        double scale = (double)height * 0.85 / surf_h;
         
         // Center
         double draw_w = surf_w * scale;
@@ -394,7 +394,7 @@ static void draw_graveyard_piece(GtkDrawingArea* area, cairo_t* cr, int width, i
         cairo_translate(cr, offset_x, offset_y);
         cairo_scale(cr, scale, scale);
         cairo_set_source_surface(cr, surface, 0, 0);
-        cairo_paint(cr);
+        cairo_paint_with_alpha(cr, 0.95); // High opacity for clarity
         cairo_restore(cr);
     } else {
         // Fallback or text rendering?
@@ -444,7 +444,7 @@ static void draw_graveyard_piece(GtkDrawingArea* area, cairo_t* cr, int width, i
 
 static GtkWidget* create_piece_widget(InfoPanel* panel, PieceType type, Player owner) {
     GtkWidget* area = gtk_drawing_area_new();
-    gtk_widget_set_size_request(area, 32, 32); // Reasonable size for icons
+    gtk_widget_set_size_request(area, 26, 26); // Refined size for graveyard
     
     // Store panel for callback
     g_object_set_data(G_OBJECT(area), "panel", panel);
@@ -493,24 +493,33 @@ static void update_captured_labels(InfoPanel* panel) {
     
     // Update labels with relative points (only show if non-zero)
     char black_text[128];
+    // Reset classes first
+    gtk_widget_remove_css_class(panel->black_label, "captured-score-black");
+    
     if (point_diff < 0) {
         // Black is ahead
-        snprintf(black_text, sizeof(black_text), "Captured by Black: <span size='large' weight='bold' foreground='#d32f2f'>+%d</span>", -point_diff);
+        int diff = -point_diff;
+        snprintf(black_text, sizeof(black_text), "Captured by Black: +%d", diff);
+        gtk_label_set_text(GTK_LABEL(panel->black_label), black_text);
+        gtk_widget_add_css_class(panel->black_label, "captured-score-black");
     } else {
         // Black is not ahead, show nothing
-        snprintf(black_text, sizeof(black_text), "Captured by Black:");
+        gtk_label_set_text(GTK_LABEL(panel->black_label), "Captured by Black:");
     }
-    gtk_label_set_markup(GTK_LABEL(panel->black_label), black_text);
     
     char white_text[128];
+    // Reset classes
+    gtk_widget_remove_css_class(panel->white_label, "captured-score-white");
+
     if (point_diff > 0) {
         // White is ahead
-        snprintf(white_text, sizeof(white_text), "Captured by White: <span size='large' weight='bold' foreground='#2e7d32'>+%d</span>", point_diff);
+        snprintf(white_text, sizeof(white_text), "Captured by White: +%d", point_diff);
+        gtk_label_set_text(GTK_LABEL(panel->white_label), white_text);
+        gtk_widget_add_css_class(panel->white_label, "captured-score-white");
     } else {
         // White is not ahead, show nothing
-        snprintf(white_text, sizeof(white_text), "Captured by White:");
+        gtk_label_set_text(GTK_LABEL(panel->white_label), "Captured by White:");
     }
-    gtk_label_set_markup(GTK_LABEL(panel->white_label), white_text);
 }
 
 // Update visibility of AI settings based on game mode
@@ -1264,21 +1273,7 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     
     gtk_box_append(GTK_BOX(panel->standard_controls_box), visual_section);
     
-    // CSS for custom elements
-    GtkCssProvider* provider = gtk_css_provider_new();
-    gtk_css_provider_load_from_string(provider, 
-        ".capture-box { background: #e8e8e8; border-radius: 5px; padding: 8px; border: 1px solid #ccc; min-height: 50px; } "
-        ".success-text { color: #2e7d32; font-size: 0.9em; } "
-        ".error-text { color: #d32f2f; font-size: 0.9em; } "
-        ".ai-note { color: #666; font-size: 0.8em; font-style: italic; } "
-        ".success-action { background: #2e7d32; color: white; }" 
-        ".destructive-action { background: #D32F2F; color: white; }"
-        ".capture-count { font-size: 16px; font-weight: bold; margin-left: 4px; color: #666; }"
-    );
-    gtk_style_context_add_provider_for_display(gdk_display_get_default(),
-                                              GTK_STYLE_PROVIDER(provider),
-                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    g_object_unref(provider);
+    // CSS for custom elements is now handled globally
 
     gtk_widget_set_size_request(scrolled, 280, -1);
     gtk_widget_set_vexpand(scrolled, TRUE);

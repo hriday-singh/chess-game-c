@@ -116,6 +116,10 @@ static char* extract_json_value(const char* json, const char* key) {
     return result;
 }
 
+#ifdef G_OS_UNIX
+#include <dirent.h>
+#include <sys/stat.h>
+
 // Load fonts from directory
 static void load_fonts_recursive(const char* dir_path) {
     DIR* dir = opendir(dir_path);
@@ -150,6 +154,11 @@ static void load_fonts_recursive(const char* dir_path) {
     }
     closedir(dir);
 }
+#else
+static void load_fonts_recursive(const char* dir_path) {
+    (void)dir_path; // No-op on Windows
+}
+#endif
 
 ThemeData* theme_data_new(void) {
     ThemeData* theme = (ThemeData*)calloc(1, sizeof(ThemeData));
