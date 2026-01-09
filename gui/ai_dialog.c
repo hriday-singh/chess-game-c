@@ -371,6 +371,7 @@ static void on_focus_lost_gesture(GtkGestureClick* gesture, int n_press, double 
 
 static void ai_dialog_build_ui(AiDialog* dialog) {
     dialog->content_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
+    gtk_widget_add_css_class(dialog->content_box, "settings-content");
     gtk_widget_set_margin_top(dialog->content_box, 24);
     gtk_widget_set_margin_bottom(dialog->content_box, 24); 
     gtk_widget_set_margin_start(dialog->content_box, 24);
@@ -395,6 +396,7 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     
     // --- TAB 1: Internal Engine ---
     GtkWidget* int_tab = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_add_css_class(int_tab, "settings-content");
     gtk_widget_set_margin_top(int_tab, 24);
     gtk_widget_set_margin_bottom(int_tab, 24);
     gtk_widget_set_margin_start(int_tab, 24);
@@ -520,6 +522,7 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
 
     // --- TAB 2: Custom Engine ---
     GtkWidget* custom_tab = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_add_css_class(custom_tab, "settings-content");
     gtk_widget_set_margin_top(custom_tab, 24);
     gtk_widget_set_margin_bottom(custom_tab, 24);
     gtk_widget_set_margin_start(custom_tab, 24);

@@ -12,7 +12,7 @@
 #include <stdbool.h>
 #include <stdbool.h>
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 struct BoardThemeDialog {
     ThemeData* theme;

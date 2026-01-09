@@ -25,7 +25,7 @@
 #define MAX_PIECE_SETS 100
 #define MAX_STROKE_WIDTH 4.0
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 // Helper to print RAM usage
 static void print_memory_usage() {

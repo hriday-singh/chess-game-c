@@ -27,7 +27,7 @@
 #include "tutorial.h"
 #include "dark_mode_button.h"
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 // Globals
 static AppState* g_app_state = NULL;
@@ -961,6 +961,12 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* header = gtk_header_bar_new();
     // Replacement for Menu: Settings Button
     GtkWidget* settings_btn = gtk_button_new_from_icon_name("open-menu-symbolic");
+    GtkCssProvider *btn_provider = gtk_css_provider_new();
+    gtk_css_provider_load_from_string(btn_provider, "button { background: transparent; border: none; }");
+    gtk_style_context_add_provider(gtk_widget_get_style_context(settings_btn),
+                                   GTK_STYLE_PROVIDER(btn_provider),
+                                   GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    g_object_unref(btn_provider);
     gtk_widget_set_tooltip_text(settings_btn, "Settings");
     
     // Register "open-settings" action with string parameter (optional page name)

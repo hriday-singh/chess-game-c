@@ -20,7 +20,7 @@ struct _SettingsDialog {
 #include "tutorial.h"
 #include <ctype.h>
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 // --- Helper: Create Sidebar Row ---when theme changes
 static void on_theme_update(void* user_data) {

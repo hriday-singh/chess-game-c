@@ -88,6 +88,7 @@ typedef struct {
     // State
     gboolean is_dark;
     gboolean is_hovered;
+    double hover_alpha;
     gboolean enable_hearts; // Master toggle for hearts
     
     // Animation State
@@ -475,8 +476,6 @@ static void draw_overlay_particles(GtkDrawingArea* area, cairo_t* cr, int width,
 }
 
 static void draw_sun_moon(cairo_t* cr, double cx, double cy, double size, double morph_t) {
-    // morph_t=0 : full Sun
-    // morph_t=1 : full Moon
     
     double sun_radius = size * 0.35;
     double moon_outer_radius = size * 0.38;
@@ -487,14 +486,6 @@ static void draw_sun_moon(cairo_t* cr, double cx, double cy, double size, double
     cairo_translate(cr, cx, cy);
     
     // --- COLOR LOGIC ---
-    // The user wants:
-    // Light Mode (showing Moon) -> Dark color
-    // Dark Mode (showing Sun)  -> Light color
-    // If we are morphing, we blend the color between dark and light based on morph_t.
-    // Transitioning Moon(Dark) <-> Sun(Light)
-    
-    // Moon is morph_t=1.0. Sun is morph_t=0.0.
-    // Dark color for morph_t=1.0. Light color for morph_t=0.0.
     double r, g, b;
     double dark_val = 0.2;
     double light_val = 0.9;
@@ -607,6 +598,7 @@ static void spawn_particle_in_array(GArray* arr, double base_x, double base_y, g
     p.size = g_random_double_range(HEARTS_MIN_SIZE, HEARTS_MAX_SIZE);
     p.rotation = g_random_double_range(-0.5, 0.5);
     
+    if (!arr) return;
     g_array_append_val(arr, p);
 }
 
@@ -692,9 +684,31 @@ static void on_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gp
     (void)area; // Unused
     DarkModePriv* priv = (DarkModePriv*)user_data;
     double current_time = get_monotonic_time();
-    
-    // 1. Draw Background (Optional)
-    // No background
+    // 1. Draw Background Highlight (Circular)
+    if (priv->hover_alpha > 0.01) {
+        cairo_save(cr);
+        double cx = width / 2.0;
+        double cy = height / 2.0;
+        double radius = (fmin(width, height) / 2.0) - 0.0;
+        
+        cairo_arc(cr, cx, cy, radius, 0, 2 * M_PI);
+        
+        // Lookup Dynamic Accent Color from CSS (Modern GTK4 Way)
+        GdkRGBA accent_color;
+        gtk_widget_get_color(GTK_WIDGET(area), &accent_color);
+        
+        double r = accent_color.red;
+        double g = accent_color.green;
+        double b = accent_color.blue;
+        
+        cairo_set_source_rgba(cr, r, g, b, 0.12 * priv->hover_alpha);
+        cairo_fill_preserve(cr);
+        
+        cairo_set_source_rgba(cr, r, g, b, 0.4 * priv->hover_alpha);
+        cairo_set_line_width(cr, 1.2);
+        cairo_stroke(cr);
+        cairo_restore(cr);
+    }
     
     // 2. Draw Particles (Moved to Overlay)
     // Nothing here
@@ -727,12 +741,13 @@ static void on_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gp
 }
 
 static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer user_data) {
+    DarkModePriv* priv = (DarkModePriv*)user_data;
+    
     // Safety check: Don't run if widget is not realized
     if (!gtk_widget_get_realized(widget)) {
+        priv->tick_id = 0;
         return G_SOURCE_REMOVE;
     }
-
-    DarkModePriv* priv = (DarkModePriv*)user_data;
     // gdk_frame_clock_get_frame_time returns microseconds.
     gint64 frame_time = gdk_frame_clock_get_frame_time(frame_clock);
     double now = frame_time / 1000000.0;
@@ -754,6 +769,17 @@ static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer 
         }
     }
     
+    // 1b. Update Hover Alpha
+    double hover_target = priv->is_hovered ? 1.0 : 0.0;
+    if (priv->hover_alpha != hover_target) {
+        double dv = dt / 0.15; // 150ms transition
+        if (priv->hover_alpha < hover_target) {
+            priv->hover_alpha = fmin(hover_target, priv->hover_alpha + dv);
+        } else {
+            priv->hover_alpha = fmax(hover_target, priv->hover_alpha - dv);
+        }
+    }
+    
     // 2. Overlay Management
     // Only create/update overlay if we actually have particles to draw
     gboolean has_particles = (priv->active_bursts != NULL) || 
@@ -762,6 +788,10 @@ static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer 
     if (has_particles) {
         check_ensure_overlay(priv);
         update_overlay_position(priv);
+        // Ensure GTK acknowledges visibility
+        if (!gtk_widget_get_visible(priv->overlay_window)) {
+            gtk_widget_set_visible(priv->overlay_window, TRUE);
+        }
     } else if (priv->overlay_window && gtk_widget_get_visible(priv->overlay_window)) {
         // Hide if no particles (optional optimization)
         gtk_widget_set_visible(priv->overlay_window, FALSE);
@@ -812,25 +842,18 @@ static void stop_tick_if_idle(DarkModePriv* priv) {
     // Hovers active?
     if (priv->is_hovered && HEARTS_ENABLED_HOVER) needs_tick = TRUE;
     
-    // Breathing always active when idle?
-    // Prompt: "Breathing continues during hover unless you want to pause; keep it simple: breathing always when idle."
-    // Prompt also says: "run breathing using a slower timeout, or keep tick but lightweight."
-    // Let's keep tick running if we want smooth breathing always.
-    // However, to save battery, maybe only breath on hover?
-    // Prompt: "Idle visual rule... icon should have a subtle 'alive' feel via gentle breathing".
-    // This implies ALWAYS breathing.
-    // Optimization: If nothing else happening, maybe just use a timeout for breathing (low fps?)
-    // But for simplicity/smoothness, let's just keep the tick. It's one widget.
-    // To properly follow "Idle visual rule", we should probably return TRUE always.
-    // BUT "Stopping the tick: Only keep tick callback active while... breathing idle animation is enabled".
-    // "Preferred: keep tick but ensure it’s low overhead".
-    
     needs_tick = TRUE; // Always run for breathing
     
     if (!needs_tick) {
         gtk_widget_remove_tick_callback(priv->widget, priv->tick_id);
         priv->tick_id = 0;
     }
+}
+
+static void on_realize(GtkWidget* widget, gpointer user_data) {
+    (void)widget;
+    DarkModePriv* priv = (DarkModePriv*)user_data;
+    start_tick(priv);
 }
 
 // --- Public API ---
@@ -889,14 +912,22 @@ GtkWidget* dark_mode_button_new(void) {
     
     DarkModePriv* priv = (DarkModePriv*)calloc(1, sizeof(DarkModePriv));
     priv->widget = area;
+
+    // Add CSS class for modern color lookup
+    gtk_widget_add_css_class(area, "dark-mode-button");
     
     // Sync with global theme manager
     priv->is_dark = theme_manager_is_dark();
     // Initialize animation state to the target so we don'tanimate on startup
     priv->anim_progress = priv->is_dark ? 1.0 : 0.0;
     
+    priv->enable_hearts = TRUE; // Default ON
+     priv->breathing_time_base = g_random_double_range(0, 100); // Random phase
+
     gtk_widget_set_margin_start(area, BUTTON_MARGIN);
     gtk_widget_set_margin_end(area, BUTTON_MARGIN);
+    
+    priv->hover_particles = g_array_new(FALSE, FALSE, sizeof(Particle));
     
     g_object_set_data_full(G_OBJECT(area), "dark_mode_priv", priv, dark_mode_button_free_priv);
     
@@ -920,6 +951,7 @@ GtkWidget* dark_mode_button_new(void) {
     
     // Connect unrealize for safe early cleanup
     g_signal_connect(area, "unrealize", G_CALLBACK(on_unrealize), priv);
+    g_signal_connect(area, "realize", G_CALLBACK(on_realize), priv);
     
     return area;
 }
