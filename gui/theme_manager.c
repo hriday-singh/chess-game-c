@@ -144,6 +144,12 @@ static const char *CSS_STRUCTURAL =
     "scale slider { background-color: @fg_color; border-radius: 999px; min-width: 18px; min-height: 18px; margin: -6px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); border: 1px solid @bg_color; }\n"
     "scale slider:hover { background-color: shade(@fg_color, 0.9); }\n"
     "\n"
+    "/* -------------------- Promotion Buttons -------------------- */\n"
+    ".promotion-button { background-color: transparent; border: none; box-shadow: none; padding: 0; }\n"
+    ".promotion-button:hover { background-color: transparent; border: none; box-shadow: none; }\n"
+    ".promotion-button:active { background-color: transparent; border: none; box-shadow: none; }\n"
+    ".promotion-button:focus { background-color: transparent; border: none; box-shadow: none; }\n"
+    "\n"
     "/* -------------------- Header Buttons (Explicitly Transparent) -------------------- */\n"
     ".header-button { background-color: transparent; background-image: none; border: 1px solid @border_color; border-radius: 6px; box-shadow: none; color: @fg_color; }\n"
     ".header-button:hover { background-color: alpha(@fg_color, 0.10); }\n"
@@ -166,7 +172,7 @@ static const char *CSS_STRUCTURAL =
 
 
     /* -------------------- Buttons (Exclude .titlebutton to fix chonkiness) -------------------- */
-    "button:not(.titlebutton):not(.window-control):not(.image-button):not(.success-action):not(.destructive-action):not(.suggested-action) {\n"
+    "button:not(.titlebutton):not(.window-control):not(.image-button):not(.success-action):not(.destructive-action):not(.suggested-action):not(.promotion-button) {\n"
     "  background-color: @button_bg;\n"
     "  background-image: none;\n"
     "  color: @button_fg;\n"

@@ -633,6 +633,18 @@ static gboolean apply_ai_move_idle(gpointer user_data) {
         g_free(result);
         return FALSE;
     }
+
+    // Rule 11: Final Safety Guard - logic mode check
+    // If the user switched mode while AI was thinking, ABORT.
+    GameMode current_mode = gamelogic_get_game_mode(state->logic);
+    if (current_mode == GAME_MODE_PVP || current_mode == GAME_MODE_PUZZLE) {
+         if (debug_mode) printf("[AI UI] Mode mismatch! Switched to PvP/Puzzle. Aborting AI move.\n");
+         state->ai_thinking = FALSE;
+         g_free(result->fen);
+         g_free(result->bestmove);
+         g_free(result);
+         return FALSE;
+    }
     
     if (result->bestmove) {
         const char* move_ptr = result->bestmove;

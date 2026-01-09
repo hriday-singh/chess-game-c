@@ -215,6 +215,7 @@ PieceType promotion_dialog_show(GtkWindow* parent, ThemeData* theme, Player play
         
         // Remove frame/background from button to avoid "box in a box"
         gtk_button_set_has_frame(GTK_BUTTON(piece_button), FALSE);
+        gtk_widget_add_css_class(piece_button, "promotion-button");
         
         // Store piece type in button
         g_object_set_data(G_OBJECT(piece_button), "piece-type", 
