@@ -365,10 +365,11 @@ static void unbind_list_item(GtkSignalListItemFactory* factory, GtkListItem* lis
     PieceThemeDialog* dialog = (PieceThemeDialog*)user_data;
     gulong old_id = (gulong)(uintptr_t)g_object_get_data(G_OBJECT(list_item), "sel_notify_id");
     // Only disconnect if dialog and widget are still valid
-    if (old_id && dialog && dialog->piece_set_combo && GTK_IS_WIDGET(dialog->piece_set_combo)) {
-        if (g_signal_handler_is_connected(dialog->piece_set_combo, old_id)) {
+    if (old_id && dialog && 
+        dialog->piece_set_combo && 
+        GTK_IS_DROP_DOWN(dialog->piece_set_combo) &&
+        g_signal_handler_is_connected(dialog->piece_set_combo, old_id)) {
             g_signal_handler_disconnect(dialog->piece_set_combo, old_id);
-        }
     }
     g_object_set_data(G_OBJECT(list_item), "sel_notify_id", 0);
 }

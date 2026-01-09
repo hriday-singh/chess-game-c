@@ -226,6 +226,15 @@ static void execute_move_with_updates(BoardWidget* board, Move* move, bool playS
     board->selectedRow = -1;
     board->selectedCol = -1;
     free_valid_moves(board);
+
+    // 4. Trigger generic animation/move finished callback (for AI immediate response)
+    // Stored on the grid widget by main controller.
+    // We execute this AFTER the board update so the logic state is consistent for the AI.
+    GSourceFunc finish_cb = (GSourceFunc)g_object_get_data(G_OBJECT(board->grid), "anim-finish-cb");
+    gpointer finish_data = g_object_get_data(G_OBJECT(board->grid), "anim-finish-data");
+    if (finish_cb) {
+        finish_cb(finish_data);
+    }
 }
 
 // Helper to draw piece from cache or fallback to text
@@ -1108,16 +1117,7 @@ static gboolean animation_tick(gpointer user_data) {
             gtk_widget_set_sensitive(board->animOverlay, FALSE); // Don't block input
             // Also hide it visually when not animating
             gtk_widget_set_visible(board->animOverlay, FALSE);
-        }
-        
-        // Trigger generic animation finished callback (for AI immediate response)
-        // Stored on the grid widget by main controller
-        GSourceFunc finish_cb = (GSourceFunc)g_object_get_data(G_OBJECT(board->grid), "anim-finish-cb");
-        gpointer finish_data = g_object_get_data(G_OBJECT(board->grid), "anim-finish-data");
-        if (finish_cb) {
-            finish_cb(finish_data);
-        }
-        
+        }      
         return G_SOURCE_REMOVE;
     }
     

@@ -783,6 +783,11 @@ static void on_draw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gp
 }
 
 static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer user_data) {
+    // Safety check: Don't run if widget is not realized
+    if (!gtk_widget_get_realized(widget)) {
+        return G_SOURCE_REMOVE;
+    }
+
     DarkModePriv* priv = (DarkModePriv*)user_data;
     // gdk_frame_clock_get_frame_time returns microseconds.
     gint64 frame_time = gdk_frame_clock_get_frame_time(frame_clock);
@@ -816,8 +821,17 @@ static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer 
     }
     
     // 2. Overlay Management
-    check_ensure_overlay(priv);
-    update_overlay_position(priv);
+    // Only create/update overlay if we actually have particles to draw
+    gboolean has_particles = (priv->active_bursts != NULL) || 
+                             (priv->hover_particles && priv->hover_particles->len > 0);
+    
+    if (has_particles) {
+        check_ensure_overlay(priv);
+        update_overlay_position(priv);
+    } else if (priv->overlay_window && gtk_widget_get_visible(priv->overlay_window)) {
+        // Hide if no particles (optional optimization)
+        gtk_widget_set_visible(priv->overlay_window, FALSE);
+    }
     
     // 3. Hover Emission
     if (priv->is_hovered && priv->enable_hearts && HEARTS_ENABLED_HOVER) {
@@ -913,6 +927,26 @@ static void dark_mode_button_free_priv(gpointer data) {
     g_free(priv);
 }
 
+static void on_unrealize(GtkWidget* widget, gpointer user_data) {
+    (void)widget;
+    DarkModePriv* priv = (DarkModePriv*)user_data;
+    // Early cleanup of resources that depend on GdkSurface or window hierarchy
+    
+    // Stop tick callback immediately
+    if (priv->tick_id > 0) {
+        gtk_widget_remove_tick_callback(priv->widget, priv->tick_id);
+        priv->tick_id = 0;
+    }
+    
+    // Destroy overlay window while we still have context
+    if (priv->overlay_window) {
+        gtk_widget_set_visible(priv->overlay_window, FALSE);
+        gtk_window_destroy(GTK_WINDOW(priv->overlay_window));
+        priv->overlay_window = NULL;
+        priv->overlay_area = NULL;
+    }
+}
+
 GtkWidget* dark_mode_button_new(void) {
     GtkWidget* area = gtk_drawing_area_new();
     gtk_widget_set_size_request(area, BUTTON_SIZE, BUTTON_SIZE);
@@ -948,6 +982,9 @@ GtkWidget* dark_mode_button_new(void) {
     
     // Start Ticking (for breathing)
     start_tick(priv);
+    
+    // Connect unrealize for safe early cleanup
+    g_signal_connect(area, "unrealize", G_CALLBACK(on_unrealize), priv);
     
     return area;
 }

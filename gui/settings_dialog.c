@@ -484,16 +484,19 @@ void settings_dialog_free(SettingsDialog* dialog) {
         
         if (dialog->ai_dialog) {
             if (dialog->app_state && dialog->ai_dialog == dialog->app_state->ai_dialog) {
-                // Shared dialog: Prevent destruction handling by ref'ing and removing from stack
+                // Shared dialog: Prevent destruction handling by removing from stack if possible
                 if (debug_mode) printf("[Settings] Preserving shared ai_dialog\n");
                 GtkWidget* w = ai_dialog_get_widget(dialog->ai_dialog);
                 if (w) {
-                    g_object_ref(w); // Ensure we hold a strong ref (total 2: AiDialog + Us)
-                    GtkWidget* parent = gtk_widget_get_parent(w);
-                    if (parent && parent == GTK_WIDGET(dialog->stack)) {
-                        gtk_stack_remove(GTK_STACK(dialog->stack), w); // Unparents, drops 1 ref. Total 1 (AiDialog).
+                    // Check if widget is still attached to stack (and stack is valid)
+                    if (dialog->stack && GTK_IS_STACK(dialog->stack)) {
+                         GtkWidget* parent = gtk_widget_get_parent(w);
+                         if (parent == GTK_WIDGET(dialog->stack)) {
+                             g_object_ref(w); // Protect from destruction when removing
+                             gtk_stack_remove(GTK_STACK(dialog->stack), w); 
+                             g_object_unref(w);
+                         }
                     }
-                    g_object_unref(w); // Drop our local safety ref. Total 1.
                 }
             } else {
                 if (debug_mode) printf("[Settings] Freeing ai_dialog\n");

@@ -66,6 +66,9 @@ typedef struct AppState {
     // Onboarding Timer (to cancel on destroy)
     guint onboarding_timer_id;
     GtkWidget* onboarding_popover;
+    
+    // AI Trigger Timer (to cancel on destroy)
+    guint ai_trigger_id;
 } AppState;
 
 #endif

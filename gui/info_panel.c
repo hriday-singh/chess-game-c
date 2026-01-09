@@ -722,12 +722,19 @@ static void reset_game(InfoPanel* panel) {
         }
     }
     
-    // Check if "Random" is selected - if so, randomly pick a color
+    // Play As Selection
     guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(panel->play_as_dropdown));
-    if (selected == 2) { // Random
+    
+    if (selected == 0) { // White
+        panel->logic->playerSide = PLAYER_WHITE;
+        board_widget_set_flipped(panel->board_widget, false);
+    } else if (selected == 1) { // Black
+        panel->logic->playerSide = PLAYER_BLACK;
+        board_widget_set_flipped(panel->board_widget, true);
+    } else if (selected == 2) { // Random
         // Randomly pick White (0) or Black (1)
-        selected = (guint)(g_random_int() % 2);
-        bool flipped = (selected == 1);
+        int rand_side = (g_random_int() % 2);
+        bool flipped = (rand_side == 1);
         
         // Set player side in game logic
         panel->logic->playerSide = flipped ? PLAYER_BLACK : PLAYER_WHITE;
@@ -795,6 +802,16 @@ static void on_game_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_
     reset_game(panel);
 }
 
+// Play As dropdown callback
+static void on_play_as_changed(GObject* obj, GParamSpec* pspec, gpointer user_data) {
+    (void)obj; (void)pspec;
+    InfoPanel* panel = (InfoPanel*)user_data;
+    if (!panel || !panel->logic) return;
+    
+    // Reset game to apply new side
+    reset_game(panel);
+}
+
 // Animations checkbox callback
 static void on_animations_toggled(GtkCheckButton* button, gpointer user_data) {
     InfoPanel* panel = (InfoPanel*)user_data;
@@ -859,30 +876,7 @@ static void on_hints_squares_toggled(GtkToggleButton* button, gpointer user_data
     }
 }
 
-// Play as dropdown callback - flip the board and reset game
-static void on_play_as_changed(GObject* obj, GParamSpec* pspec, gpointer user_data) {
-    (void)obj; (void)pspec;
-    InfoPanel* panel = (InfoPanel*)user_data;
-    if (!panel || !panel->logic || !panel->board_widget) return;
-    
-    guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(panel->play_as_dropdown));
-    
-    // If Random is selected, randomly pick a color
-    if (selected == 2) { // Random
-        selected = (guint)(g_random_int() % 2); // Randomly pick 0 (White) or 1 (Black)
-    }
-    
-    bool flipped = (selected == 1); // 0 = White, 1 = Black
-    
-    // Set player side in game logic
-    panel->logic->playerSide = flipped ? PLAYER_BLACK : PLAYER_WHITE;
-    
-    // Flip the board display
-    board_widget_set_flipped(panel->board_widget, flipped);
-    
-    // Reset game when perspective changes
-    reset_game(panel);
-}
+
 
 
 // Cleanup function
