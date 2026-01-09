@@ -137,6 +137,26 @@ static const char *CSS_STRUCTURAL =
     "scrollbar slider { background-color: alpha(@fg_color, 0.35); border-radius: 999px; min-width: 10px; min-height: 24px; }\n"
     "scrollbar slider:hover { background-color: alpha(@fg_color, 0.50); }\n"
     "scrollbar slider:active { background-color: alpha(@fg_color, 0.65); }\n"
+    "\n"
+    "/* -------------------- Header Buttons (Explicitly Transparent) -------------------- */\n"
+    ".header-button { background-color: transparent; background-image: none; border: 1px solid @border_color; border-radius: 6px; box-shadow: none; color: @fg_color; }\n"
+    ".header-button:hover { background-color: alpha(@fg_color, 0.10); }\n"
+    "\n"
+    "/* -------------------- Notebook / Scrollers (Fix white backgrounds) -------------------- */\n"
+    "notebook, .notebook { background-color: @bg_color; background-image: none; }\n"
+    "notebook contents, .notebook contents { background-color: @bg_color; }\n"
+    "notebook stack, .notebook stack { background-color: @bg_color; }\n"
+    "notebook header, .notebook header { background-color: @panel_bg; border-bottom: 1px solid @border_color; }\n"
+    "notebook header tab { background-color: transparent; border: none; padding: 10px 16px; transition: all 0.2s ease; }\n"
+    "notebook header tab:checked { border-bottom: 3px solid @accent_color; color: @accent_color; }\n"
+    "notebook header tab:hover:not(:checked) { background-color: alpha(@button_hover, 0.5); }\n"
+    "notebook header tab label { font-weight: 600; color: inherit; }\n"
+    "\n"
+    "scrolledwindow, .scrolled-window { background-color: transparent; }\n"
+    "scrolledwindow viewport, .scrolled-window viewport { background-color: transparent; }\n"
+    "\n"
+    "/* Special container to force bg */\n"
+    ".settings-content { background-color: @bg_color; }\n"
 
 
     /* -------------------- Buttons (Exclude .titlebutton to fix chonkiness) -------------------- */
@@ -266,8 +286,11 @@ static const char *CSS_STRUCTURAL =
     "}\n"
 
     /* -------------------- Popovers / tooltips -------------------- */
-    "popover { background-color: @popover_bg; color: @popover_fg; border: 1px solid @border_color; border-radius: 10px; }\n"
-    "popover contents { background-color: @popover_bg; color: @popover_fg; border-radius: 10px; }\n"
+    "popover { background-color: @popover_bg; color: @popover_fg; border: 1px solid @border_color; border-radius: 12px; }\n"
+    "popover contents { background-color: transparent; padding: 4px; }\n"
+    "popover button { margin-top: 4px; margin-bottom: 4px; }\n"
+    "popover button:not(.suggested-action):not(.destructive-action) { background-color: alpha(@fg_color, 0.05); border: 1px solid alpha(@border_color, 0.5); }\n"
+    "popover button:not(.suggested-action):not(.destructive-action):hover { background-color: alpha(@fg_color, 0.1); }\n"
     "tooltip { background-color: @tooltip_bg; color: @tooltip_fg; border-radius: 8px; padding: 6px 8px; }\n"
 
     /* -------------------- Dropdowns / list views -------------------- */
