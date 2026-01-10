@@ -115,6 +115,19 @@ void show_message_dialog(GtkWindow* parent, const char* message, AppState* state
     gtk_window_present(GTK_WINDOW(window));
 }
 
+
+// Helper to update specific tutorial step UI
+static void tutorial_update_view(AppState* state, const char* instruction, const char* learning) {
+    if (state && state->info_panel) {
+        info_panel_update_tutorial_info(state->info_panel, instruction, learning);
+    }
+    // Restore popup functionality as requested
+    if (state && state->window) {
+        // Use the instruction as the message
+        show_message_dialog(GTK_WINDOW(state->window), instruction, state);
+    }
+}
+
 // --- Setup Functions ---
 
 static void tutorial_clear_board(AppState* state) {
@@ -145,8 +158,9 @@ static void tutorial_setup_pawn(AppState* state) {
     state->logic->board[0][0] = piece_create(PIECE_KING, PLAYER_BLACK);
     board_widget_set_nav_restricted(state->board, true, 6, 3, 4, 3);
     board_widget_refresh(state->board);
-    show_message_dialog(state->window, 
-        "Step 1: The Pawn\n\nPawns move forward 1 square, but on their first move they can jump 2 squares.\n\nTask: Move the white pawn from d2 to d4.", state);
+    tutorial_update_view(state, 
+        "Pawns move forward 1 square, but on their first move they can jump 2 squares.\n\nTask: Move the white pawn from d2 to d4.",
+        "The Pawn");
 }
 
 static void tutorial_setup_rook(AppState* state) {
@@ -155,8 +169,9 @@ static void tutorial_setup_rook(AppState* state) {
     state->logic->board[0][0] = piece_create(PIECE_KING, PLAYER_BLACK); // a8
     board_widget_set_nav_restricted(state->board, true, 4, 4, 0, 4); // e4 -> e8
     board_widget_refresh(state->board);
-    show_message_dialog(state->window,
-        "Step 2: The Rook\n\nRooks move in straight lines (horizontally or vertically) as far as they want.\n\nTask: Move the Rook from e4 to e8.", state);
+    tutorial_update_view(state,
+        "Rooks move in straight lines (horizontally or vertically) as far as they want.\n\nTask: Move the Rook from e4 to e8.",
+        "The Rook");
 }
 
 static void tutorial_setup_bishop(AppState* state) {
@@ -165,8 +180,9 @@ static void tutorial_setup_bishop(AppState* state) {
     state->logic->board[0][0] = piece_create(PIECE_KING, PLAYER_BLACK); // a8
     board_widget_set_nav_restricted(state->board, true, 7, 2, 2, 7); // c1 -> h6
     board_widget_refresh(state->board);
-    show_message_dialog(state->window,
-        "Step 3: The Bishop\n\nBishops move diagonally as far as they want.\n\nTask: Move the Bishop from c1 to h6.", state);
+    tutorial_update_view(state,
+        "Bishops move diagonally as far as they want.\n\nTask: Move the Bishop from c1 to h6.",
+        "The Bishop");
 }
 
 static void tutorial_setup_knight(AppState* state) {
@@ -175,8 +191,9 @@ static void tutorial_setup_knight(AppState* state) {
     state->logic->board[0][0] = piece_create(PIECE_KING, PLAYER_BLACK); // a8
     board_widget_set_nav_restricted(state->board, true, 7, 1, 5, 2); // b1 -> c3
     board_widget_refresh(state->board);
-    show_message_dialog(state->window,
-        "Step 4: The Knight\n\nKnights move in an 'L' shape: 2 squares in one direction, then 1 square perpendicular.\n\nTask: Move the Knight from b1 to c3.", state);
+    tutorial_update_view(state,
+        "Knights move in an 'L' shape: 2 squares in one direction, then 1 square perpendicular.\n\nTask: Move the Knight from b1 to c3.",
+        "The Knight");
 }
 
 static void tutorial_setup_queen(AppState* state) {
@@ -185,8 +202,9 @@ static void tutorial_setup_queen(AppState* state) {
     state->logic->board[0][0] = piece_create(PIECE_KING, PLAYER_BLACK); // a8
     board_widget_set_nav_restricted(state->board, true, 7, 3, 3, 7); // d1 -> h5
     board_widget_refresh(state->board);
-    show_message_dialog(state->window,
-        "Step 5: The Queen\n\nThe Queen is powerful! She moves like a Rook AND a Bishop combined.\n\nTask: Move the Queen from d1 to h5.", state);
+    tutorial_update_view(state,
+        "The Queen is powerful! She moves like a Rook AND a Bishop combined.\n\nTask: Move the Queen from d1 to h5.",
+        "The Queen");
 }
 
 static void tutorial_setup_check(AppState* state) {
@@ -196,8 +214,9 @@ static void tutorial_setup_check(AppState* state) {
     state->logic->board[7][4] = piece_create(PIECE_KING, PLAYER_WHITE); // e1
     board_widget_set_nav_restricted(state->board, true, 7, 7, 0, 7); // h1 -> h8
     board_widget_refresh(state->board);
-    show_message_dialog(state->window,
-        "Step 6: Check\n\n'Check' means the King is under attack.\n\nTask: Move the Rook to h8 to put the Black King in Check.", state);
+    tutorial_update_view(state,
+        "'Check' means the King is under attack.\n\nTask: Move the Rook to h8 to put the Black King in Check.",
+        "Check");
 }
 
 static void tutorial_setup_escape(AppState* state) {
@@ -206,9 +225,11 @@ static void tutorial_setup_escape(AppState* state) {
     state->logic->board[0][4] = piece_create(PIECE_ROOK, PLAYER_BLACK); // e8
     state->logic->turn = PLAYER_WHITE; 
     board_widget_set_nav_restricted(state->board, true, 7, 4, 7, 5); // e1 -> f1
+    board_widget_set_nav_restricted(state->board, true, 7, 4, 7, 5); // e1 -> f1
     board_widget_refresh(state->board);
-    show_message_dialog(state->window,
-        "Step 7: Escape Check\n\nThe Black Rook is attacking your King!\n\nTask: Move your King from e1 to f1 to escape check.", state);
+    tutorial_update_view(state,
+        "The Black Rook is attacking your King!\n\nTask: Move your King from e1 to f1 to escape check.",
+        "Escape Check");
 }
 
 static void tutorial_setup_castling(AppState* state) {
@@ -218,8 +239,9 @@ static void tutorial_setup_castling(AppState* state) {
     state->logic->board[0][4] = piece_create(PIECE_KING, PLAYER_BLACK);
     board_widget_set_nav_restricted(state->board, true, 7, 4, 7, 6); // e1 -> g1
     board_widget_refresh(state->board);
-    show_message_dialog(state->window,
-        "Step 8: Castling\n\nThis is a special move. Move the King TWO squares towards the Rook.\n\nTask: Move the King from e1 to g1.", state);
+    tutorial_update_view(state,
+        "This is a special move. Move the King TWO squares towards the Rook.\n\nTask: Move the King from e1 to g1.",
+        "Castling");
 }
 
 static void tutorial_setup_mate(AppState* state) {
@@ -233,26 +255,42 @@ static void tutorial_setup_mate(AppState* state) {
     state->logic->turn = PLAYER_WHITE;
     board_widget_set_nav_restricted(state->board, true, 7, 3, 0, 3); // d1 -> d8
     board_widget_refresh(state->board);
-    show_message_dialog(state->window,
-        "Final Step: Checkmate\n\nThe Black King is trapped.\n\nTask: Deliver Checkmate by moving the Rook to d8!", state);
+    tutorial_update_view(state,
+        "The Black King is trapped.\n\nTask: Deliver Checkmate by moving the Rook to d8!",
+        "Final Step: Checkmate");
 }
 
 static gboolean on_tutorial_final_message_timeout(gpointer user_data) {
     AppState* state = (AppState*)user_data;
-    GtkWindow* parent = state->window;
     
-    // Check if settings dialog is open and use its window as parent for better focus
-    if (state->settings_dialog) {
-        GtkWindow* settings_win = settings_dialog_get_window(state->settings_dialog);
-        if (settings_win && GTK_IS_WINDOW(settings_win)) {
-            parent = settings_win;
-        }
-    }
-    
-    show_message_dialog(parent, 
-        "Tutorial Complete!\n\nYou have learned the basics of Chess.\n\n"
+    GtkWidget* dialog = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(dialog), "Tutorial Complete!");
+    if (state->window) gtk_window_set_transient_for(GTK_WINDOW(dialog), state->window);
+    gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
+    gtk_window_set_default_size(GTK_WINDOW(dialog), 350, 200);
+
+    GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_top(box, 20);
+    gtk_widget_set_margin_bottom(box, 20);
+    gtk_widget_set_margin_start(box, 20);
+    gtk_widget_set_margin_end(box, 20);
+
+    GtkWidget* label = gtk_label_new("You have learned the basics of Chess.\n\n"
         "HAL :) suggests to play around and customise the game to your liking. PS: Try out Horsey!\n\n"
-        "Use the board theme to modify the board.", state);
+        "Use the board theme to modify the board.");
+    gtk_label_set_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(label), 40);
+    gtk_widget_set_halign(label, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(box), label);
+
+    GtkWidget* btn = gtk_button_new_with_label("OK");
+    gtk_widget_set_halign(btn, GTK_ALIGN_CENTER);
+    g_signal_connect_swapped(btn, "clicked", G_CALLBACK(gtk_window_destroy), dialog);
+    gtk_box_append(GTK_BOX(box), btn);
+
+    gtk_window_set_child(GTK_WINDOW(dialog), box);
+    gtk_widget_set_visible(dialog, TRUE);
+    
     return FALSE;
 }
 
@@ -309,13 +347,16 @@ void on_tutorial_exit(GtkButton* btn, gpointer user_data) {
     board_widget_set_nav_restricted(state->board, false, -1, -1, -1, -1);
     
     // Re-enable info panel
-    info_panel_set_sensitive(state->info_panel, true);
+    if (state->info_panel) {
+        info_panel_set_tutorial_mode(state->info_panel, false);
+        info_panel_set_sensitive(state->info_panel, true);
+        info_panel_rebuild_layout(state->info_panel);
+    }
     
     if (state->tutorial_exit_btn) gtk_widget_set_visible(state->tutorial_exit_btn, FALSE);
     gtk_window_set_title(state->window, "HAL :) Chess");
     
     board_widget_refresh(state->board);
-    if (state->info_panel) info_panel_rebuild_layout(state->info_panel);
 }
 
 void on_tutorial_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
@@ -323,6 +364,7 @@ void on_tutorial_action(GSimpleAction* action, GVariant* parameter, gpointer use
     AppState* state = (AppState*)user_data;
     
     // Reset to Empty -> Intro
+    gamelogic_reset(state->logic); // Clear history/tints
     state->tutorial_step = TUT_INTRO;
     tutorial_clear_board(state);
     
@@ -333,39 +375,24 @@ void on_tutorial_action(GSimpleAction* action, GVariant* parameter, gpointer use
     // Important: Switch to PvP so logic does not try to play AI
     state->logic->gameMode = GAME_MODE_PVP;
     
-    // Disable info panel during tutorial
-    info_panel_set_sensitive(state->info_panel, false);
+    // Enable Tutorial Mode in InfoPanel + Show Dialog via helper
+    if (state->info_panel) {
+        info_panel_set_tutorial_mode(state->info_panel, true);
+        tutorial_update_view(state, 
+            "Hey I am HAL :) A friendly Chess engine.\n\nI will guide you through the basics of Chess so we can play together!", 
+            "Introduction");
+    }
 
     // Register invalid move callback
     board_widget_set_invalid_move_callback(state->board, on_invalid_tutorial_move, state);
 
-    show_message_dialog(state->window,
-        "Hey I am HAL :) A friendly Chess engine.\n\nI will guide you through the basics of Chess so we can play together!", state);
+    // Auto-advance from Intro to Pawn after a short delay (3s) so user reads the message
+    state->tutorial_next_step = TUT_PAWN; 
+    state->tutorial_wait = TRUE; // Prevent other interactions?
+    g_timeout_add(4000, on_tutorial_delay_complete, state); 
 }
 
 void tutorial_check_progress(AppState* state) {
-    // If we're waiting for delay (e.g. piece moving), skip
-    // We can use puzzle_wait or a new tutorial_wait flag.
-    // AppState has tutorial_next_step usage? 
-    // Wait, create_app_state added tutorial_next_step.
-    
-    // We should implement a "wait" flag logic too?
-    // Using `tutorial_next_step != 0` as waiting?
-    // No, tutorial_step remains at CURRENT until timeout changes it.
-    // If we trigger timeout, we should avoid re-triggering.
-    
-    // In main.c it used `static gboolean tutorial_wait = FALSE;`.
-    // We can add `tutorial_wait` to AppState also?
-    // Or just use static if this function is only called here.
-    // But better to use AppState member since we have app_state.h.
-    // I missed adding `tutorial_wait` to AppState in previous step!
-    // I added `puzzle_wait`.
-    
-    // I'll use `static gboolean tutorial_wait = FALSE;` inside this file for now
-    // as it's cleaner than modifying AppState again right now.
-    // NO, app_state.h is shared, so changes are visible.
-    // But I didn't add `tutorial_wait` boolean.
-    // I can assume `puzzle_wait` is reused? No, risky.
     
     if (state->tutorial_step == TUT_OFF) {
         state->tutorial_wait = FALSE;

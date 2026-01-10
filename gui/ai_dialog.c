@@ -391,6 +391,7 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_box_append(GTK_BOX(dialog->content_box), title);
     
     dialog->notebook = gtk_notebook_new();
+    gtk_widget_add_css_class(dialog->notebook, "ai-notebook");
     gtk_widget_set_vexpand(dialog->notebook, TRUE);
     gtk_box_append(GTK_BOX(dialog->content_box), dialog->notebook);
     
@@ -499,11 +500,15 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_widget_set_hexpand(dialog->nnue_path_label, TRUE);
     gtk_box_append(GTK_BOX(nnue_hbox), dialog->nnue_path_label);
     
-    GtkWidget* imp_btn = gtk_button_new_from_icon_name("document-open-symbolic");
+    GtkWidget* imp_btn = gtk_button_new();
+    gtk_button_set_child(GTK_BUTTON(imp_btn), gtk_image_new_from_icon_name("document-open-symbolic"));
+    gtk_widget_add_css_class(imp_btn, "ai-icon-button");
     g_signal_connect(imp_btn, "clicked", G_CALLBACK(on_nnue_import_clicked), dialog);
     gtk_box_append(GTK_BOX(nnue_hbox), imp_btn);
     
-    GtkWidget* del_btn = gtk_button_new_from_icon_name("edit-delete-symbolic");
+    GtkWidget* del_btn = gtk_button_new();
+    gtk_button_set_child(GTK_BUTTON(del_btn), gtk_image_new_from_icon_name("edit-delete-symbolic"));
+    gtk_widget_add_css_class(del_btn, "ai-icon-button");
     g_signal_connect(del_btn, "clicked", G_CALLBACK(on_nnue_delete_clicked), dialog);
     gtk_box_append(GTK_BOX(nnue_hbox), del_btn);
     gtk_box_append(GTK_BOX(int_tab), nnue_hbox);
@@ -540,12 +545,16 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     g_signal_connect(dialog->custom_path_entry, "changed", G_CALLBACK(on_custom_path_changed), dialog);
     gtk_box_append(GTK_BOX(path_hbox), dialog->custom_path_entry);
     
-    GtkWidget* browse_btn = gtk_button_new_from_icon_name("folder-open-symbolic");
+    GtkWidget* browse_btn = gtk_button_new();
+    gtk_button_set_child(GTK_BUTTON(browse_btn), gtk_image_new_from_icon_name("folder-open-symbolic"));
+    gtk_widget_add_css_class(browse_btn, "ai-icon-button");
     gtk_widget_set_tooltip_text(browse_btn, "Browse...");
     g_signal_connect(browse_btn, "clicked", G_CALLBACK(on_browse_clicked), dialog);
     gtk_box_append(GTK_BOX(path_hbox), browse_btn);
 
-    GtkWidget* clear_btn = gtk_button_new_from_icon_name("edit-delete-symbolic");
+    GtkWidget* clear_btn = gtk_button_new();
+    gtk_button_set_child(GTK_BUTTON(clear_btn), gtk_image_new_from_icon_name("edit-delete-symbolic"));
+    gtk_widget_add_css_class(clear_btn, "ai-icon-button");
     gtk_widget_set_tooltip_text(clear_btn, "Clear Path / Remove Engine");
     g_signal_connect(clear_btn, "clicked", G_CALLBACK(on_clear_path_clicked), dialog);
     gtk_box_append(GTK_BOX(path_hbox), clear_btn);

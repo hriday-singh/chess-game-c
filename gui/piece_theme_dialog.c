@@ -40,6 +40,9 @@ static void print_memory_usage() {
 #define DEFAULT_WHITE_STROKE_WIDTH 0.5
 #define DEFAULT_BLACK_STROKE_WIDTH 0.1
 
+// Manually set default option here
+const char* DEFAULT_STARTUP_PIECE_THEME = "alpha";
+
 // Piece set information
 typedef struct {
     char* name;  // Folder name (e.g., "alfonso", "alpha")
@@ -188,6 +191,16 @@ static void scan_piece_sets(PieceThemeDialog* dialog) {
         dialog->piece_sets[0].name = strdup("Default");
         dialog->piece_sets[0].display_name = strdup("Default (Segoe UI)");
         dialog->piece_set_count++;
+    }
+    
+    // Auto-select preference if found
+    if (DEFAULT_STARTUP_PIECE_THEME && strlen(DEFAULT_STARTUP_PIECE_THEME) > 0) {
+        for (int i = 0; i < dialog->piece_set_count; i++) {
+            if (dialog->piece_sets[i].name && strcmp(dialog->piece_sets[i].name, DEFAULT_STARTUP_PIECE_THEME) == 0) {
+                dialog->selected_piece_set_index = i;
+                break;
+            }
+        }
     }
 }
 

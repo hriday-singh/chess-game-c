@@ -7,8 +7,10 @@ static bool current_is_dark = true;
 
 // Common base CSS (Structure, padding, etc - layout agnostic of color)
 // We keep your layout customs here if provided, or rely on existing layout.
-// Note: User asked NOT to touch sizes/padding. 
 // We only define colors in variables.
+
+static const char *CSS_COMMON =
+    "@define-color close_button_hover #e81123;\n";
 
 static const char *CSS_LIGHT =
     "@define-color bg_color #fafafa;\n"
@@ -37,7 +39,9 @@ static const char *CSS_LIGHT =
     "@define-color error_text #c62828;\n"
     "@define-color success_bg #2e7d32;\n"
     "@define-color success_fg #ffffff;\n"
-    "@define-color success_hover #256528;\n";
+    "@define-color success_hover #256528;\n"
+    "@define-color capture_bg_white #000000;\n"   // Light bg for White pieces (in Light mode)
+    "@define-color capture_bg_black #123456;\n";  // Light bg for Black pieces (in Light mode)
 
 static const char *CSS_DARK =
     "@define-color bg_color #121212;\n"
@@ -66,7 +70,9 @@ static const char *CSS_DARK =
     "@define-color error_text #ff6b6b;\n"
     "@define-color success_bg #66bb6a;\n"
     "@define-color success_fg #1e1e1e;\n"
-    "@define-color success_hover #57a85b;\n";
+    "@define-color success_hover #57a85b;\n"
+    "@define-color capture_bg_white #7810ab;\n"    // Dark bg for White pieces to pop
+    "@define-color capture_bg_black #193456;\n"; // Light bg for Black pieces to pop
 
 static const char *CSS_STRUCTURAL =
     /* -------------------- Base surfaces -------------------- */
@@ -98,14 +104,15 @@ static const char *CSS_STRUCTURAL =
     /* -------------------- Board & captures -------------------- */
     ".board-frame { border: 2px solid @border_color; border-radius: 12px; margin: 10px; }\n"
     ".capture-box {\n"
-    "  background-color: @button_bg;\n"
     "  border: 1px solid @border_color;\n"
     "  border-radius: 5px;\n"
     "  padding: 8px;\n"
     "  min-height: 50px;\n"
     "}\n"
+    ".capture-box-for-white-pieces { background-color: @capture_bg_white; }\n"
+    ".capture-box-for-black-pieces { background-color: @capture_bg_black; }\n"
     ".capture-count {\n"
-    "  font-size: 10px;\n"
+    "  font-size: 14px;\n"
     "  font-weight: bold;\n"
     "  color: @dim_label;\n"
     "  margin-left: 2px;\n"
@@ -137,24 +144,24 @@ static const char *CSS_STRUCTURAL =
     "scrollbar slider { background-color: alpha(@fg_color, 0.4); border-radius: 999px; min-width: 8px; min-height: 24px; margin: 1px; border: 1px solid @bg_color; }\n"
     "scrollbar slider:hover { background-color: alpha(@fg_color, 0.6); }\n"
     "scrollbar slider:active { background-color: @accent_color; }\n"
-    "\n"
+    
     /* -------------------- Sliders (Scale) -------------------- */
     "scale trough { background-color: alpha(@border_color, 0.5); border-radius: 999px; min-height: 6px; min-width: 6px; }\n"
     "scale highlight { background-color: @accent_color; border-radius: 999px; }\n"
     "scale slider { background-color: @fg_color; border-radius: 999px; min-width: 18px; min-height: 18px; margin: -6px; box-shadow: 0 1px 3px rgba(0,0,0,0.3); border: 1px solid @bg_color; }\n"
     "scale slider:hover { background-color: shade(@fg_color, 0.9); }\n"
-    "\n"
-    "/* -------------------- Promotion Buttons -------------------- */\n"
+    
+    /* -------------------- Promotion Buttons -------------------- */
     ".promotion-button { background-color: transparent; border: none; box-shadow: none; padding: 0; }\n"
     ".promotion-button:hover { background-color: transparent; border: none; box-shadow: none; }\n"
     ".promotion-button:active { background-color: transparent; border: none; box-shadow: none; }\n"
     ".promotion-button:focus { background-color: transparent; border: none; box-shadow: none; }\n"
-    "\n"
-    "/* -------------------- Header Buttons (Explicitly Transparent) -------------------- */\n"
+
+    /* -------------------- Header Buttons (Explicitly Transparent) -------------------- */
     ".header-button { background-color: transparent; background-image: none; border: 1px solid @border_color; border-radius: 6px; box-shadow: none; color: @fg_color; }\n"
     ".header-button:hover { background-color: alpha(@fg_color, 0.10); }\n"
-    "\n"
-    "/* -------------------- Notebook / Scrollers (Fix white backgrounds) -------------------- */\n"
+    
+    /* -------------------- Notebook / Scrollers (Fix white backgrounds) -------------------- */
     "notebook, .notebook { background-color: @bg_color; background-image: none; }\n"
     "notebook contents, .notebook contents { background-color: @bg_color; }\n"
     "notebook stack, .notebook stack { background-color: @bg_color; }\n"
@@ -163,16 +170,20 @@ static const char *CSS_STRUCTURAL =
     "notebook header tab:checked { border-bottom: 3px solid @accent_color; color: @accent_color; }\n"
     "notebook header tab:hover:not(:checked) { background-color: alpha(@button_hover, 0.5); }\n"
     "notebook header tab label { font-weight: 600; color: inherit; }\n"
-    "\n"
+    
+    /* AI Dialog specific override */
+    ".ai-notebook header tab label { color: @fg_color; }\n"
+    ".ai-notebook header tab:checked label { color: @accent_color; }\n"
+    
     "scrolledwindow, .scrolled-window { background-color: transparent; }\n"
     "scrolledwindow viewport, .scrolled-window viewport { background-color: transparent; }\n"
-    "\n"
-    "/* Special container to force bg */\n"
+    
+    /* Special container to force bg */
     ".settings-content { background-color: @bg_color; }\n"
 
 
-    /* -------------------- Buttons (Exclude .titlebutton to fix chonkiness) -------------------- */
-    "button:not(.titlebutton):not(.window-control):not(.image-button):not(.success-action):not(.destructive-action):not(.suggested-action):not(.promotion-button) {\n"
+    /* -------------------- Buttons -------------------- */
+    "button:not(.titlebutton):not(.window-control):not(.ai-icon-button):not(.image-button):not(.success-action):not(.destructive-action):not(.suggested-action):not(.promotion-button) {\n"
     "  background-color: @button_bg;\n"
     "  background-image: none;\n"
     "  color: @button_fg;\n"
@@ -182,10 +193,16 @@ static const char *CSS_STRUCTURAL =
     "  min-height: 28px;\n"
     "  box-shadow: none;\n"
     "}\n"
+    "button { background-image: none; }\n"
 
     "button:not(.titlebutton):not(.success-action):not(.destructive-action):not(.suggested-action):hover { background-color: @button_hover; background-image: none; }\n"
     "button:not(.titlebutton):not(.success-action):not(.destructive-action):not(.suggested-action):active { background-color: shade(@button_bg, 0.92); }\n"
     "button:not(.titlebutton):disabled { opacity: 0.55; }\n"
+    "\n"
+    /* AI Dialog Buttons - specific override after generic to ensure precedence */
+    "button.ai-icon-button { background-color: @button_hover; background-image: none; border: 1px solid @border_color; color: @button_fg; border-radius: 5px; padding: 6px; box-shadow: none; }\n"
+    "button.ai-icon-button:hover { background-color: @button_hover; color: @accent_color; border-color: @accent_color; }\n"
+    "button.ai-icon-button:active { background-color: alpha(@accent_color, 0.2); }\n"
 
     /* Distinct Checked State (for Toggles) */
     "button:checked {\n"
@@ -241,6 +258,13 @@ static const char *CSS_STRUCTURAL =
     "entry:focus, textview:focus, spinbutton:focus, searchentry:focus { border-color: alpha(@accent_color, 0.85); }\n"
     "entry:disabled, textview:disabled { opacity: 0.60; }\n"
     "checkbutton, radiobutton { padding: 4px; }\n"
+    "\n"
+    /* Spinbutton specific rounding */
+    "spinbutton { border-radius: 12px; }\n"
+    "spinbutton button { border-radius: 8px; margin: 2px; border: none; box-shadow: none; background-image: none; color: @button_fg; }\n"
+    "spinbutton button:hover { background-color: @button_hover; color: @accent_color; }\n"
+    "spinbutton button:active { background-color: alpha(@accent_color, 0.2); }\n"
+    "\n"
 
     /* --- Restore native window controls (min/max/close) with subtle hover --- */
     "window.csd headerbar windowcontrols button,\n"

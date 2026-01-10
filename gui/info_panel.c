@@ -77,8 +77,15 @@ typedef struct {
     
     // Visual settings
     GtkWidget* enable_animations_check;
-    GtkWidget* hints_toggle;
+    GtkWidget* hints_dropdown; // Replaced toggle buttons
     GtkWidget* enable_sfx_check;
+
+    // Tutorial Mode UI
+    struct {
+        GtkWidget* box;
+        GtkWidget* instruction_label;
+        GtkWidget* learning_label;
+    } tutorial_ui;
     
     // Captured pieces lists
     PieceTypeList* white_captures;
@@ -142,7 +149,7 @@ static void on_focus_lost_gesture(GtkGestureClick* gesture, int n_press, double 
 
 // AI Settings Callbacks
 static void on_engine_selection_changed(GObject* obj, GParamSpec* pspec, gpointer user_data);
-static void on_hints_squares_toggled(GtkToggleButton* button, gpointer user_data);
+static void on_hints_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_data);
 static void on_open_ai_settings_clicked(GtkButton* btn, gpointer user_data);
 
 // CvC Callbacks
@@ -396,45 +403,57 @@ static void draw_graveyard_piece(GtkDrawingArea* area, cairo_t* cr, int width, i
         cairo_set_source_surface(cr, surface, 0, 0);
         cairo_paint_with_alpha(cr, 0.95); // High opacity for clarity
         cairo_restore(cr);
-    } else {
-        // Fallback or text rendering?
-        // User wants SVG, but if not available (e.g. text theme), we should render text.
-        // For simplicity and per user request ("I want the graveyard... to use these svgs only"),
-        // we heavily prioritize SVG. If standard font, theme_data_get_piece_symbol returns symbol.
-        
-        const char* symbol = piece_symbols_get(type, owner);
+    } else {       
+        // Match board_widget.c 'draw_piece_graphic' logic exactly for consistency
+        const char* symbol = theme_data_get_piece_symbol(panel->theme, type, owner);
+        const char* font_name = theme_data_get_font_name(panel->theme);
+        if (!font_name) font_name = "Segoe UI Symbol, DejaVu Sans, Sans";
         
         PangoLayout* layout = pango_cairo_create_layout(cr);
         PangoFontDescription* desc = pango_font_description_new();
-        // Use consistent font
-        pango_font_description_set_family(desc, theme_data_get_font_name(panel->theme));
-        pango_font_description_set_size(desc, (int)(height * 0.6 * PANGO_SCALE));
+        pango_font_description_set_family(desc, font_name);
+        pango_font_description_set_size(desc, (int)(height * 0.7 * PANGO_SCALE)); 
+        pango_font_description_set_weight(desc, PANGO_WEIGHT_SEMIBOLD);
         pango_layout_set_font_description(layout, desc);
-        pango_layout_set_text(layout, symbol, -1);
-        
-        // Black pieces color
-        if (owner == PLAYER_BLACK) {
-             cairo_set_source_rgb(cr, 0.2, 0.2, 0.2);
-        } else {
-             // White pieces color (often white with outline, but here simple text)
-             // In graveyard, white pieces are "Captured by Black", usually shown as White pieces?
-             // Or "Captured by White" means Black pieces.
-             // create_piece_widget passes the PIECE COLOR.
-             cairo_set_source_rgb(cr, 0.9, 0.9, 0.9);
-        }
+        pango_layout_set_text(layout, symbol ? symbol : "?", -1);
         
         int w, h;
         pango_layout_get_pixel_size(layout, &w, &h);
-        cairo_move_to(cr, (width - w)/2.0, (height - h)/2.0);
-        pango_cairo_show_layout(cr, layout);
+        double px = (width - w) / 2.0;
+        double py = (height - h) / 2.0;
         
-        // Add stroke for white pieces to be visible
+        cairo_move_to(cr, px, py);
+        
         if (owner == PLAYER_WHITE) {
-             cairo_set_source_rgb(cr, 0.2, 0.2, 0.2);
-             cairo_move_to(cr, (width - w)/2.0, (height - h)/2.0);
-             pango_cairo_layout_path(cr, layout);
-             cairo_set_line_width(cr, 1.0);
-             cairo_stroke(cr);
+            double r, g, b, sr, sg, sb, cw;
+            theme_data_get_white_piece_color(panel->theme, &r, &g, &b);
+            theme_data_get_white_piece_stroke(panel->theme, &sr, &sg, &sb);
+            cw = theme_data_get_white_stroke_width(panel->theme);
+            
+            cairo_set_source_rgb(cr, r, g, b);
+            pango_cairo_layout_path(cr, layout);
+            cairo_fill_preserve(cr);
+            
+            cairo_set_source_rgb(cr, sr, sg, sb);
+            cairo_set_line_width(cr, cw);
+            cairo_stroke(cr);
+        } else {
+            double r, g, b, sr, sg, sb, cw;
+            theme_data_get_black_piece_color(panel->theme, &r, &g, &b);
+            theme_data_get_black_piece_stroke(panel->theme, &sr, &sg, &sb);
+            cw = theme_data_get_black_stroke_width(panel->theme);
+            
+            cairo_set_source_rgb(cr, r, g, b);
+            pango_cairo_layout_path(cr, layout);
+            cairo_fill_preserve(cr);
+            
+            if (cw > 0.0) {
+                cairo_set_source_rgb(cr, sr, sg, sb);
+                cairo_set_line_width(cr, cw);
+                cairo_stroke(cr);
+            } else {
+                 cairo_new_path(cr);
+            }
         }
         
         pango_font_description_free(desc);
@@ -444,7 +463,7 @@ static void draw_graveyard_piece(GtkDrawingArea* area, cairo_t* cr, int width, i
 
 static GtkWidget* create_piece_widget(InfoPanel* panel, PieceType type, Player owner) {
     GtkWidget* area = gtk_drawing_area_new();
-    gtk_widget_set_size_request(area, 26, 26); // Refined size for graveyard
+    gtk_widget_set_size_request(area, 32, 32); // Refined size for graveyard
     
     // Store panel for callback
     g_object_set_data(G_OBJECT(area), "panel", panel);
@@ -837,52 +856,19 @@ static void on_sfx_toggled(GtkCheckButton* button, gpointer user_data) {
     sound_engine_set_enabled(enabled ? 1 : 0);
 }
 
-// Hints toggle callback (dots button)
-static void on_hints_toggled(GtkToggleButton* button, gpointer user_data) {
+// Hints dropdown callback
+static void on_hints_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_data) {
+    (void)pspec;
     InfoPanel* panel = (InfoPanel*)user_data;
     if (!panel || !panel->board_widget) return;
     
-    bool use_dots = gtk_toggle_button_get_active(button);
+    GtkDropDown* dropdown = GTK_DROP_DOWN(obj);
+    int selected = gtk_drop_down_get_selected(dropdown);
+    
+    // 0: Dots, 1: Squares
+    bool use_dots = (selected == 0);
     board_widget_set_hints_mode(panel->board_widget, use_dots);
     board_widget_refresh(panel->board_widget);
-    
-    // Update squares button to be opposite
-    GtkWidget* container = gtk_widget_get_parent(GTK_WIDGET(button));
-    GtkWidget* squares_button = gtk_widget_get_last_child(container);
-    if (squares_button && GTK_IS_TOGGLE_BUTTON(squares_button)) {
-        g_signal_handlers_block_by_func(squares_button, on_hints_squares_toggled, panel);
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(squares_button), !use_dots);
-        g_signal_handlers_unblock_by_func(squares_button, on_hints_squares_toggled, panel);
-    }
-}
-
-// Public API: Refresh graveyard
-void info_panel_refresh_graveyard(GtkWidget* info_panel_widget) {
-    if (!info_panel_widget) return;
-    
-    // Retrieve panel using the consistent key used in this file
-    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel_widget), "info-panel-data");
-    if (!panel) return;
-    
-    update_captured_pieces(panel);
-}
-
-// Hints squares button callback
-static void on_hints_squares_toggled(GtkToggleButton* button, gpointer user_data) {
-    InfoPanel* panel = (InfoPanel*)user_data;
-    if (!panel || !panel->board_widget) return;
-    
-    bool use_squares = gtk_toggle_button_get_active(button);
-    bool use_dots = !use_squares;
-    board_widget_set_hints_mode(panel->board_widget, use_dots);
-    board_widget_refresh(panel->board_widget);
-    
-    // Update dots button to be opposite
-    if (panel->hints_toggle && GTK_IS_TOGGLE_BUTTON(panel->hints_toggle)) {
-        g_signal_handlers_block_by_func(panel->hints_toggle, on_hints_toggled, panel);
-        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(panel->hints_toggle), use_dots);
-        g_signal_handlers_unblock_by_func(panel->hints_toggle, on_hints_toggled, panel);
-    }
 }
 
 
@@ -1002,6 +988,58 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     
     gtk_box_append(GTK_BOX(panel->scroll_content), panel->puzzle_ui.box);
 
+    // Tutorial UI Container
+    panel->tutorial_ui.box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
+    gtk_widget_set_margin_top(panel->tutorial_ui.box, 15);
+    gtk_widget_set_margin_bottom(panel->tutorial_ui.box, 15);
+    gtk_widget_set_margin_start(panel->tutorial_ui.box, 15);
+    gtk_widget_set_margin_end(panel->tutorial_ui.box, 15);
+    gtk_widget_set_visible(panel->tutorial_ui.box, FALSE); // Hidden by default
+
+    // Tutorial Widgets
+    GtkWidget* tut_title = gtk_label_new("Tutorial");
+    PangoAttrList* tut_attrs = pango_attr_list_new();
+    pango_attr_list_insert(tut_attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
+    pango_attr_list_insert(tut_attrs, pango_attr_size_new(18 * PANGO_SCALE));
+    gtk_label_set_attributes(GTK_LABEL(tut_title), tut_attrs);
+    pango_attr_list_unref(tut_attrs);
+    gtk_widget_set_halign(tut_title, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(panel->tutorial_ui.box), tut_title);
+    
+    gtk_box_append(GTK_BOX(panel->tutorial_ui.box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    // Learning Objective
+    GtkWidget* learn_header = gtk_label_new("Currently Learning:");
+    gtk_widget_set_halign(learn_header, GTK_ALIGN_START);
+    gtk_widget_add_css_class(learn_header, "dim-label"); // Assuming class exists
+    gtk_box_append(GTK_BOX(panel->tutorial_ui.box), learn_header);
+
+    panel->tutorial_ui.learning_label = gtk_label_new("Basics");
+    PangoAttrList* learn_attrs = pango_attr_list_new();
+    pango_attr_list_insert(learn_attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
+    pango_attr_list_insert(learn_attrs, pango_attr_size_new(14 * PANGO_SCALE));
+    gtk_label_set_attributes(GTK_LABEL(panel->tutorial_ui.learning_label), learn_attrs);
+    pango_attr_list_unref(learn_attrs);
+    gtk_widget_set_halign(panel->tutorial_ui.learning_label, GTK_ALIGN_START);
+    gtk_label_set_wrap(GTK_LABEL(panel->tutorial_ui.learning_label), TRUE);
+    gtk_box_append(GTK_BOX(panel->tutorial_ui.box), panel->tutorial_ui.learning_label);
+
+    gtk_box_append(GTK_BOX(panel->tutorial_ui.box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    // Instruction
+    GtkWidget* instr_header = gtk_label_new("Instruction:");
+    gtk_widget_set_halign(instr_header, GTK_ALIGN_START);
+    gtk_widget_add_css_class(instr_header, "dim-label");
+    gtk_box_append(GTK_BOX(panel->tutorial_ui.box), instr_header);
+
+    panel->tutorial_ui.instruction_label = gtk_label_new("Welcome to the tutorial!");
+    gtk_widget_set_halign(panel->tutorial_ui.instruction_label, GTK_ALIGN_START);
+    gtk_label_set_wrap(GTK_LABEL(panel->tutorial_ui.instruction_label), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(panel->tutorial_ui.instruction_label), 30);
+    gtk_box_append(GTK_BOX(panel->tutorial_ui.box), panel->tutorial_ui.instruction_label);
+
+    gtk_box_append(GTK_BOX(panel->scroll_content), panel->tutorial_ui.box);
+
     // Standard Controls Container
     panel->standard_controls_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
     gtk_widget_set_margin_top(panel->standard_controls_box, 15);
@@ -1064,11 +1102,12 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_box_append(GTK_BOX(graveyard_section), panel->black_label);
     
     // Use horizontal box for black captures - single line, max 7 pieces
-    panel->black_captures_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    panel->black_captures_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_set_margin_top(panel->black_captures_box, 5);
     gtk_widget_set_margin_bottom(panel->black_captures_box, 5);
     gtk_widget_set_hexpand(panel->black_captures_box, FALSE);
     gtk_widget_add_css_class(panel->black_captures_box, "capture-box");
+    gtk_widget_add_css_class(panel->black_captures_box, "capture-box-for-white-pieces"); // Holds White pieces
     gtk_box_append(GTK_BOX(graveyard_section), panel->black_captures_box);
     
     // White captures (pieces captured by white) - store label in panel
@@ -1078,11 +1117,12 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_box_append(GTK_BOX(graveyard_section), panel->white_label);
     
     // Use horizontal box for white captures - single line, max 7 pieces
-    panel->white_captures_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+    panel->white_captures_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
     gtk_widget_set_margin_top(panel->white_captures_box, 5);
     gtk_widget_set_margin_bottom(panel->white_captures_box, 5);
     gtk_widget_set_hexpand(panel->white_captures_box, FALSE);
     gtk_widget_add_css_class(panel->white_captures_box, "capture-box");
+    gtk_widget_add_css_class(panel->white_captures_box, "capture-box-for-black-pieces"); // Holds Black pieces
     gtk_box_append(GTK_BOX(graveyard_section), panel->white_captures_box);
     
     gtk_box_append(GTK_BOX(panel->standard_controls_box), graveyard_section);
@@ -1250,21 +1290,14 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_box_append(GTK_BOX(visual_section), panel->enable_animations_check);
     
     // Hints toggle
-    GtkWidget* hints_label = gtk_label_new("Hints:");
-    gtk_widget_set_halign(hints_label, GTK_ALIGN_START); // Left align
+    GtkWidget* hints_label = gtk_label_new("Hints Style:");
+    gtk_widget_set_halign(hints_label, GTK_ALIGN_START); 
     gtk_box_append(GTK_BOX(visual_section), hints_label);
-    GtkWidget* hints_container = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_add_css_class(hints_container, "linked");
-    GtkWidget* dots_btn = gtk_toggle_button_new_with_label("Dots");
-    GtkWidget* sq_btn = gtk_toggle_button_new_with_label("Squares");
-    panel->hints_toggle = dots_btn;
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dots_btn), TRUE);
-    g_signal_connect(dots_btn, "toggled", G_CALLBACK(on_hints_toggled), panel);
-    g_signal_connect(sq_btn, "toggled", G_CALLBACK(on_hints_squares_toggled), panel);
-    g_object_set_data(G_OBJECT(dots_btn), "squares-button", sq_btn);
-    gtk_box_append(GTK_BOX(hints_container), dots_btn);
-    gtk_box_append(GTK_BOX(hints_container), sq_btn);
-    gtk_box_append(GTK_BOX(visual_section), hints_container);
+    
+    panel->hints_dropdown = gtk_drop_down_new_from_strings((const char*[]){"Dots", "Squares", NULL});
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->hints_dropdown), 0); // Default to Dots
+    g_signal_connect(panel->hints_dropdown, "notify::selected", G_CALLBACK(on_hints_mode_changed), panel);
+    gtk_box_append(GTK_BOX(visual_section), panel->hints_dropdown);
     
     // Enable SFX
     panel->enable_sfx_check = gtk_check_button_new_with_label("Enable SFX");
@@ -1600,6 +1633,28 @@ static void on_puzzle_list_row_activated(GtkListBox* box, GtkListBoxRow* row, gp
     }
 }
 
+// Tutorial Public API
+
+void info_panel_set_tutorial_mode(GtkWidget* info_panel, bool enabled) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (!panel) return;
+
+    gtk_widget_set_visible(panel->standard_controls_box, !enabled);
+    if (enabled) {
+        // Ensure puzzle box is hidden if enabling tutorial
+        gtk_widget_set_visible(panel->puzzle_ui.box, FALSE); 
+    }
+    gtk_widget_set_visible(panel->tutorial_ui.box, enabled);
+}
+
+void info_panel_update_tutorial_info(GtkWidget* info_panel, const char* instruction, const char* learning_objective) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (!panel) return;
+
+    if (instruction) gtk_label_set_text(GTK_LABEL(panel->tutorial_ui.instruction_label), instruction);
+    if (learning_objective) gtk_label_set_text(GTK_LABEL(panel->tutorial_ui.learning_label), learning_objective);
+}
+
 void info_panel_set_puzzle_list_callback(GtkWidget* info_panel, GCallback on_selected, gpointer user_data) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
     if (!panel || !panel->puzzle_ui.puzzle_list_box) return;
@@ -1646,5 +1701,10 @@ void info_panel_set_game_reset_callback(GtkWidget* info_panel, GameResetCallback
 
 // Puzzle List Management
 
-// End of file cleanup
-
+// Public wrapper to refresh graveyard (for theme updates)
+void info_panel_refresh_graveyard(GtkWidget* info_panel) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (panel) {
+        update_captured_pieces(panel);
+    }
+}

@@ -57,4 +57,8 @@ void info_panel_set_game_mode(GtkWidget* info_panel, GameMode mode);
 typedef void (*GameResetCallback)(gpointer user_data);
 void info_panel_set_game_reset_callback(GtkWidget* info_panel, GameResetCallback callback, gpointer user_data);
 
+// Tutorial Mode Control
+void info_panel_set_tutorial_mode(GtkWidget* info_panel, bool enabled);
+void info_panel_update_tutorial_info(GtkWidget* info_panel, const char* instruction, const char* learning_objective);
+
 #endif // INFO_PANEL_H

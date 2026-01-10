@@ -433,7 +433,6 @@ static void draw_overlay_particles(GtkDrawingArea* area, cairo_t* cr, int width,
             // Windowed mode: Shadows are present (~8px on Win10/11)
             // GetWindowRect includes them, GTK Root does not.
             // We need to shift drawing RIGHT/DOWN to match GTK Root.
-            // User requested explicit offsets from (5,8) -> (13,10)
             win32_offset_x = 13.0; 
             win32_offset_y = 10.0; 
         } else {
