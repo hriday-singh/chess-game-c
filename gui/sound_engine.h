@@ -10,7 +10,16 @@ typedef enum {
     SOUND_WIN,
     SOUND_DEFEAT,
     SOUND_DRAW,
-    SOUND_ERROR
+    SOUND_ERROR,
+    SOUND_LESSON_PASS,
+    SOUND_LESSON_FAIL,
+    SOUND_GAME_START,
+    SOUND_PROMOTION,
+    SOUND_CLICK,
+    SOUND_MOVE_OPPONENT,
+    SOUND_PUZZLE_CORRECT,
+    SOUND_PUZZLE_CORRECT_2,
+    SOUND_PUZZLE_WRONG
 } SoundType;
 
 // Initialize sound engine (call once at startup)

@@ -750,38 +750,37 @@ static void reset_game(InfoPanel* panel) {
         }
     }
     
-    // Play As Selection
+    // Play As Selection - ONLY set the Logic state here
+    // The actual board flipping will be handled by the game_reset_callback (main.c:on_game_reset)
     guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(panel->play_as_dropdown));
     
     if (selected == 0) { // White
         panel->logic->playerSide = PLAYER_WHITE;
-        board_widget_set_flipped(panel->board_widget, false);
     } else if (selected == 1) { // Black
         panel->logic->playerSide = PLAYER_BLACK;
-        board_widget_set_flipped(panel->board_widget, true);
     } else if (selected == 2) { // Random
         // Randomly pick White (0) or Black (1)
         int rand_side = (g_random_int() % 2);
-        bool flipped = (rand_side == 1);
-        
-        // Set player side in game logic
-        panel->logic->playerSide = flipped ? PLAYER_BLACK : PLAYER_WHITE;
-        
-        // Flip the board display
-        board_widget_set_flipped(panel->board_widget, flipped);
+        panel->logic->playerSide = (rand_side == 1) ? PLAYER_BLACK : PLAYER_WHITE;
     }
     
-    // Reset game
-    gamelogic_reset(panel->logic);
+    // Delegate EVERYTHING else to the callback (main.c)
+    // This prevents double-resets and fighting over board state
+    if (panel->game_reset_callback) {
+        panel->game_reset_callback(panel->game_reset_callback_data);
+    } else {
+        // Fallback if no callback (shouldn't happen in main app)
+        gamelogic_reset(panel->logic);
+        bool flip = (panel->logic->playerSide == PLAYER_BLACK);
+        board_widget_set_flipped(panel->board_widget, flip);
+        board_widget_reset_selection(panel->board_widget);
+        board_widget_refresh(panel->board_widget);
+    }
     
-    // Reset selection
-    board_widget_reset_selection(panel->board_widget);
-    
-    // Directly update the panel display (status and graveyards)
+    // Update panel display
     update_status_display(panel);
     update_captured_pieces(panel);
     
-    // Also update via the public API for consistency
     GtkWidget* info_panel_widget = gtk_widget_get_parent(panel->scroll_content);
     if (info_panel_widget) {
         info_panel_update_status(info_panel_widget);
@@ -957,13 +956,13 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     
     panel->puzzle_ui.puzzle_list_box = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), GTK_SELECTION_SINGLE);
-    gtk_widget_add_css_class(panel->puzzle_ui.puzzle_list_box, "boxed-list");
+    gtk_widget_add_css_class(panel->puzzle_ui.puzzle_list_box, "sidebar");
     gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), TRUE);
     
-    // Add Click Gesture to absolutely guarantee clicks are caught
-    // Add Click Gesture to absolutely guarantee clicks are caught
+    // Gesture removed to prevent double-activation (listbox handles default click)
+    // Re-adding a robust click handler to ensure activation works even if listbox misses it
     GtkGesture* puzzle_click_gesture = gtk_gesture_click_new();
-    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(puzzle_click_gesture), 0); // All buttons
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(puzzle_click_gesture), 0);
     g_signal_connect(puzzle_click_gesture, "released", G_CALLBACK(on_puzzle_list_click), panel->puzzle_ui.puzzle_list_box);
     gtk_widget_add_controller(panel->puzzle_ui.puzzle_list_box, GTK_EVENT_CONTROLLER(puzzle_click_gesture));
     
@@ -1548,13 +1547,15 @@ void info_panel_add_puzzle_to_list(GtkWidget* info_panel, const char* title, int
 // Forward declaration
 static void on_puzzle_list_row_activated(GtkListBox* box, GtkListBoxRow* row, gpointer user_data);
 
-// Fallback click handler
 static void on_puzzle_list_click(GtkGestureClick* gesture, int n_press, double x, double y, gpointer user_data) {
     (void)gesture; (void)n_press; (void)x;
     GtkListBox* box = GTK_LIST_BOX(user_data);
-    GtkListBoxRow* row = gtk_list_box_get_row_at_y(box, (int)y);
+    if (!box) return;
     
+    GtkListBoxRow* row = gtk_list_box_get_row_at_y(box, (int)y);
     if (row) {
+        // Manually trigger activation
+        gtk_list_box_select_row(box, row);
         on_puzzle_list_row_activated(box, row, NULL);
     }
 }
@@ -1566,10 +1567,6 @@ void info_panel_highlight_puzzle(GtkWidget* info_panel, int index) {
     
     // Block signals to prevent recursion!
     if (g_signal_handlers_disconnect_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL) > 0) {
-        // We disconnected it, we will reconnect later.
-        // Actually, disconnect_by_func disconnects ALL matches. 
-        // Best to use block/unblock if we have the handler ID, but we don't store it separate.
-        // But block_by_func works by function pointer matching.
         g_signal_handlers_block_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL);
     }
 

@@ -258,17 +258,16 @@ static void update_ui_callback(void) {
                 state->puzzle_last_processed_move = current_move_count;
                 state->puzzle_move_idx++;
                 
-                sound_engine_play(SOUND_MOVE); // Play move sound for correct move
-                
                 // Check if puzzle is complete
                 if (state->puzzle_move_idx >= puzzle->solution_length) {
                     if (debug_mode) printf("[PUZZLE DEBUG] ★ Puzzle SOLVED! (%d/%d moves)\n", 
                            state->puzzle_move_idx, puzzle->solution_length);
                     if (state->info_panel) info_panel_update_puzzle_info(state->info_panel, NULL, NULL, "Puzzle Solved! Great job!", true); // Added NULL check
-                    sound_engine_play(SOUND_WIN);
+                    sound_engine_play(SOUND_PUZZLE_CORRECT);
                     // Disable board interaction
                     if (state->board) board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1); // Added NULL check
                 } else {
+                    sound_engine_play(SOUND_PUZZLE_CORRECT_2);
                     // Check if next move is opponent's response
                     state->puzzle_wait = true;
                     if (state->info_panel) info_panel_update_puzzle_info(state->info_panel, NULL, NULL, "Correct! Keep going...", false); // Added NULL check
@@ -280,7 +279,7 @@ static void update_ui_callback(void) {
             } else {
                 // Wrong move - undo it
                 if (debug_mode) printf("[PUZZLE DEBUG] ✗ Move is WRONG! Undoing...\n");
-                sound_engine_play(SOUND_ERROR); // Play error sound for wrong move
+                sound_engine_play(SOUND_PUZZLE_WRONG); // Play error sound for wrong move
                 gamelogic_undo_move(state->logic);
                 if (state->board) board_widget_refresh(state->board); // Added NULL check
                 if (state->info_panel) info_panel_update_puzzle_info(state->info_panel, NULL, NULL, "Try again! That's not the solution.", true); // Added NULL check
@@ -328,7 +327,9 @@ static void on_game_reset(gpointer user_data) {
 
     gamelogic_reset(state->logic);
     if (state->board) { // Added NULL check
-        board_widget_set_flipped(state->board, FALSE);
+        // Sync flip with player side (fix for Play as Black/Random)
+        bool flip = (state->logic->playerSide == PLAYER_BLACK);
+        board_widget_set_flipped(state->board, flip);
         board_widget_refresh(state->board);
     }
     if (state->info_panel) { // Added NULL check

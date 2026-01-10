@@ -109,12 +109,6 @@ static BoardWidget* find_board_data(GtkWidget* widget) {
 
     return NULL; // Not found
 }
-// This plays the move sound 200ms into the animation for regular moves only
-static gboolean delayed_move_sound_callback(gpointer user_data) {
-    (void)user_data;  // Unused parameter
-    sound_engine_play(SOUND_MOVE);
-    return G_SOURCE_REMOVE;  // One-shot timer
-}
 
 // Play appropriate sound for a move (non-blocking, lightweight)
 static void play_move_sound(BoardWidget* board, Move* move, bool skipStandardSound) {
@@ -149,13 +143,25 @@ static void play_move_sound(BoardWidget* board, Move* move, bool skipStandardSou
     // Check move type
     if (move->isCastling) {
         sound_engine_play(SOUND_CASTLES);
+    } else if (move->promotionPiece != NO_PROMOTION) {
+        sound_engine_play(SOUND_PROMOTION);
     } else if (move->capturedPiece != NULL || move->isEnPassant) {
         sound_engine_play(SOUND_CAPTURE);
     } else if (!skipStandardSound) {
         // Regular move - play immediately (unless skipped because it was already played delayed)
         // In Puzzle Mode, the main logic handles sounds (Success/Failure), so don't play default move sound
         if (board->logic->gameMode != GAME_MODE_PUZZLE) {
-             sound_engine_play(SOUND_MOVE);
+             // Determine who made the move to pick the right sound
+             // The move is already made, so 'turn' is now the opponent of the mover.
+             // Mover = !board->logic->turn
+             Player mover = (board->logic->turn == PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
+             
+             // Check if the mover is a computer
+             if (gamelogic_is_computer(board->logic, mover)) {
+                 sound_engine_play(SOUND_MOVE_OPPONENT);
+             } else {
+                 sound_engine_play(SOUND_MOVE);
+             }
         }
     }
 }
@@ -848,11 +854,7 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
                     board->validMoves[i]->endRow == dropRow && 
                     board->validMoves[i]->endCol == dropCol) {
                     isValid = true;
-                    moveToMake = move_create(board->validMoves[i]->startRow,
-                                            board->validMoves[i]->startCol,
-                                            board->validMoves[i]->endRow,
-                                            board->validMoves[i]->endCol);
-                    moveToMake->promotionPiece = board->validMoves[i]->promotionPiece;
+                    moveToMake = move_copy(board->validMoves[i]);
                     break;
                 }
             }
@@ -907,7 +909,7 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
                 }
                 
                 // USE CENTRALIZED HELPER (Standard sound OK for drag drop)
-                execute_move_with_updates(board, moveToMake, false);
+                execute_move_with_updates(board, moveToMake, true);
                 
                 move_free(moveToMake);
                 return; 
@@ -994,11 +996,7 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
                 board->validMoves[i]->endRow == logicalR && 
                 board->validMoves[i]->endCol == logicalC) {
                 isValid = true;
-                moveToMake = move_create(board->validMoves[i]->startRow,
-                                        board->validMoves[i]->startCol,
-                                        board->validMoves[i]->endRow,
-                                        board->validMoves[i]->endCol);
-                moveToMake->promotionPiece = board->validMoves[i]->promotionPiece;
+                moveToMake = move_copy(board->validMoves[i]);
                 break;
             }
         }
@@ -1084,17 +1082,14 @@ static gboolean animation_tick(gpointer user_data) {
         // Execute the move using centralized helper
         Move* move = board->animatingMove;
         
-        // Determine if standard sound should be skipped.
-        // For regular moves, sound was scheduled at 200ms, so we SKIP it now.
-        // For special moves (captures, etc.), it wasn't played, so we DON'T skip.
-        bool isRegularMove = !move->isCastling && 
-                             move->capturedPiece == NULL && 
-                             !move->isEnPassant;
-        
         // USE CENTRALIZED HELPER
-        // If it was a regular move, sound was played via delay, so pass FALSE to skip standard sound.
-        // If it was NOT regular (capture etc), sound was NOT played, so pass TRUE to play it.
-        execute_move_with_updates(board, move, !isRegularMove);
+        // We always request standard sound here.
+        // play_move_sound will intelligently determine which sound to play:
+        // - if Check/Mate/Win/Draw -> Special Sound
+        // - if Capture/Castle/Promo -> Special Sound
+        // - Else -> Standard Move Sound
+        // This prevents double sounds.
+        execute_move_with_updates(board, move, true);
         
         move_free(move);
         board->animatingMove = NULL;
@@ -1104,13 +1099,6 @@ static gboolean animation_tick(gpointer user_data) {
         board->animStartTime = 0;
         board->animatingFromDrag = false;
         
-        if (board->animOverlay) {
-            gtk_widget_queue_draw(board->animOverlay);
-            // Ensure overlay doesn't block input - hide it when animation is done
-            gtk_widget_set_sensitive(board->animOverlay, FALSE); // Don't block input
-            // Also hide it visually when not animating
-            gtk_widget_set_visible(board->animOverlay, FALSE);
-        }
         if (board->animOverlay) {
             gtk_widget_queue_draw(board->animOverlay);
             // Ensure overlay doesn't block input - hide it when animation is done
@@ -1159,8 +1147,8 @@ static void animate_move(BoardWidget* board, Move* move, void (*on_finished)(voi
     
     if (!board->animationsEnabled) {
         // No animation - execute immediately
-        // USE CENTRALIZED HELPER (Standard sound OK)
-        execute_move_with_updates(board, move, false);
+                // USE CENTRALIZED HELPER (Standard sound OK)
+                execute_move_with_updates(board, move, true);
         move_free(move);
         return;
     }
@@ -1170,19 +1158,7 @@ static void animate_move(BoardWidget* board, Move* move, void (*on_finished)(voi
     board->animProgress = 0.0;
     board->animStartTime = g_get_monotonic_time(); // Set start time for this animation
     board->animatingFromDrag = false; // Regular move animation from square
-    
-    // Schedule move sound to play 200ms into animation (only for regular moves)
-    // Check if this is a regular move (not capture, castling, etc.)
-    // Note: We can't check for check/checkmate here since move hasn't executed yet
-    // Those sounds will play after animation completes if needed
-    bool isRegularMove = !move->isCastling && 
-                         move->capturedPiece == NULL && 
-                         !move->isEnPassant;
-    if (isRegularMove) {
-        // Schedule move sound to play 200ms into the animation
-        g_timeout_add(200, delayed_move_sound_callback, NULL);
-    }
-    
+
     // Create overlay for animated piece if it doesn't exist
     if (!board->animOverlay) {
         board->animOverlay = gtk_drawing_area_new();

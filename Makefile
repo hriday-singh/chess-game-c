@@ -23,11 +23,9 @@ GAME_SOURCES = $(wildcard $(SRCDIR)/*.c)
 GAME_OBJECTS = $(GAME_SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 
 GUI_SOURCES = $(wildcard $(GUIDIR)/*.c)
-# Exclude icon_test.c, stb_vorbis.c, and test_svg_loader.c from main GUI build
-# stb_vorbis.c is compiled separately (see rule below)
+# Exclude icon_test.c, and test_svg_loader.c from main GUI build
 # test_svg_loader.c is a standalone test program
-GUI_SOURCES := $(filter-out $(GUIDIR)/icon_test.c $(GUIDIR)/stb_vorbis.c $(GUIDIR)/test_svg_loader.c, $(GUI_SOURCES))
-# Note: sound_engine.c includes stb_vorbis.c with STB_VORBIS_HEADER_ONLY for declarations
+GUI_SOURCES := $(filter-out $(GUIDIR)/icon_test.c $(GUIDIR)/test_svg_loader.c, $(GUI_SOURCES))
 GUI_OBJECTS = $(GUI_SOURCES:$(GUIDIR)/%.c=$(OBJDIR)/gui_%.o)
 
 # Stockfish sources (exclude main.cpp)
@@ -67,12 +65,6 @@ SVG_TEST_TARGET = $(BUILDDIR)/test_svg_loader.exe
 
 # Default target - build GUI executable (MUST be first target in Makefile)
 all: $(GUI_TARGET)
-
-# Compile stb_vorbis.c separately (needed for OGG support with miniaudio)
-# This must be compiled separately because it's included as header-only in sound_engine.c
-$(OBJDIR)/gui_stb_vorbis.o: $(GUIDIR)/stb_vorbis.c | $(OBJDIR)
-	@echo "Compiling GUI $< (stb_vorbis)..."
-	$(CC) $(CFLAGS) $(GTK_CFLAGS) -I$(SRCDIR) -I$(GUIDIR) -c $< -o $@
 
 # Build everything including tests
 all-tests: $(TEST_TARGET) $(TEST_SUITE_TARGET) $(GUI_TARGET)
@@ -150,12 +142,11 @@ $(TEST_SUITE_TARGET): $(TEST_SUITE_OBJECTS)
 	@echo "Build complete! Run: $(TEST_TARGET) or $(TEST_SUITE_TARGET)"
 
 # GUI executable (links game + GUI + GTK4)
-# Include stb_vorbis.o for OGG decoding support
 GAME_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/main_test.o $(OBJDIR)/test_suite.o $(OBJDIR)/move_validation_test.o, $(GAME_OBJECTS))
 GUI_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/gui_icon_test.o, $(GUI_OBJECTS))
 
 # Force all dependencies to be built before linking
-$(GUI_TARGET): $(GAME_OBJS_FOR_GUI) $(GUI_OBJS_FOR_GUI) $(OBJDIR)/gui_stb_vorbis.o $(SF_OBJECTS) | $(OBJDIR)
+$(GUI_TARGET): $(GAME_OBJS_FOR_GUI) $(GUI_OBJS_FOR_GUI) $(SF_OBJECTS) | $(OBJDIR)
 	@echo "Linking $@ (GUI + Stockfish)..."
 	@echo "  Game objects: $(words $(GAME_OBJS_FOR_GUI)) files"
 	@echo "  GUI objects: $(words $(GUI_OBJS_FOR_GUI)) files"

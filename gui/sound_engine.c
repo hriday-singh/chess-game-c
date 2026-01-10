@@ -11,13 +11,6 @@
 #include <unistd.h>
 #endif
 
-// Include stb_vorbis for OGG decoding
-// Include stb_vorbis.c with STB_VORBIS_HEADER_ONLY BEFORE miniaudio.h
-// This provides declarations that miniaudio needs
-// Note: stb_vorbis.c is compiled separately and linked (see Makefile)
-#define STB_VORBIS_HEADER_ONLY
-#include "stb_vorbis.c"
-
 // Include miniaudio - user needs to download miniaudio.h
 // Download from: https://github.com/mackron/miniaudio/releases
 // Place miniaudio.h in the gui/ directory
@@ -32,14 +25,23 @@ static bool g_enabled = true;  // Enabled by default
 
 // Sound file names (without path - we'll search multiple locations)
 static const char* SOUND_NAMES[] = {
-    "Move.ogg",      // SOUND_MOVE
-    "Capture.ogg",    // SOUND_CAPTURE
-    "Castles.ogg",    // SOUND_CASTLES
-    "Check.ogg",     // SOUND_CHECK
-    "Win.ogg",        // SOUND_WIN
-    "Defeat.ogg",     // SOUND_DEFEAT
-    "Draw.ogg",       // SOUND_DRAW
-    "Error.ogg"       // SOUND_ERROR
+    "move-self.mp3",      // SOUND_MOVE
+    "capture.mp3",        // SOUND_CAPTURE
+    "castle.mp3",         // SOUND_CASTLES
+    "move-check.mp3",     // SOUND_CHECK
+    "game-win.mp3",       // SOUND_WIN
+    "game-lose.mp3",      // SOUND_DEFEAT
+    "game-draw.mp3",      // SOUND_DRAW
+    "illegal.mp3",        // SOUND_ERROR
+    "lesson-pass.mp3",    // SOUND_LESSON_PASS
+    "lesson-fail.mp3",    // SOUND_LESSON_FAIL
+    "game-start.mp3",     // SOUND_GAME_START
+    "promote.mp3",        // SOUND_PROMOTION
+    "click.mp3",          // SOUND_CLICK
+    "move-opponent.mp3",  // SOUND_MOVE_OPPONENT
+    "puzzle-correct.mp3", // SOUND_PUZZLE_CORRECT
+    "puzzle-correct-2.mp3", // SOUND_PUZZLE_CORRECT_2
+    "puzzle-wrong.mp3"    // SOUND_PUZZLE_WRONG
 };
 
 // Try to find a sound file in common locations

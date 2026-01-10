@@ -282,6 +282,15 @@ static void on_theme_item_draw(GtkDrawingArea* area, cairo_t* cr, int width, int
         double w = width - 2*pad;
         double h = height - 2*pad;
         
+        // Ensure it's square (use the smaller dimension)
+        if (w > h) {
+             x += (w - h) / 2.0;
+             w = h;
+        } else {
+             y += (h - w) / 2.0;
+             h = w;
+        }
+        
         cairo_new_sub_path(cr);
         cairo_arc(cr, x + w - radius, y + radius, radius, -G_PI/2, 0);
         cairo_arc(cr, x + w - radius, y + h - radius, radius, 0, G_PI/2);

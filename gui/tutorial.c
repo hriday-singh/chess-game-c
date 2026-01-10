@@ -314,6 +314,8 @@ void on_invalid_tutorial_move(void* user_data) {
     if (state->tutorial_msg) {
         return;
     }
+    
+    sound_engine_play(SOUND_LESSON_FAIL); // Added sound
 
     // Re-trigger setup to show message again
     switch (state->tutorial_step) {
@@ -412,6 +414,7 @@ void tutorial_check_progress(AppState* state) {
             state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_ROOK;
+            sound_engine_play(SOUND_LESSON_PASS);
             g_timeout_add(delay, on_tutorial_delay_complete, state);
         }
     } else if (state->tutorial_step == TUT_ROOK) {
@@ -421,6 +424,7 @@ void tutorial_check_progress(AppState* state) {
             state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_BISHOP;
+            sound_engine_play(SOUND_LESSON_PASS); 
             g_timeout_add(delay, on_tutorial_delay_complete, state);
         }
     } else if (state->tutorial_step == TUT_BISHOP) {
@@ -429,6 +433,7 @@ void tutorial_check_progress(AppState* state) {
             state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_KNIGHT;
+            sound_engine_play(SOUND_LESSON_PASS);
             g_timeout_add(delay, on_tutorial_delay_complete, state);
         }
     } else if (state->tutorial_step == TUT_KNIGHT) {
@@ -437,6 +442,7 @@ void tutorial_check_progress(AppState* state) {
             state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_QUEEN;
+            sound_engine_play(SOUND_LESSON_PASS);
             g_timeout_add(delay, on_tutorial_delay_complete, state);
         }
     } else if (state->tutorial_step == TUT_QUEEN) {
@@ -445,6 +451,7 @@ void tutorial_check_progress(AppState* state) {
             state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_CHECK;
+            sound_engine_play(SOUND_LESSON_PASS);
             g_timeout_add(delay, on_tutorial_delay_complete, state);
         }
     } else if (state->tutorial_step == TUT_CHECK) {
@@ -453,6 +460,7 @@ void tutorial_check_progress(AppState* state) {
             state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_ESCAPE;
+            sound_engine_play(SOUND_LESSON_PASS);
             g_timeout_add(delay, on_tutorial_delay_complete, state);
         }
     } else if (state->tutorial_step == TUT_ESCAPE) {
@@ -461,6 +469,7 @@ void tutorial_check_progress(AppState* state) {
             state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_CASTLING;
+            sound_engine_play(SOUND_LESSON_PASS);
             g_timeout_add(delay, on_tutorial_delay_complete, state);
         }
     } else if (state->tutorial_step == TUT_CASTLING) {
@@ -469,6 +478,7 @@ void tutorial_check_progress(AppState* state) {
             state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_MATE;
+            sound_engine_play(SOUND_LESSON_PASS);
             g_timeout_add(delay, on_tutorial_delay_complete, state);
         }
     } else if (state->tutorial_step == TUT_MATE) {
@@ -477,10 +487,12 @@ void tutorial_check_progress(AppState* state) {
              state->tutorial_wait = TRUE;
              board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
              state->tutorial_next_step = TUT_DONE;
+             sound_engine_play(SOUND_LESSON_PASS); // Added sound
              g_timeout_add(delay, on_tutorial_delay_complete, state);
         }
     } else if (state->tutorial_step == TUT_DONE) {
          state->tutorial_wait = TRUE;
+         sound_engine_play(SOUND_LESSON_PASS); // Added sound
          tutorial_finish(state);
          // After finish, we exit, and next loop checks TUT_OFF, resetting wait.
     }

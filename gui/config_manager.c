@@ -15,7 +15,7 @@
 #define MKDIR(path) mkdir(path, 0755)
 #endif
 
-static bool is_debug = true;
+static bool debug_mode = false;
 
 // Global configuration instance
 static AppConfig g_config;
@@ -191,7 +191,7 @@ bool config_load(void) {
     }
     
     fclose(f);
-    if (is_debug) printf("Config loaded from %s\n", g_config_path);
+    if (debug_mode) printf("Config loaded from %s\n", g_config_path);
     return true;
 }
 
@@ -200,7 +200,7 @@ bool config_save(void) {
     
     FILE* f = fopen(g_config_path, "w");
     if (!f) {
-        if (is_debug) printf("Failed to open config file for writing: %s\n", g_config_path);
+        if (debug_mode) printf("Failed to open config file for writing: %s\n", g_config_path);
         return false;
     }
     
@@ -238,7 +238,7 @@ bool config_save(void) {
     fprintf(f, "}\n");
     
     fclose(f);
-    if (is_debug) printf("[DEBUG] Config saved to %s\n", g_config_path);
+    if (debug_mode) printf("[DEBUG] Config saved to %s\n", g_config_path);
     return true;
 }
 
@@ -363,7 +363,7 @@ void app_themes_init(void) {
     }
     
     fclose(f);
-    if (is_debug) printf("[DEBUG] Loaded %d custom themes from %s\n", g_custom_theme_count, g_themes_path);
+    if (debug_mode) printf("[DEBUG] Loaded %d custom themes from %s\n", g_custom_theme_count, g_themes_path);
 }
 
 AppTheme* app_themes_get_list(int* count) {
@@ -379,7 +379,7 @@ void app_themes_save_theme(const AppTheme* theme) {
         if (strcmp(g_custom_themes[i].theme_id, theme->theme_id) == 0) {
            // Prevent overwriting system theme if somehow a collision happens, check global list
            if (theme_manager_is_system_theme(theme->theme_id)) {
-               if (is_debug) printf("[Config] Cannot overwrite system theme %s\n", theme->theme_id);
+               if (debug_mode) printf("[Config] Cannot overwrite system theme %s\n", theme->theme_id);
                return; 
            }
 
@@ -391,7 +391,7 @@ void app_themes_save_theme(const AppTheme* theme) {
     
     // Add new (Ensure not system ID)
     if (theme_manager_is_system_theme(theme->theme_id)) {
-        if (is_debug) printf("[Config] Cannot save theme with system ID %s\n", theme->theme_id);
+        if (debug_mode) printf("[Config] Cannot save theme with system ID %s\n", theme->theme_id);
         return;
     }
 
@@ -474,5 +474,5 @@ void app_themes_save_all(void) {
     }
     fprintf(f, "]\n");
     fclose(f);
-    if (is_debug) printf("[DEBUG] Themes saved to %s\n", g_themes_path);
+    if (debug_mode) printf("[DEBUG] Themes saved to %s\n", g_themes_path);
 }
