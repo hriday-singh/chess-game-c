@@ -17,7 +17,6 @@ SFDIR = src
 BUILDDIR = build
 OBJDIR = $(BUILDDIR)/obj
 
-
 # Source files
 GAME_SOURCES = $(wildcard $(SRCDIR)/*.c)
 GAME_OBJECTS = $(GAME_SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
@@ -146,7 +145,7 @@ RC_FILE = chess.rc
 RES_OBJ = $(OBJDIR)/chess_res.o
 
 # Build resource file
-$(RES_OBJ): $(RC_FILE) | $(OBJDIR)
+$(RES_OBJ): $(RC_FILE) assets/images/icon/icon.ico | $(OBJDIR)
 	@echo "Compiling resources..."
 	windres $(RC_FILE) -O coff -o $(RES_OBJ)
 
@@ -189,72 +188,79 @@ test-suite: $(TEST_SUITE_TARGET)
 MINGW_PREFIX := $(shell pkg-config --variable=prefix gtk4 2>/dev/null)
 MINGW_BIN    := $(MINGW_PREFIX)/bin
 
-# Copy all DLL dependencies discovered via ldd
+# Robust Standalone Distribution
+DIST_DIR = $(BUILDDIR)/standalone
+
+# Helper to copy DLLs using ldd
 define copy_deps
-	@echo "Scanning dependencies with ldd..."
-	@ldd "$(1)" | awk '{
-		# ldd output formats vary; pick Windows DLL paths under mingw64/bin
-		for (i=1;i<=NF;i++) {
-			if ($$i ~ /\/mingw64\/bin\/.*\.dll$$/ || $$i ~ /\/bin\/.*\.dll$$/) print $$i
-		}
-	}' | sort -u | while read dll; do \
+	@echo "Scanning and copying DLL dependencies..."
+	@ldd "$(1)" | grep -iE "\/mingw64\/bin\/.*\.dll|\/usr\/bin\/.*\.dll" | awk '{print $$3}' | sort -u | while read dll; do \
 		if [ -f "$$dll" ]; then \
-			cp -u "$$dll" "$(2)/"; \
-			echo "  Copied $$(basename "$$dll")"; \
+			cp -Wu "$$dll" "$(2)/"; \
+			echo "  [DLL] $$(basename "$$dll")"; \
 		fi; \
 	done
 endef
 
-# Copy runtime dependencies into standalone folder
 copy-dlls: $(GUI_TARGET)
-	@mkdir -p "$(BUILDDIR)/standalone"
-	$(call copy_deps,$(GUI_TARGET),$(BUILDDIR)/standalone)
+	@mkdir -p "$(DIST_DIR)"
+	$(call copy_deps,$(GUI_TARGET),$(DIST_DIR))
 .PHONY: copy-dlls
 
-# Standalone build target - copies all required files and DLLs
-# Note: This target is phony, so it always runs even if GUI_TARGET is up to date
-standalone: $(GUI_TARGET) copy-dlls
-	@echo "Creating standalone build..."
-	@mkdir -p $(BUILDDIR)/standalone
-	@cp $(GUI_TARGET) $(BUILDDIR)/standalone/
-	@if [ -f icon.png ]; then cp icon.png $(BUILDDIR)/standalone/icon.png; fi
-	@echo "Copied EXE + DLL dependencies."
-	@echo "Copying gdk-pixbuf loaders..."
+standalone: $(GUI_TARGET)
+	@echo "========================================"
+	@echo "Creating Standalone Release: $(DIST_DIR)"
+	@echo "========================================"
+	
+	@# 1. Clean and Create Directory
+	@rm -rf $(DIST_DIR)
+	@mkdir -p $(DIST_DIR)
+	
+	@# 2. Copy Executable
+	@echo "-> Copying executable..."
+	@cp $(GUI_TARGET) $(DIST_DIR)/
+	
+	@# 3. Copy Assets (Recursively)
+	@echo "-> Copying assets/ directory..."
+	@mkdir -p $(DIST_DIR)/assets
+	@cp -r assets/* $(DIST_DIR)/assets/
+	
+	@# 4. Copy Icon (if exists outside assets)
+	@if [ -f icon.png ]; then cp icon.png $(DIST_DIR)/; fi
+	
+	@# 5. Copy DLLs
+	$(call copy_deps,$(GUI_TARGET),$(DIST_DIR))
+	
+	@# 6. Setup GDK Pixbuf Loaders (Required for images)
+	@echo "-> Setting up GDK Pixbuf loaders..."
 	@PIXBUF_DIR="$$(pkg-config --variable=gdk_pixbuf_moduledir gdk-pixbuf-2.0 2>/dev/null)"; \
 	PIXBUF_QUERY="$$(pkg-config --variable=gdk_pixbuf_query_loaders gdk-pixbuf-2.0 2>/dev/null)"; \
-	if [ -n "$$PIXBUF_DIR" ] && [ -d "$$PIXBUF_DIR" ]; then \
-		mkdir -p "$(BUILDDIR)/standalone/lib/gdk-pixbuf-2.0/2.10.0/loaders"; \
-		cp -r "$$PIXBUF_DIR/"* "$(BUILDDIR)/standalone/lib/gdk-pixbuf-2.0/2.10.0/loaders/" 2>/dev/null || true; \
-		echo "  Loaders copied."; \
-		if [ -n "$$PIXBUF_QUERY" ] && [ -x "$$PIXBUF_QUERY" ]; then \
-			echo "  Generating loaders.cache..."; \
-			"$$PIXBUF_QUERY" > "$(BUILDDIR)/standalone/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"; \
-		else \
-			echo "  Warning: gdk-pixbuf-query-loaders not found; loaders.cache not generated."; \
+	if [ -d "$$PIXBUF_DIR" ]; then \
+		mkdir -p "$(DIST_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders"; \
+		cp -r "$$PIXBUF_DIR/"*.dll "$(DIST_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders/" 2>/dev/null || true; \
+		if [ -x "$$PIXBUF_QUERY" ]; then \
+			"$$PIXBUF_QUERY" > "$(DIST_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"; \
+			sed -i 's|.*/lib/|lib/|g' "$(DIST_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"; \
 		fi; \
-	else \
-	echo "Warning: Could not find gdk-pixbuf loader directory."; \
 	fi
-	@echo "Writing run_gui.bat..."
-	@printf "%s\r\n" \
-	"@echo off" \
-	"setlocal" \
-	"set DIR=%~dp0" \
-	"set PATH=%DIR%;%PATH%" \
-	"set GDK_PIXBUF_MODULE_FILE=%DIR%\\lib\\gdk-pixbuf-2.0\\2.10.0\\loaders.cache" \
-	"set GDK_PIXBUF_MODULEDIR=%DIR%\\lib\\gdk-pixbuf-2.0\\2.10.0\\loaders" \
-	"start \"\" \"%DIR%\\chessgame_gui.exe\"" \
-	> "$(BUILDDIR)/standalone/run_gui.bat"
-	@echo "Copying GLib schemas (if present)..."
+	
+	@# 7. Setup GLib Schemas (Required for GTK settings)
+	@echo "-> Copying GLib schemas..."
 	@SCHEMAS_DIR="$$(pkg-config --variable=prefix glib-2.0 2>/dev/null)/share/glib-2.0/schemas"; \
 	if [ -d "$$SCHEMAS_DIR" ]; then \
-		mkdir -p "$(BUILDDIR)/standalone/share/glib-2.0/schemas"; \
-		cp "$$SCHEMAS_DIR/"*.xml "$(BUILDDIR)/standalone/share/glib-2.0/schemas/" 2>/dev/null || true; \
-		if [ -f "$$SCHEMAS_DIR/gschemas.compiled" ]; then \
-			cp "$$SCHEMAS_DIR/gschemas.compiled" "$(BUILDDIR)/standalone/share/glib-2.0/schemas/"; \
-		fi; \
+		mkdir -p "$(DIST_DIR)/share/glib-2.0/schemas"; \
+		cp "$$SCHEMAS_DIR/gschemas.compiled" "$(DIST_DIR)/share/glib-2.0/schemas/" 2>/dev/null || true; \
 	fi
-
+	
+	@# 8. Create Run Script (Sets up environment variables for portability)
+	@echo "-> Creating run_gui.bat..."
+	@printf "@echo off\r\nsetlocal\r\nset \"DIR=%%~dp0\"\r\nset \"PATH=%%DIR%%;%%PATH%%\"\r\nset \"GDK_PIXBUF_MODULE_FILE=%%DIR%%lib\\gdk-pixbuf-2.0\\2.10.0\\loaders.cache\"\r\nset \"GSETTINGS_SCHEMA_DIR=%%DIR%%share\\glib-2.0\\schemas\"\r\nstart \"\" \"%%DIR%%chessgame_gui.exe\"\r\n" > "$(DIST_DIR)/run_gui.bat"
+	
+	@echo "========================================"
+	@echo "Standalone build complete!"
+	@echo "Location: $(DIST_DIR)"
+	@echo "Run: double-click 'run_gui.bat' inside that folder."
+	@echo "========================================"
 
 # Build only GUI (skip tests)
 gui: $(GUI_TARGET)
@@ -272,4 +278,3 @@ test-svg: $(SVG_TEST_TARGET)
 
 # Phony targets
 .PHONY: all all-tests clean test test-suite standalone gui test-svg
-

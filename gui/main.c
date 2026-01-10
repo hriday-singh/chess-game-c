@@ -861,12 +861,9 @@ static void on_app_shutdown(GApplication* app, gpointer user_data) {
         // This triggers settings_dialog_free -> checks state->ai_dialog correctly -> unparents shared widget.
         // If we don't do this here, settings_dialog is destroyed LATER (after state g_free),
         // causing Use-After-Free of state and Double-Free of AiDialog.
+        // Remove this later
         if (state->settings_dialog) {
             GtkWindow* w = settings_dialog_get_window(state->settings_dialog);
-            // Disconnect the destroy handler first to avoid modifying state->settings_dialog 
-            // while we are destroying it, or just let the callback handle it.
-            // Actually, the callback sets state->settings_dialog = NULL, which is fine.
-            // We just need to ensure the window is destroyed NOW.
             if (w) gtk_window_destroy(w);
         }
 
