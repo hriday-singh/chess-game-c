@@ -1013,3 +1013,44 @@ void piece_theme_dialog_free(PieceThemeDialog* dialog) {
     free(dialog);
     if (debug_mode) printf("[PieceTheme] Dialog freed\n");
 }
+#include "config_manager.h"
+
+// Helper
+static void color_to_hex_local(double r, double g, double b, char* dest, size_t size) {
+    int ri = (int)(r * 255.0 + 0.5);
+    int gi = (int)(g * 255.0 + 0.5);
+    int bi = (int)(b * 255.0 + 0.5);
+    snprintf(dest, size, "#%02X%02X%02X", ri, gi, bi);
+}
+
+void piece_theme_dialog_save_config(PieceThemeDialog* dialog, void* config_struct) {
+    if (!dialog || !config_struct) return;
+    AppConfig* cfg = (AppConfig*)config_struct;
+    
+    // Save Piece Set
+    // Use ThemeData font name as it holds the active set name
+    const char* set_name = theme_data_get_font_name(dialog->theme);
+    if (set_name) {
+        strncpy(cfg->piece_set, set_name, sizeof(cfg->piece_set) - 1);
+        cfg->piece_set[sizeof(cfg->piece_set) - 1] = '\0';
+    }
+    
+    // Save Colors and Widths
+    if (dialog->theme) {
+        double r, g, b;
+        theme_data_get_white_piece_color(dialog->theme, &r, &g, &b);
+        color_to_hex_local(r, g, b, cfg->white_piece_color, sizeof(cfg->white_piece_color));
+        
+        theme_data_get_white_piece_stroke(dialog->theme, &r, &g, &b);
+        color_to_hex_local(r, g, b, cfg->white_stroke_color, sizeof(cfg->white_stroke_color));
+        
+        theme_data_get_black_piece_color(dialog->theme, &r, &g, &b);
+        color_to_hex_local(r, g, b, cfg->black_piece_color, sizeof(cfg->black_piece_color));
+        
+        theme_data_get_black_piece_stroke(dialog->theme, &r, &g, &b);
+        color_to_hex_local(r, g, b, cfg->black_stroke_color, sizeof(cfg->black_stroke_color));
+        
+        cfg->white_stroke_width = theme_data_get_white_stroke_width(dialog->theme);
+        cfg->black_stroke_width = theme_data_get_black_stroke_width(dialog->theme);
+    }
+}

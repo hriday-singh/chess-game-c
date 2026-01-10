@@ -823,3 +823,75 @@ void ai_dialog_set_settings_changed_callback(AiDialog* dialog, AiSettingsChanged
         dialog->change_cb_data = data;
     }
 }
+
+#include "config_manager.h"
+
+void ai_dialog_load_config(AiDialog* dialog, void* config_struct) {
+    if (!dialog || !config_struct) return;
+    AppConfig* cfg = (AppConfig*)config_struct;
+    
+    // Internal Engine
+    if (cfg->int_elo >= 100) ai_dialog_set_elo(dialog, cfg->int_elo, false);
+    if (dialog->int_depth_spin) gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_depth_spin), (double)cfg->int_depth);
+    if (dialog->int_time_spin) gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_time_spin), (double)cfg->int_movetime);
+    if (dialog->int_adv_check) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->int_adv_check), cfg->int_is_advanced);
+    if (dialog->int_adv_vbox) gtk_widget_set_visible(dialog->int_adv_vbox, cfg->int_is_advanced);
+    
+    // NNUE
+    if (strlen(cfg->nnue_path) > 0) {
+        if (dialog->nnue_path) g_free(dialog->nnue_path);
+        dialog->nnue_path = g_strdup(cfg->nnue_path);
+        if (dialog->nnue_path_label) {
+            char* basename = g_path_get_basename(dialog->nnue_path);
+            gtk_label_set_text(GTK_LABEL(dialog->nnue_path_label), basename);
+            g_free(basename);
+        }
+    }
+    if (dialog->nnue_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->nnue_toggle), cfg->nnue_enabled);
+
+    // Custom Engine
+    if (strlen(cfg->custom_engine_path) > 0) {
+        if (dialog->custom_path_entry) gtk_editable_set_text(GTK_EDITABLE(dialog->custom_path_entry), cfg->custom_engine_path);
+    }
+    if (cfg->custom_elo >= 100) ai_dialog_set_elo(dialog, cfg->custom_elo, true);
+    if (dialog->custom_depth_spin) gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_depth_spin), (double)cfg->custom_depth);
+    if (dialog->custom_time_spin) gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_time_spin), (double)cfg->custom_movetime);
+    if (dialog->custom_adv_check) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->custom_adv_check), cfg->custom_is_advanced);
+    if (dialog->custom_adv_vbox) gtk_widget_set_visible(dialog->custom_adv_vbox, cfg->custom_is_advanced);
+}
+
+void ai_dialog_save_config(AiDialog* dialog, void* config_struct) {
+    if (!dialog || !config_struct) return;
+    AppConfig* cfg = (AppConfig*)config_struct;
+    
+    // Internal
+    cfg->int_elo = ai_dialog_get_elo(dialog, false);
+    if (dialog->int_depth_spin) cfg->int_depth = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->int_depth_spin));
+    if (dialog->int_time_spin) cfg->int_movetime = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->int_time_spin));
+    if (dialog->int_adv_check) cfg->int_is_advanced = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->int_adv_check));
+    
+    // NNUE
+    bool nnue_on = false;
+    const char* path = ai_dialog_get_nnue_path(dialog, &nnue_on);
+    cfg->nnue_enabled = nnue_on;
+    if (path) {
+        strncpy(cfg->nnue_path, path, sizeof(cfg->nnue_path) - 1);
+        cfg->nnue_path[sizeof(cfg->nnue_path) - 1] = '\0';
+    } else {
+        cfg->nnue_path[0] = '\0';
+    }
+    
+    // Custom
+    const char* custom_path = ai_dialog_get_custom_path(dialog);
+    if (custom_path) {
+        strncpy(cfg->custom_engine_path, custom_path, sizeof(cfg->custom_engine_path) - 1);
+        cfg->custom_engine_path[sizeof(cfg->custom_engine_path) - 1] = '\0';
+    } else {
+        cfg->custom_engine_path[0] = '\0';
+    }
+    
+    cfg->custom_elo = ai_dialog_get_elo(dialog, true);
+    if (dialog->custom_depth_spin) cfg->custom_depth = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->custom_depth_spin));
+    if (dialog->custom_time_spin) cfg->custom_movetime = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->custom_time_spin));
+    if (dialog->custom_adv_check) cfg->custom_is_advanced = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->custom_adv_check));
+}

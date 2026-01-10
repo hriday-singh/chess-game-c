@@ -658,3 +658,41 @@ void board_theme_dialog_set_parent_window(BoardThemeDialog* dialog, GtkWindow* p
         }
     }
 }
+#include "config_manager.h"
+
+// Helper to save hex to config
+static void color_to_hex_local(double r, double g, double b, char* dest, size_t size) {
+    int ri = (int)(r * 255.0 + 0.5);
+    int gi = (int)(g * 255.0 + 0.5);
+    int bi = (int)(b * 255.0 + 0.5);
+    snprintf(dest, size, "#%02X%02X%02X", ri, gi, bi);
+}
+
+void board_theme_dialog_save_config(BoardThemeDialog* dialog, void* config_struct) {
+    if (!dialog || !config_struct) return;
+    AppConfig* cfg = (AppConfig*)config_struct;
+    
+    // Save template name
+    if (dialog->template_combo) {
+        guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(dialog->template_combo));
+        GListModel* model = gtk_drop_down_get_model(GTK_DROP_DOWN(dialog->template_combo));
+        const char* name = gtk_string_list_get_string(GTK_STRING_LIST(model), selected);
+        if (name) {
+            strncpy(cfg->board_theme_name, name, sizeof(cfg->board_theme_name) - 1);
+            cfg->board_theme_name[sizeof(cfg->board_theme_name) - 1] = '\0';
+        }
+    } else {
+        // Fallback if UI not created (should not happen if saving from dialog)
+        // Assume default
+    }
+    
+    // Save colors
+    if (dialog->theme) {
+         double r, g, b;
+         theme_data_get_light_square_color(dialog->theme, &r, &g, &b);
+         color_to_hex_local(r, g, b, cfg->light_square_color, sizeof(cfg->light_square_color));
+         
+         theme_data_get_dark_square_color(dialog->theme, &r, &g, &b);
+         color_to_hex_local(r, g, b, cfg->dark_square_color, sizeof(cfg->dark_square_color));
+    }
+}

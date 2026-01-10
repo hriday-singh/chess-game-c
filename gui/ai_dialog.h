@@ -35,4 +35,9 @@ const char* ai_dialog_get_nnue_path(AiDialog* dialog, bool* enabled);
 
 void ai_dialog_show_tab(AiDialog* dialog, int tab_index);
 
+// Load state from config
+void ai_dialog_load_config(AiDialog* dialog, void* config_struct);
+// Save state to config
+void ai_dialog_save_config(AiDialog* dialog, void* config_struct);
+
 #endif // AI_DIALOG_H

@@ -1,5 +1,6 @@
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
+#include "config_manager.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gio/gio.h>
 #include <string.h>
@@ -836,7 +837,22 @@ static void request_ai_move(AppState* state) {
     g_thread_new("ai-think", ai_think_thread, data);
 }
 
+static void on_dismiss_onboarding(GtkWidget* btn, gpointer user_data) {
+    (void)btn; 
+    AppState* state = (AppState*)user_data;
+    if (state && state->onboarding_popover) {
+        gtk_popover_popdown(GTK_POPOVER(state->onboarding_popover));
+    }
+    // Update config
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        cfg->show_tutorial_dialog = false;
+        config_save();
+    }
+}
+
 static void on_app_shutdown(GApplication* app, gpointer user_data) {
+    config_save(); // Persist any pending changes (e.g. Dark Mode)
     (void)app;
     AppState* state = (AppState*)user_data;
     if (state) {
@@ -962,13 +978,28 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gtk_window_set_title(state->window, "HAL :) Chess");
     gtk_window_set_default_size(state->window, 1020, 780);
     
+    config_set_app_param("HAL Chess");
+    config_init(); // Initialize config from persistent storage
+    
+    // Apply saved config to Theme Manager
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        theme_manager_set_dark(cfg->is_dark_mode);
+        if (cfg->theme[0] != '\0' && strcmp(cfg->theme, "default") != 0) {
+             theme_manager_set_theme_id(cfg->theme);
+        }
+    }
+    
     theme_manager_init(); // Initialize global theme manager
     
     // Initialize AI Dialog as embedded (View managed by SettingsDialog)
     state->ai_dialog = ai_dialog_new_embedded();
+    if (cfg) ai_dialog_load_config(state->ai_dialog, cfg);
+
     ai_dialog_set_settings_changed_callback(state->ai_dialog, on_ai_settings_changed, state);
     sound_engine_init();
     state->theme = theme_data_new();
+    if (cfg) theme_data_load_config(state->theme, cfg);
 
     GtkWidget* header = gtk_header_bar_new();
     // Replacement for Menu: Settings Button
@@ -1074,7 +1105,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gtk_window_set_child(state->window, main_box);
 
     // Onboarding Bubble
-    gboolean show_onboarding = TRUE; // Could save/load this pref
+    gboolean show_onboarding = cfg ? cfg->show_tutorial_dialog : TRUE;
     if (show_onboarding) {
         GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
         gtk_popover_set_has_arrow(popover, FALSE);
@@ -1095,7 +1126,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         gtk_widget_add_css_class(btn_start, "suggested-action");
         // Connect actions
         g_signal_connect(btn_start, "clicked", G_CALLBACK(activate_tutorial_action), state);
-        g_signal_connect_swapped(btn_start, "clicked", G_CALLBACK(gtk_popover_popdown), popover);
+        g_signal_connect(btn_start, "clicked", G_CALLBACK(on_dismiss_onboarding), state);
         
         // Store button reference for focus grabbing on startup
         g_object_set_data(G_OBJECT(state->window), "tutorial-start-btn", btn_start);
@@ -1104,7 +1135,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         
         // Close Button
         GtkWidget* btn_close = gtk_button_new_with_label("Close");
-        g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_popover_popdown), popover);
+        g_signal_connect(btn_close, "clicked", G_CALLBACK(on_dismiss_onboarding), state);
         g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_widget_grab_focus), state->board);
         gtk_box_append(GTK_BOX(box), btn_close);
         

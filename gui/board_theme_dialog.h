@@ -16,4 +16,7 @@ void board_theme_dialog_set_parent_window(BoardThemeDialog* dialog, GtkWindow* p
 void board_theme_dialog_show(BoardThemeDialog* dialog);
 void board_theme_dialog_free(BoardThemeDialog* dialog);
 
+// Save state to config
+void board_theme_dialog_save_config(BoardThemeDialog* dialog, void* config_struct);
+
 #endif

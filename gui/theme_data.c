@@ -757,3 +757,42 @@ void theme_data_apply_board_template(ThemeData* theme, const char* template_name
     }
 }
 
+#include "config_manager.h"
+
+void theme_data_load_config(ThemeData* theme, void* config_struct) {
+    if (!theme || !config_struct) return;
+    AppConfig* cfg = (AppConfig*)config_struct;
+    
+    // Load Board Theme
+    // If we have a named template (other than "Custom"), try to apply it first
+    // BUT we also have specific colors saved, which might override or be exact matches.
+    // If the user saved "Green & White" but then tweaked a color, it's technically "Custom" but we might not track that name change in config until saved.
+    // If we simply rely on the colors saved in config (which are accurate), we don't need to apply the template by name.
+    // The "template name" is mostly for the UI dropdown.
+    // However, if colors are missing (empty strings), we should use the name.
+    
+    if (strlen(cfg->light_square_color) > 0 && strlen(cfg->dark_square_color) > 0) {
+        hex_to_color(cfg->light_square_color, &theme->lightSquareR, &theme->lightSquareG, &theme->lightSquareB);
+        hex_to_color(cfg->dark_square_color, &theme->darkSquareR, &theme->darkSquareG, &theme->darkSquareB);
+    } else {
+        // Fallback to template name if colors invalid/missing
+        theme_data_apply_board_template(theme, cfg->board_theme_name);
+    }
+    
+    // Load Piece Theme
+    if (strlen(cfg->piece_set) > 0) {
+        theme_data_set_font_name(theme, cfg->piece_set);
+    }
+    
+    // Colors
+    if (strlen(cfg->white_piece_color) > 0) hex_to_color(cfg->white_piece_color, &theme->whitePieceR, &theme->whitePieceG, &theme->whitePieceB);
+    if (strlen(cfg->white_stroke_color) > 0) hex_to_color(cfg->white_stroke_color, &theme->whiteStrokeR, &theme->whiteStrokeG, &theme->whiteStrokeB);
+    if (strlen(cfg->black_piece_color) > 0) hex_to_color(cfg->black_piece_color, &theme->blackPieceR, &theme->blackPieceG, &theme->blackPieceB);
+    if (strlen(cfg->black_stroke_color) > 0) hex_to_color(cfg->black_stroke_color, &theme->blackStrokeR, &theme->blackStrokeG, &theme->blackStrokeB);
+    
+    theme->whiteStrokeWidth = cfg->white_stroke_width;
+    theme->blackStrokeWidth = cfg->black_stroke_width;
+    
+    // Clear cache because colors/fonts changed
+    clear_piece_cache(theme);
+}

@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>HAL Chess UI Theme Preview (UI only)</title>
+  <style>
+    :root{
+      /* These will be set by JS */
+      --bg_color:#fff; --fg_color:#111;
+      --panel_bg:#fff; --panel_fg:#111;
+      --card_bg:#fff; --border_color:#ddd;
+      --popover_bg:#fff; --popover_fg:#111;
+      --entry_bg:#fff; --entry_fg:#111;
+      --button_bg:#eee; --button_fg:#111; --button_hover:#e5e5e5;
+      --dim_label:#666;
+      --tooltip_bg:#000; --tooltip_fg:#fff;
+      --accent_color:#3b82f6; --accent_fg:#fff;
+      --destructive_bg:#ef4444; --destructive_fg:#fff; --destructive_hover:#dc2626;
+      --success_bg:#16a34a; --success_fg:#fff; --success_hover:#15803d; --success_text:#166534;
+      --error_text:#b91c1c;
+      --capture_bg_white:#6d28d9; --capture_bg_black:#1d4ed8;
+
+      --radius: 14px;
+      --radius-sm: 10px;
+      --shadow: 0 10px 30px rgba(0,0,0,.25);
+      --shadow-soft: 0 8px 20px rgba(0,0,0,.18);
+      --outline: 0 0 0 3px color-mix(in srgb, var(--accent_color) 28%, transparent);
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      --sans: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji","Segoe UI Emoji";
+    }
+
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family: var(--sans);
+      background: var(--bg_color);
+      color: var(--fg_color);
+      padding: 20px;
+    }
+
+    .topbar{
+      display:flex; gap:12px; align-items:center; justify-content:space-between;
+      margin-bottom:16px;
+    }
+    .controls{
+      display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+      padding: 12px;
+      border: 1px solid var(--border_color);
+      background: var(--panel_bg);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+    }
+    .controls label{
+      font-size: 13px;
+      color: var(--dim_label);
+      margin-right: 6px;
+    }
+    select, button, input[type="text"]{
+      border: 1px solid var(--border_color);
+      background: var(--entry_bg);
+      color: var(--entry_fg);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 14px;
+      outline: none;
+    }
+    select:focus, input[type="text"]:focus{
+      box-shadow: var(--outline);
+      border-color: color-mix(in srgb, var(--accent_color) 55%, var(--border_color));
+    }
+
+    .btn{
+      background: var(--button_bg);
+      color: var(--button_fg);
+      cursor:pointer;
+      border: 1px solid var(--border_color);
+      padding: 10px 14px;
+      border-radius: 12px;
+      transition: transform .05s ease, background .12s ease;
+      user-select:none;
+    }
+    .btn:hover{ background: var(--button_hover); }
+    .btn:active{ transform: translateY(1px); }
+    .btn.primary{
+      background: var(--accent_color);
+      color: var(--accent_fg);
+      border-color: color-mix(in srgb, var(--accent_color) 70%, var(--border_color));
+    }
+    .btn.primary:hover{
+      background: color-mix(in srgb, var(--accent_color) 88%, black);
+    }
+    .btn.danger{
+      background: var(--destructive_bg);
+      color: var(--destructive_fg);
+      border-color: color-mix(in srgb, var(--destructive_bg) 70%, var(--border_color));
+    }
+    .btn.danger:hover{ background: var(--destructive_hover); }
+    .btn.success{
+      background: var(--success_bg);
+      color: var(--success_fg);
+      border-color: color-mix(in srgb, var(--success_bg) 70%, var(--border_color));
+    }
+    .btn.success:hover{ background: var(--success_hover); }
+
+    .layout{
+      display:grid;
+      grid-template-columns: 320px 1fr;
+      gap: 16px;
+      align-items:start;
+    }
+
+    .panel{
+      background: var(--panel_bg);
+      color: var(--panel_fg);
+      border: 1px solid var(--border_color);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      overflow:hidden;
+    }
+    .panel .header{
+      padding: 18px 18px 12px;
+      border-bottom: 1px solid var(--border_color);
+    }
+    .title{
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin:0 0 6px;
+    }
+    .subtitle{
+      margin:0;
+      color: var(--dim_label);
+      font-size: 13px;
+    }
+    .panel .content{ padding: 16px; }
+    .section{
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border_color);
+    }
+    .section h3{
+      margin:0 0 10px;
+      font-size: 12px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--dim_label);
+    }
+
+    .card{
+      background: var(--card_bg);
+      border: 1px solid var(--border_color);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow-soft);
+    }
+    .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .grid2{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .grid3{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid color-mix(in srgb, var(--border_color) 70%, transparent);
+      background: color-mix(in srgb, var(--card_bg) 80%, var(--accent_color) 6%);
+      color: var(--fg_color);
+      font-size: 13px;
+    }
+    .chip .dot{
+      width:10px; height:10px; border-radius:999px;
+      background: var(--accent_color);
+    }
+
+    .capture{
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    }
+    .capture .cap{
+      width: 100%;
+      display:flex; gap:10px;
+    }
+    .capbox{
+      flex:1;
+      padding: 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border_color);
+      background: color-mix(in srgb, var(--card_bg) 90%, transparent);
+    }
+    .caplabel{ font-size: 12px; color: var(--dim_label); margin-bottom: 8px; }
+    .capitem{
+      border-radius: 12px;
+      padding: 12px;
+      color: #fff;
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+    .capitem.white{ background: var(--capture_bg_white); }
+    .capitem.black{ background: var(--capture_bg_black); }
+
+    .dialog-backdrop{
+      position: relative;
+      margin-top: 14px;
+      border-radius: var(--radius);
+      border: 1px dashed color-mix(in srgb, var(--border_color) 85%, transparent);
+      padding: 18px;
+      background: color-mix(in srgb, var(--panel_bg) 72%, var(--bg_color));
+    }
+    .dialog{
+      max-width: 720px;
+      background: var(--popover_bg);
+      color: var(--popover_fg);
+      border: 1px solid var(--border_color);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .dialog .dhead{
+      display:flex; align-items:center; justify-content:space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border_color);
+    }
+    .dialog .dtitle{ font-weight: 800; letter-spacing:-.01em; }
+    .dialog .dcontent{ padding: 16px; }
+    .tabs{ display:flex; gap:10px; border-bottom:1px solid var(--border_color); padding-bottom:10px; margin-bottom:12px; }
+    .tab{
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border_color);
+      background: var(--button_bg);
+      color: var(--button_fg);
+      font-size: 13px;
+      user-select:none;
+    }
+    .tab.active{
+      background: color-mix(in srgb, var(--accent_color) 16%, var(--button_bg));
+      border-color: color-mix(in srgb, var(--accent_color) 45%, var(--border_color));
+    }
+
+    .toast{
+      margin-top: 12px;
+      display:flex; gap:10px; align-items:flex-start;
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--border_color);
+      background: color-mix(in srgb, var(--card_bg) 90%, var(--success_bg) 6%);
+    }
+    .toast .badge{
+      width: 10px; height:10px; border-radius:999px;
+      background: var(--success_bg);
+      margin-top: 5px;
+    }
+    .help{
+      font-size: 13px;
+      color: var(--dim_label);
+      line-height: 1.4;
+      margin: 8px 0 0;
+    }
+
+    .tooltip-demo{
+      display:flex;
+      gap: 10px;
+      align-items:center;
+      margin-top: 10px;
+    }
+    .tooltip{
+      display:inline-block;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: var(--tooltip_bg);
+      color: var(--tooltip_fg);
+      font-size: 12px;
+      font-family: var(--mono);
+    }
+
+    .kv{
+      display:grid;
+      grid-template-columns: 140px 1fr;
+      gap: 10px;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    .k{ color: var(--dim_label); }
+    .v{ font-family: var(--mono); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div>
+      <div class="title" style="margin:0">HAL Chess — UI Theme Preview</div>
+      <p class="subtitle">This preview is for your GTK4 UI feel (panels, dialogs, buttons). Not the chessboard.</p>
+    </div>
+
+    <div class="controls">
+      <div>
+        <label for="themeSel">Theme</label>
+        <select id="themeSel">
+          <option value="A">A — Slate Blue</option>
+          <option value="B">B — Emerald Teal</option>
+          <option value="C">C — Aubergine Purple</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="modeSel">Mode</label>
+        <select id="modeSel">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </div>
+
+      <button class="btn" id="randomize">Nudge accent (tiny)</button>
+      <button class="btn primary" id="reset">Reset</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- LEFT SIDEBAR PANEL -->
+    <div class="panel">
+      <div class="header">
+        <div class="title" style="font-size:30px;margin:0 0 6px;">Black’s Turn</div>
+        <p class="subtitle">Captured pieces + actions + settings</p>
+      </div>
+      <div class="content">
+        <div class="section" style="border-top:none; padding-top:0; margin-top:0;">
+          <h3>Captured Pieces</h3>
+          <div class="capture">
+            <div class="cap">
+              <div class="capbox">
+                <div class="caplabel">Captured by Black</div>
+                <div class="capitem white">♙  pawn (white)</div>
+              </div>
+              <div class="capbox">
+                <div class="caplabel">Captured by White</div>
+                <div class="capitem black">♞ ♟  (black)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>Actions</h3>
+          <div class="grid2">
+            <button class="btn success">Pause</button>
+            <button class="btn danger">Stop</button>
+            <button class="btn">Undo</button>
+            <button class="btn primary">Reset</button>
+          </div>
+        </div>
+
+        <div class="section">
+          <h3>Game Settings</h3>
+          <div class="row" style="gap:8px;">
+            <label style="color:var(--dim_label); font-size:13px;">Game Mode</label>
+            <select style="flex:1; min-width: 180px;">
+              <option>Computer vs. Computer</option>
+              <option>Human vs. Computer</option>
+              <option>Human vs. Human</option>
+            </select>
+          </div>
+          <p class="help">Entries, popovers, and borders are the stuff that usually breaks in dark mode. This preview stresses those.</p>
+
+          <div class="tooltip-demo">
+            <span class="tooltip">Tooltip preview</span>
+            <span class="chip"><span class="dot"></span> Accent chip</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="panel">
+      <div class="header">
+        <div class="title" style="margin:0 0 6px;">AI Configuration</div>
+        <p class="subtitle">Tabs, sliders (simulated), cards, and a dialog-style surface</p>
+      </div>
+
+      <div class="content">
+        <div class="grid3">
+          <div class="card">
+            <div style="font-weight:800; margin-bottom:6px;">Stockfish 17.1 (Inbuilt)</div>
+            <div class="help">Stable defaults. Use this for most modes.</div>
+            <div class="kv">
+              <div class="k">Accent</div><div class="v" id="accentHex">--</div>
+              <div class="k">Border</div><div class="v" id="borderHex">--</div>
+              <div class="k">Panel BG</div><div class="v" id="panelHex">--</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div style="font-weight:800; margin-bottom:6px;">Controls</div>
+            <div class="row">
+              <button class="btn">Neutral</button>
+              <button class="btn primary">Primary</button>
+            </div>
+            <div class="row" style="margin-top:10px;">
+              <input type="text" value="1500" style="width:120px;" />
+              <button class="btn">−</button>
+              <button class="btn">+</button>
+            </div>
+            <div class="help">Entry focus ring uses accent; hover uses button_hover; borders stay quiet.</div>
+          </div>
+
+          <div class="card">
+            <div style="font-weight:800; margin-bottom:6px;">Feedback States</div>
+            <div class="row">
+              <button class="btn success">Success</button>
+              <button class="btn danger">Destructive</button>
+            </div>
+            <div class="help">Error text: <span style="color:var(--error_text); font-weight:700;">Invalid engine path</span></div>
+
+            <div class="toast">
+              <div class="badge"></div>
+              <div>
+                <div style="font-weight:800;">Saved</div>
+                <div class="help" style="margin:2px 0 0;">Settings applied instantly (simulate your global dark mode swap).</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dialog-backdrop">
+          <div class="dialog">
+            <div class="dhead">
+              <div class="dtitle">Settings</div>
+              <div style="color:var(--dim_label); font-family:var(--mono);">×</div>
+            </div>
+            <div class="dcontent">
+              <div class="tabs">
+                <div class="tab active">Internal Engine</div>
+                <div class="tab">Custom Engine</div>
+              </div>
+
+              <div class="card" style="margin-bottom:12px;">
+                <div style="font-weight:800; margin-bottom:8px;">Difficulty (ELO)</div>
+                <div style="height:10px; border-radius:999px; border:1px solid var(--border_color); background: color-mix(in srgb, var(--card_bg) 60%, transparent); overflow:hidden;">
+                  <div style="height:100%; width:45%; background: var(--accent_color);"></div>
+                </div>
+                <div class="help">Slider track + accent fill is where dark themes often look “dirty” if borders are wrong.</div>
+              </div>
+
+              <div class="row">
+                <button class="btn">Cancel</button>
+                <button class="btn primary">Apply</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const THEMES = {
+      A: {
+        light: {
+          bg_color:"#f6f7fb", fg_color:"#111827",
+          panel_bg:"#ffffff", panel_fg:"#111827",
+          card_bg:"#ffffff", border_color:"#d6dae3",
+          popover_bg:"#ffffff", popover_fg:"#111827",
+          entry_bg:"#ffffff", entry_fg:"#111827",
+          button_bg:"#eef2f7", button_fg:"#111827", button_hover:"#e3eaf4",
+          dim_label:"#6b7280",
+          tooltip_bg:"#0b1220", tooltip_fg:"#ffffff",
+          accent_color:"#3b82f6", accent_fg:"#ffffff",
+          destructive_bg:"#ef4444", destructive_fg:"#ffffff", destructive_hover:"#dc2626",
+          success_text:"#15803d", success_bg:"#15803d", success_fg:"#ffffff", success_hover:"#116c32",
+          error_text:"#b91c1c",
+          capture_bg_white:"#6d28d9", capture_bg_black:"#1d4ed8",
+        },
+        dark: {
+          bg_color:"#0f1115", fg_color:"#e5e7eb",
+          panel_bg:"#151922", panel_fg:"#e5e7eb",
+          card_bg:"#1a2030", border_color:"#2a3142",
+          popover_bg:"#151922", popover_fg:"#e5e7eb",
+          entry_bg:"#0f131c", entry_fg:"#e5e7eb",
+          button_bg:"#1a2030", button_fg:"#e5e7eb", button_hover:"#232b3f",
+          dim_label:"#a1a1aa",
+          tooltip_bg:"#000000", tooltip_fg:"#ffffff",
+          accent_color:"#79a8ff", accent_fg:"#0b1220",
+          destructive_bg:"#ff5a6a", destructive_fg:"#0b1220", destructive_hover:"#e54b5a",
+          success_text:"#7ce7a8", success_bg:"#22c55e", success_fg:"#08110c", success_hover:"#16a34a",
+          error_text:"#ff6b6b",
+          capture_bg_white:"#8b5cf6", capture_bg_black:"#60a5fa",
+        }
+      },
+      B: {
+        light: {
+          bg_color:"#f7faf9", fg_color:"#0f172a",
+          panel_bg:"#ffffff", panel_fg:"#0f172a",
+          card_bg:"#ffffff", border_color:"#d7e2de",
+          popover_bg:"#ffffff", popover_fg:"#0f172a",
+          entry_bg:"#ffffff", entry_fg:"#0f172a",
+          button_bg:"#eef6f4", button_fg:"#0f172a", button_hover:"#e1efeb",
+          dim_label:"#64748b",
+          tooltip_bg:"#0b1220", tooltip_fg:"#ffffff",
+          accent_color:"#0ea5a6", accent_fg:"#ffffff",
+          destructive_bg:"#ef4444", destructive_fg:"#ffffff", destructive_hover:"#dc2626",
+          success_text:"#0f766e", success_bg:"#0f766e", success_fg:"#ffffff", success_hover:"#0b5f59",
+          error_text:"#b91c1c",
+          capture_bg_white:"#0ea5a6", capture_bg_black:"#22c55e",
+        },
+        dark: {
+          bg_color:"#0b0f10", fg_color:"#e5e7eb",
+          panel_bg:"#111819", panel_fg:"#e5e7eb",
+          card_bg:"#172223", border_color:"#253234",
+          popover_bg:"#111819", popover_fg:"#e5e7eb",
+          entry_bg:"#0c1415", entry_fg:"#e5e7eb",
+          button_bg:"#172223", button_fg:"#e5e7eb", button_hover:"#1f2e30",
+          dim_label:"#a1a1aa",
+          tooltip_bg:"#000000", tooltip_fg:"#ffffff",
+          accent_color:"#4dd6d6", accent_fg:"#062023",
+          destructive_bg:"#ff5a6a", destructive_fg:"#0b1220", destructive_hover:"#e54b5a",
+          success_text:"#86efac", success_bg:"#22c55e", success_fg:"#08110c", success_hover:"#16a34a",
+          error_text:"#ff6b6b",
+          capture_bg_white:"#22d3ee", capture_bg_black:"#34d399",
+        }
+      },
+      C: {
+        light: {
+          bg_color:"#faf7fb", fg_color:"#111827",
+          panel_bg:"#ffffff", panel_fg:"#111827",
+          card_bg:"#ffffff", border_color:"#ddd6e6",
+          popover_bg:"#ffffff", popover_fg:"#111827",
+          entry_bg:"#ffffff", entry_fg:"#111827",
+          button_bg:"#f2eef8", button_fg:"#111827", button_hover:"#e7def4",
+          dim_label:"#6b7280",
+          tooltip_bg:"#0b1220", tooltip_fg:"#ffffff",
+          accent_color:"#7c3aed", accent_fg:"#ffffff",
+          destructive_bg:"#ef4444", destructive_fg:"#ffffff", destructive_hover:"#dc2626",
+          success_text:"#166534", success_bg:"#16a34a", success_fg:"#ffffff", success_hover:"#15803d",
+          error_text:"#b91c1c",
+          capture_bg_white:"#6d28d9", capture_bg_black:"#1d4ed8",
+        },
+        dark: {
+          bg_color:"#0f0c12", fg_color:"#e5e7eb",
+          panel_bg:"#16111c", panel_fg:"#e5e7eb",
+          card_bg:"#1d1626", border_color:"#2b2336",
+          popover_bg:"#16111c", popover_fg:"#e5e7eb",
+          entry_bg:"#120e18", entry_fg:"#e5e7eb",
+          button_bg:"#1d1626", button_fg:"#e5e7eb", button_hover:"#281f35",
+          dim_label:"#a1a1aa",
+          tooltip_bg:"#000000", tooltip_fg:"#ffffff",
+          accent_color:"#b892ff", accent_fg:"#0b1220",
+          destructive_bg:"#ff5a6a", destructive_fg:"#0b1220", destructive_hover:"#e54b5a",
+          success_text:"#86efac", success_bg:"#22c55e", success_fg:"#08110c", success_hover:"#16a34a",
+          error_text:"#ff6b6b",
+          capture_bg_white:"#a78bfa", capture_bg_black:"#60a5fa",
+        }
+      },
+    };
+
+    const root = document.documentElement;
+    const themeSel = document.getElementById("themeSel");
+    const modeSel  = document.getElementById("modeSel");
+
+    const accentHex = document.getElementById("accentHex");
+    const borderHex = document.getElementById("borderHex");
+    const panelHex  = document.getElementById("panelHex");
+
+    function apply(themeKey, modeKey){
+      const t = THEMES[themeKey][modeKey];
+      for (const k of Object.keys(t)) root.style.setProperty(`--${k}`, t[k]);
+      accentHex.textContent = t.accent_color;
+      borderHex.textContent = t.border_color;
+      panelHex.textContent  = t.panel_bg;
+    }
+
+    function current(){
+      return { theme: themeSel.value, mode: modeSel.value };
+    }
+
+    themeSel.addEventListener("change", () => {
+      const c = current();
+      apply(c.theme, c.mode);
+    });
+
+    modeSel.addEventListener("change", () => {
+      const c = current();
+      apply(c.theme, c.mode);
+    });
+
+    document.getElementById("reset").addEventListener("click", () => {
+      themeSel.value = "A";
+      modeSel.value = "dark";
+      apply("A","dark");
+    });
+
+    // Tiny accent nudge (just for feel testing)
+    document.getElementById("randomize").addEventListener("click", () => {
+      const c = current();
+      const t = structuredClone(THEMES[c.theme][c.mode]);
+      // rotate hue-ish by mixing with white/black slightly (safe and subtle)
+      const mix = (hex, amt, withHex) => {
+        const p = (h)=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+        const [r,g,b]=p(hex), [R,G,B]=p(withHex);
+        const m = (a,A)=>Math.round(a*(1-amt)+A*amt);
+        const to = (x)=>x.toString(16).padStart(2,"0");
+        return `#${to(m(r,R))}${to(m(g,G))}${to(m(b,B))}`;
+      };
+      const withHex = (c.mode === "dark") ? "#ffffff" : "#000000";
+      t.accent_color = mix(t.accent_color, 0.12, withHex);
+      for (const k of Object.keys(t)) root.style.setProperty(`--${k}`, t[k]);
+      accentHex.textContent = t.accent_color;
+    });
+
+    // initial
+    apply("A","dark");
+  </script>
+</body>
+</html>

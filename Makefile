@@ -185,33 +185,76 @@ test-suite: $(TEST_SUITE_TARGET)
 	@echo "Running full test suite..."
 	./$(TEST_SUITE_TARGET)
 
+# Where MSYS2 MinGW64 binaries live (DLLs)
+MINGW_PREFIX := $(shell pkg-config --variable=prefix gtk4 2>/dev/null)
+MINGW_BIN    := $(MINGW_PREFIX)/bin
+
+# Copy all DLL dependencies discovered via ldd
+define copy_deps
+	@echo "Scanning dependencies with ldd..."
+	@ldd "$(1)" | awk '{
+		# ldd output formats vary; pick Windows DLL paths under mingw64/bin
+		for (i=1;i<=NF;i++) {
+			if ($$i ~ /\/mingw64\/bin\/.*\.dll$$/ || $$i ~ /\/bin\/.*\.dll$$/) print $$i
+		}
+	}' | sort -u | while read dll; do \
+		if [ -f "$$dll" ]; then \
+			cp -u "$$dll" "$(2)/"; \
+			echo "  Copied $$(basename "$$dll")"; \
+		fi; \
+	done
+endef
+
+# Copy runtime dependencies into standalone folder
+copy-dlls: $(GUI_TARGET)
+	@mkdir -p "$(BUILDDIR)/standalone"
+	$(call copy_deps,$(GUI_TARGET),$(BUILDDIR)/standalone)
+.PHONY: copy-dlls
+
 # Standalone build target - copies all required files and DLLs
 # Note: This target is phony, so it always runs even if GUI_TARGET is up to date
-standalone: $(GUI_TARGET)
+standalone: $(GUI_TARGET) copy-dlls
 	@echo "Creating standalone build..."
 	@mkdir -p $(BUILDDIR)/standalone
 	@cp $(GUI_TARGET) $(BUILDDIR)/standalone/
 	@if [ -f icon.png ]; then cp icon.png $(BUILDDIR)/standalone/icon.png; fi
-	@echo "Copying required GTK4 DLLs..."
-	@MINGW_BIN=$$(pkg-config --variable=prefix gtk4 2>/dev/null)/bin; \
-	if [ -n "$$MINGW_BIN" ] && [ -d "$$MINGW_BIN" ]; then \
-		echo "Found GTK4 installation at $$MINGW_BIN"; \
-		for dll in libgtk-4-1.dll libgdk-4-1.dll libgobject-2.0-0.dll libglib-2.0-0.dll \
-		           libgmodule-2.0-0.dll libgio-2.0-0.dll libcairo-2.dll libpango-1.0-0.dll \
-		           libpangocairo-1.0-0.dll libharfbuzz-0.dll libpixman-1-0.dll libepoxy-0.dll \
-		           libgraphene-1.0-0.dll libfribidi-0.dll libgdk_pixbuf-2.0-0.dll \
-		           libintl-8.dll libffi-8.dll libpng16-16.dll libjpeg-8.dll libtiff-6.dll \
-		           libwebp-7.dll libzstd.dll libbz2-1.dll libz-1.dll; do \
-			if [ -f "$$MINGW_BIN/$$dll" ]; then \
-				cp "$$MINGW_BIN/$$dll" $(BUILDDIR)/standalone/; \
-				echo "  Copied $$dll"; \
-			fi; \
-		done; \
+	@echo "Copied EXE + DLL dependencies."
+	@echo "Copying gdk-pixbuf loaders..."
+	@PIXBUF_DIR="$$(pkg-config --variable=gdk_pixbuf_moduledir gdk-pixbuf-2.0 2>/dev/null)"; \
+	PIXBUF_QUERY="$$(pkg-config --variable=gdk_pixbuf_query_loaders gdk-pixbuf-2.0 2>/dev/null)"; \
+	if [ -n "$$PIXBUF_DIR" ] && [ -d "$$PIXBUF_DIR" ]; then \
+		mkdir -p "$(BUILDDIR)/standalone/lib/gdk-pixbuf-2.0/2.10.0/loaders"; \
+		cp -r "$$PIXBUF_DIR/"* "$(BUILDDIR)/standalone/lib/gdk-pixbuf-2.0/2.10.0/loaders/" 2>/dev/null || true; \
+		echo "  Loaders copied."; \
+		if [ -n "$$PIXBUF_QUERY" ] && [ -x "$$PIXBUF_QUERY" ]; then \
+			echo "  Generating loaders.cache..."; \
+			"$$PIXBUF_QUERY" > "$(BUILDDIR)/standalone/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"; \
+		else \
+			echo "  Warning: gdk-pixbuf-query-loaders not found; loaders.cache not generated."; \
+		fi; \
 	else \
-		echo "Warning: Could not find GTK4 installation. DLLs not copied."; \
-		echo "You may need to manually copy DLLs from MSYS2/mingw64/bin/"; \
+	echo "Warning: Could not find gdk-pixbuf loader directory."; \
 	fi
-	@echo "Standalone build created in $(BUILDDIR)/standalone/"
+	@echo "Writing run_gui.bat..."
+	@printf "%s\r\n" \
+	"@echo off" \
+	"setlocal" \
+	"set DIR=%~dp0" \
+	"set PATH=%DIR%;%PATH%" \
+	"set GDK_PIXBUF_MODULE_FILE=%DIR%\\lib\\gdk-pixbuf-2.0\\2.10.0\\loaders.cache" \
+	"set GDK_PIXBUF_MODULEDIR=%DIR%\\lib\\gdk-pixbuf-2.0\\2.10.0\\loaders" \
+	"start \"\" \"%DIR%\\chessgame_gui.exe\"" \
+	> "$(BUILDDIR)/standalone/run_gui.bat"
+	@echo "Copying GLib schemas (if present)..."
+	@SCHEMAS_DIR="$$(pkg-config --variable=prefix glib-2.0 2>/dev/null)/share/glib-2.0/schemas"; \
+	if [ -d "$$SCHEMAS_DIR" ]; then \
+		mkdir -p "$(BUILDDIR)/standalone/share/glib-2.0/schemas"; \
+		cp "$$SCHEMAS_DIR/"*.xml "$(BUILDDIR)/standalone/share/glib-2.0/schemas/" 2>/dev/null || true; \
+		if [ -f "$$SCHEMAS_DIR/gschemas.compiled" ]; then \
+			cp "$$SCHEMAS_DIR/gschemas.compiled" "$(BUILDDIR)/standalone/share/glib-2.0/schemas/"; \
+		fi; \
+	fi
+
 
 # Build only GUI (skip tests)
 gui: $(GUI_TARGET)

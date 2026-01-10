@@ -71,5 +71,8 @@ void theme_data_apply_board_template(ThemeData* theme, const char* template_name
 // Check if font is standard Unicode
 bool theme_data_is_standard_font(const char* fontName);
 
+// Load from config
+void theme_data_load_config(ThemeData* theme, void* config_struct);
+
 #endif // THEME_DATA_H
 

@@ -1,7 +1,43 @@
 #include "theme_manager.h"
+#include "config_manager.h"
 
 static GtkCssProvider *global_provider = NULL;
 static bool current_is_dark = true;
+// Selection: 'A', 'B', 'C', or 'D' (Original)
+static char current_theme_variant = 'C'; 
+
+typedef struct {
+    char id[64];
+    char display_name[64];
+    char variant_char;
+} ThemeMetadata;
+
+static const ThemeMetadata AVAILABLE_THEMES[] = {
+    { "theme_a_slate", "Slate Blue", 'A' },
+    { "theme_b_emerald", "Emerald Teal", 'B' },
+    { "theme_c_aubergine", "Aubergine Purple", 'C' },
+    { "theme_d_mocha_gold", "Mocha Gold", 'D' } // Using user's example name for D
+};
+
+static const ThemeMetadata* get_theme_by_char(char c) {
+    for (size_t i = 0; i < sizeof(AVAILABLE_THEMES)/sizeof(AVAILABLE_THEMES[0]); i++) {
+        if (AVAILABLE_THEMES[i].variant_char == c || AVAILABLE_THEMES[i].variant_char == (c - 32)) {
+            return &AVAILABLE_THEMES[i];
+        }
+    }
+    return &AVAILABLE_THEMES[2]; // Default to C if not found
+}
+
+static const ThemeMetadata* get_theme_by_id(const char* id) {
+    if (!id) return &AVAILABLE_THEMES[2];
+    for (size_t i = 0; i < sizeof(AVAILABLE_THEMES)/sizeof(AVAILABLE_THEMES[0]); i++) {
+        if (strcmp(AVAILABLE_THEMES[i].id, id) == 0) {
+            return &AVAILABLE_THEMES[i];
+        }
+    }
+    return NULL;
+}
+ 
 
 // --- CSS Definitions ---
 
@@ -10,66 +46,351 @@ static bool current_is_dark = true;
 // We only define colors in variables.
 
 static const char *CSS_COMMON =
+    // --- Core mappings ---
+    "@define-color bg_color @base_bg;\n"
+    "@define-color fg_color @base_fg;\n"
+
+    // Text Color Sharing
+    "@define-color panel_fg @base_fg;\n"
+    "@define-color button_fg @base_fg;\n"
+    "@define-color entry_fg @base_fg;\n"
+    "@define-color popover_fg @base_fg;\n"
+
+    // Background Sharing (default)
+    "@define-color panel_bg @base_panel_bg;\n"
+    "@define-color card_bg @base_card_bg;\n"
+    "@define-color popover_bg @base_panel_bg;\n"
+    "@define-color entry_bg @base_entry_bg;\n"
+
+    // Success wiring (theme provides base_success_bg + base_success_text)
+    "@define-color success_bg @base_success_bg;\n"
+    "@define-color success_text @base_success_text;\n"
+    "@define-color success_fg @base_success_fg;\n"
+
+    // Destructive wiring (theme provides base_destructive_bg)
+    "@define-color destructive_bg @base_destructive_bg;\n"
+    "@define-color destructive_fg @base_destructive_fg;\n"
+
+    // Accent wiring (theme provides base_accent + base_accent_fg)
+    "@define-color accent_color @base_accent;\n"
+    "@define-color accent_fg @base_accent_fg;\n"
+
+    // Tooltip wiring (theme provides base_tooltip_fg)
+    "@define-color tooltip_fg @base_tooltip_fg;\n"
+
+    // Destructive wiring (theme provides base_destructive_fg)
+    "@define-color destructive_fg @base_destructive_fg;\n"
+
+    //Hardcoded for safety
     "@define-color close_button_hover #e81123;\n";
 
-static const char *CSS_LIGHT =
-    "@define-color bg_color #fafafa;\n"
-    "@define-color fg_color #1f2937;\n"
-    "@define-color panel_bg #ffffff;\n"
-    "@define-color panel_fg #1f2937;\n"
-    "@define-color border_color #d1d5db;\n"
-    "@define-color accent_color #3584e4;\n"
-    "@define-color accent_fg #ffffff;\n"
-    "@define-color button_bg #f1f5f9;\n"
-    "@define-color button_fg #1f2937;\n"
-    "@define-color button_hover #e9eff6;\n"
-    "@define-color close_button_hover #e81123;\n"
-    "@define-color entry_bg #ffffff;\n"
-    "@define-color entry_fg #1f2937;\n"
-    "@define-color popover_bg #ffffff;\n"
-    "@define-color popover_fg #1f2937;\n"
-    "@define-color card_bg #ffffff;\n"
-    "@define-color dim_label #6b7280;\n"
-    "@define-color tooltip_bg #111827;\n"
-    "@define-color tooltip_fg #ffffff;\n"
-    "@define-color destructive_bg #dc3545;\n"
-    "@define-color destructive_fg #ffffff;\n"
-    "@define-color destructive_hover #bb2d3b;\n"
-    "@define-color success_text #2e7d32;\n"
-    "@define-color error_text #c62828;\n"
-    "@define-color success_bg #2e7d32;\n"
-    "@define-color success_fg #ffffff;\n"
-    "@define-color success_hover #256528;\n"
-    "@define-color capture_bg_white #000000;\n"   // Light bg for White pieces (in Light mode)
-    "@define-color capture_bg_black #123456;\n";  // Light bg for Black pieces (in Light mode)
+// =========================
+// THEME A: SLATE BLUE
+// =========================
 
-static const char *CSS_DARK =
-    "@define-color bg_color #121212;\n"
-    "@define-color fg_color #e7e7e7;\n"
-    "@define-color panel_bg #1a1a1a;\n"
-    "@define-color panel_fg #e7e7e7;\n"
-    "@define-color border_color #2f2f2f;\n"
-    "@define-color accent_color #7fb2ff;\n"
-    "@define-color accent_fg #0f172a;\n"
-    "@define-color button_bg #1f1f1f;\n"
-    "@define-color button_fg #e7e7e7;\n"
-    "@define-color button_hover #2a2a2a;\n"
-    "@define-color close_button_hover #e81123;\n"
-    "@define-color entry_bg #121212;\n"
-    "@define-color entry_fg #e7e7e7;\n"
-    "@define-color popover_bg #1a1a1a;\n"
-    "@define-color popover_fg #e7e7e7;\n"
-    "@define-color card_bg #1f1f1f;\n"
+static const char *CSS_LIGHT_THEME_A =
+    // Primitives
+    "@define-color base_fg #111827;\n"
+    "@define-color base_bg #f6f7fb;\n"
+
+    "@define-color base_panel_bg #ffffff;\n"
+    "@define-color base_card_bg  #ffffff;\n"
+    "@define-color base_entry_bg #ffffff;\n"
+
+    // Unique tokens
+    "@define-color border_color #d6dae3;\n"
+    "@define-color dim_label #6b7280;\n"
+    "@define-color tooltip_bg #0b1220;\n"
+    "@define-color tooltip_fg #ffffff;\n"
+
+    "@define-color base_accent #3b82f6;\n"
+    "@define-color base_accent_fg #ffffff;\n"
+
+    "@define-color button_bg #eef2f7;\n"
+    "@define-color button_hover #e3eaf4;\n"
+
+    "@define-color base_destructive_bg #ef4444;\n"
+    "@define-color base_destructive_fg #ffffff;\n"
+    "@define-color destructive_hover #dc2626;\n"
+
+    "@define-color base_success_text #15803d;\n"
+    "@define-color base_success_bg   #15803d;\n"
+    "@define-color base_success_fg   #ffffff;\n"
+    "@define-color success_hover #116c32;\n"
+
+    "@define-color error_text #b91c1c;\n"
+
+    // Captures (fixed properly)
+    "@define-color capture_bg_white #e9ddff;\n"
+    "@define-color capture_bg_black #dbeafe;\n"
+;
+
+static const char *CSS_DARK_THEME_A =
+    // Primitives
+    "@define-color base_fg #e5e7eb;\n"
+    "@define-color base_bg #0f1115;\n"
+
+    "@define-color base_panel_bg #151922;\n"
+    "@define-color base_card_bg  #1a2030;\n"
+    "@define-color base_entry_bg #0f131c;\n"
+
+    // Unique tokens
+    "@define-color border_color #2a3142;\n"
     "@define-color dim_label #a1a1aa;\n"
     "@define-color tooltip_bg #000000;\n"
     "@define-color tooltip_fg #ffffff;\n"
-    "@define-color destructive_bg #ff5a6a;\n"
-    "@define-color destructive_fg #ffffff;\n"
+
+    "@define-color base_accent #79a8ff;\n"
+    "@define-color base_accent_fg #0b1220;\n"
+
+    "@define-color button_bg #1a2030;\n"
+    "@define-color button_hover #232b3f;\n"
+
+    "@define-color base_destructive_bg #ff5a6a;\n"
+    "@define-color base_destructive_fg #0b1220;\n"
     "@define-color destructive_hover #e54b5a;\n"
-    "@define-color success_text #6ee7a6;\n"
+
+    "@define-color base_success_text #7ce7a8;\n"
+    "@define-color base_success_bg   #22c55e;\n"
+    "@define-color base_success_fg   #08110c;\n"
+    "@define-color success_hover #16a34a;\n"
+
     "@define-color error_text #ff6b6b;\n"
-    "@define-color success_bg #66bb6a;\n"
-    "@define-color success_fg #1e1e1e;\n"
+
+    "@define-color capture_bg_white #3a2a63;\n"
+    "@define-color capture_bg_black #1e3a6b;\n"
+;
+
+// =========================
+// THEME B: EMERALD TEAL
+// =========================
+
+static const char *CSS_LIGHT_THEME_B =
+    "@define-color base_fg #0f172a;\n"
+    "@define-color base_bg #f7faf9;\n"
+
+    "@define-color base_panel_bg #ffffff;\n"
+    "@define-color base_card_bg  #ffffff;\n"
+    "@define-color base_entry_bg #ffffff;\n"
+
+    "@define-color border_color #d7e2de;\n"
+    "@define-color dim_label #64748b;\n"
+    "@define-color tooltip_bg #0b1220;\n"
+    "@define-color tooltip_fg #ffffff;\n"
+
+    "@define-color base_accent #0ea5a6;\n"
+    "@define-color base_accent_fg #ffffff;\n"
+
+    "@define-color button_bg #eef6f4;\n"
+    "@define-color button_hover #e1efeb;\n"
+
+    "@define-color base_destructive_bg #ef4444;\n"
+    "@define-color base_destructive_fg #ffffff;\n"
+    "@define-color destructive_hover #dc2626;\n"
+
+    "@define-color base_success_text #0f766e;\n"
+    "@define-color base_success_bg   #0f766e;\n"
+    "@define-color base_success_fg   #ffffff;\n"
+    "@define-color success_hover #0b5f59;\n"
+
+    "@define-color error_text #b91c1c;\n"
+
+    "@define-color capture_bg_white #d6f5f2;\n"
+    "@define-color capture_bg_black #dcfce7;\n"
+;
+
+static const char *CSS_DARK_THEME_B =
+    "@define-color base_fg #e5e7eb;\n"
+    "@define-color base_bg #0b0f10;\n"
+
+    "@define-color base_panel_bg #111819;\n"
+    "@define-color base_card_bg  #172223;\n"
+    "@define-color base_entry_bg #0c1415;\n"
+
+    "@define-color border_color #253234;\n"
+    "@define-color dim_label #a1a1aa;\n"
+    "@define-color tooltip_bg #000000;\n"
+    "@define-color tooltip_fg #ffffff;\n"
+
+    "@define-color base_accent #4dd6d6;\n"
+    "@define-color base_accent_fg #062023;\n"
+
+    "@define-color button_bg #172223;\n"
+    "@define-color button_hover #1f2e30;\n"
+
+    "@define-color base_destructive_bg #ff5a6a;\n"
+    "@define-color base_destructive_fg #0b1220;\n"
+    "@define-color destructive_hover #e54b5a;\n"
+
+    "@define-color base_success_text #86efac;\n"
+    "@define-color base_success_bg   #22c55e;\n"
+    "@define-color base_success_fg   #08110c;\n"
+    "@define-color success_hover #16a34a;\n"
+
+    "@define-color error_text #ff6b6b;\n"
+
+    "@define-color capture_bg_white #123a3a;\n"
+    "@define-color capture_bg_black #173a2a;\n"
+;
+
+// =========================
+// THEME C: AUBERGINE PURPLE
+// =========================
+
+static const char *CSS_LIGHT_THEME_C =
+    "@define-color base_fg #111827;\n"
+    "@define-color base_bg #faf7fb;\n"
+
+    "@define-color base_panel_bg #ffffff;\n"
+    "@define-color base_card_bg  #ffffff;\n"
+    "@define-color base_entry_bg #ffffff;\n"
+
+    "@define-color border_color #ddd6e6;\n"
+    "@define-color dim_label #6b7280;\n"
+    "@define-color tooltip_bg #0b1220;\n"
+    "@define-color tooltip_fg #ffffff;\n"
+
+    "@define-color base_accent #7c3aed;\n"
+    "@define-color base_accent_fg #ffffff;\n"
+
+    "@define-color button_bg #f2eef8;\n"
+    "@define-color button_hover #e7def4;\n"
+
+    "@define-color base_destructive_bg #ef4444;\n"
+    "@define-color base_destructive_fg #ffffff;\n"
+    "@define-color destructive_hover #dc2626;\n"
+
+    "@define-color base_success_text #166534;\n"
+    "@define-color base_success_bg   #16a34a;\n"
+    "@define-color base_success_fg   #ffffff;\n"
+    "@define-color success_hover #15803d;\n"
+
+    "@define-color error_text #b91c1c;\n"
+
+    "@define-color capture_bg_white #efe3ff;\n"
+    "@define-color capture_bg_black #e0e7ff;\n"
+;
+
+static const char *CSS_DARK_THEME_C =
+    "@define-color base_fg #e5e7eb;\n"
+    "@define-color base_bg #0f0c12;\n"
+
+    "@define-color base_panel_bg #16111c;\n"
+    "@define-color base_card_bg  #1d1626;\n"
+    "@define-color base_entry_bg #120e18;\n"
+
+    "@define-color border_color #2b2336;\n"
+    "@define-color dim_label #a1a1aa;\n"
+    "@define-color tooltip_bg #000000;\n"
+    "@define-color tooltip_fg #ffffff;\n"
+
+    "@define-color base_accent #b892ff;\n"
+    "@define-color base_accent_fg #0b1220;\n"
+
+    "@define-color button_bg #1d1626;\n"
+    "@define-color button_hover #281f35;\n"
+
+    "@define-color base_destructive_bg #ff5a6a;\n"
+    "@define-color base_destructive_fg #0b1220;\n"
+    "@define-color destructive_hover #e54b5a;\n"
+
+    "@define-color base_success_text #86efac;\n"
+    "@define-color base_success_bg   #22c55e;\n"
+    "@define-color base_success_fg   #08110c;\n"
+    "@define-color success_hover #16a34a;\n"
+
+    "@define-color error_text #ff6b6b;\n"
+
+    "@define-color capture_bg_white #35204a;\n"
+    "@define-color capture_bg_black #1f2b4f;\n"
+;
+
+// =========================
+// ORIGINAL LIGHT (refactored)
+// =========================
+static const char *CSS_LIGHT_BASE =
+    // Primitives
+    "@define-color base_fg #1f2937;\n"
+    "@define-color base_bg #fafafa;\n"
+
+    // Surfaces
+    "@define-color base_panel_bg #ffffff;\n"
+    "@define-color base_card_bg  #ffffff;\n"
+    "@define-color base_entry_bg #ffffff;\n"
+
+    // Accent
+    "@define-color base_accent #3584e4;\n"
+    "@define-color base_accent_fg #ffffff;\n"
+
+    // Buttons
+    "@define-color button_bg #f1f5f9;\n"
+    "@define-color button_hover #e9eff6;\n"
+
+    // Borders / text
+    "@define-color border_color #d1d5db;\n"
+    "@define-color dim_label #6b7280;\n"
+
+    // Tooltip
+    "@define-color tooltip_bg #111827;\n"
+    "@define-color tooltip_fg #ffffff;\n"
+
+    // Destructive
+    "@define-color base_destructive_bg #dc3545;\n"
+    "@define-color base_destructive_fg #ffffff;\n"
+    "@define-color destructive_hover #bb2d3b;\n"
+
+    // Success
+    "@define-color base_success_text #2e7d32;\n"
+    "@define-color base_success_bg   #2e7d32;\n"
+    "@define-color base_success_fg   #ffffff;\n"
+    "@define-color success_hover #256528;\n"
+
+    // Error
+    "@define-color error_text #c62828;\n"
+
+    // Captures (no longer random)
+    "@define-color capture_bg_white #e7f0ff;\n"  // soft blue tint (fits your accent)
+    "@define-color capture_bg_black #e9ddff;\n"  // soft lavender tint (related, not loud)
+;
+
+// =========================
+// ORIGINAL DARK (refactored)
+// =========================
+static const char *CSS_DARK_BASE =
+    // Primitives
+    "@define-color base_fg #e7e7e7;\n"
+    "@define-color base_bg #121212;\n"
+
+    // Surfaces
+    "@define-color base_panel_bg #1a1a1a;\n"
+    "@define-color base_card_bg  #1f1f1f;\n"
+    "@define-color base_entry_bg #121212;\n"  // same as bg, but explicit for clarity
+
+    // Accent
+    "@define-color base_accent #7fb2ff;\n"
+    "@define-color base_accent_fg #0f172a;\n"
+
+    // Buttons
+    "@define-color button_bg #1f1f1f;\n"
+    "@define-color button_hover #2a2a2a;\n"
+
+    // Borders / text
+    "@define-color border_color #2f2f2f;\n"
+    "@define-color dim_label #a1a1aa;\n"
+
+    // Tooltip
+    "@define-color tooltip_bg #000000;\n"
+    "@define-color tooltip_fg #ffffff;\n"
+
+    // Destructive
+    "@define-color base_destructive_bg #ff5a6a;\n"
+    "@define-color base_destructive_fg #0f172a;\n"
+    "@define-color destructive_hover #e54b5a;\n"
+
+    // Success
+    "@define-color base_success_text #6ee7a6;\n"
+    "@define-color base_success_bg   #66bb6a;\n"
+    "@define-color base_success_fg   #1e1e1e;\n"
     "@define-color success_hover #57a85b;\n"
     "@define-color capture_bg_white #7810ab;\n"    // Dark bg for White pieces to pop
     "@define-color capture_bg_black #193456;\n"; // Light bg for Black pieces to pop
@@ -381,17 +702,44 @@ static void update_provider(void) {
     
     GString *css = g_string_new(NULL);
     
-    // 1. Append Variables
+    // 0. Append Common Variables
+    g_string_append(css, CSS_COMMON);
+
+    // 1. Pick Theme Variants
+    const char *light_theme = CSS_LIGHT_BASE;
+    const char *dark_theme = CSS_DARK_BASE;
+
+    switch (current_theme_variant) {
+        case 'A': case 'a':
+            light_theme = CSS_LIGHT_THEME_A;
+            dark_theme = CSS_DARK_THEME_A;
+            break;
+        case 'B': case 'b':
+            light_theme = CSS_LIGHT_THEME_B;
+            dark_theme = CSS_DARK_THEME_B;
+            break;
+        case 'C': case 'c':
+            light_theme = CSS_LIGHT_THEME_C;
+            dark_theme = CSS_DARK_THEME_C;
+            break;
+        case 'D': case 'd':
+        default:
+            light_theme = CSS_LIGHT_BASE; // Original
+            dark_theme = CSS_DARK_BASE;   // Original
+            break;
+    }
+
+    // 2. Append Selected Theme
     if (current_is_dark) {
-        g_string_append(css, CSS_DARK);
+        g_string_append(css, dark_theme);
     } else {
-        g_string_append(css, CSS_LIGHT);
+        g_string_append(css, light_theme);
     }
     
-    // 2. Append Structure
+    // 3. Append Structure
     g_string_append(css, CSS_STRUCTURAL);
     
-    // 3. Load
+    // 4. Load
     gtk_css_provider_load_from_string(global_provider, css->str);
     
     g_string_free(css, TRUE);
@@ -415,6 +763,10 @@ void theme_manager_init(void) {
 void theme_manager_set_dark(bool is_dark) {
     if (current_is_dark == is_dark) return;
     current_is_dark = is_dark;
+    
+    AppConfig* cfg = config_get();
+    if (cfg) cfg->is_dark_mode = is_dark;
+    
     update_provider();
 }
 
@@ -424,4 +776,31 @@ void theme_manager_toggle(void) {
 
 bool theme_manager_is_dark(void) {
     return current_is_dark;
+}
+
+void theme_manager_set_variant(char variant) {
+    if (current_theme_variant == variant) return;
+    current_theme_variant = variant;
+    
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        const ThemeMetadata* meta = get_theme_by_char(variant);
+        if (meta) {
+            strncpy(cfg->theme, meta->id, sizeof(cfg->theme) - 1);
+            cfg->theme[sizeof(cfg->theme) - 1] = '\0';
+        }
+    }
+    
+    update_provider();
+}
+
+char theme_manager_get_variant(void) {
+    return current_theme_variant;
+}
+
+void theme_manager_set_theme_id(const char* id) {
+    const ThemeMetadata* meta = get_theme_by_id(id);
+    if (meta) {
+        theme_manager_set_variant(meta->variant_char);
+    }
 }

@@ -465,9 +465,38 @@ void settings_dialog_open_page(SettingsDialog* dialog, const char* page_name) {
     settings_dialog_show(dialog);
 }
 
+#include "config_manager.h"
+
+// Helper: Save all settings before destruction
+static void settings_dialog_save_all(SettingsDialog* dialog) {
+    if (!dialog) return;
+    AppConfig* cfg = config_get();
+    if (!cfg) return;
+    
+    // AI Settings
+    if (dialog->ai_dialog) {
+        ai_dialog_save_config(dialog->ai_dialog, cfg);
+    }
+    
+    // Board Theme
+    if (dialog->board_dialog) {
+        board_theme_dialog_save_config(dialog->board_dialog, cfg);
+    }
+    
+    // Piece Theme
+    if (dialog->piece_dialog) {
+        piece_theme_dialog_save_config(dialog->piece_dialog, cfg);
+    }
+    
+    // Write to disk
+    config_save();
+}
+
 void settings_dialog_free(SettingsDialog* dialog) {
     if (debug_mode) printf("[Settings] Freeing SettingsDialog %p\n", (void*)dialog);
     if (dialog) {
+        // Save settings before freeing
+        settings_dialog_save_all(dialog);
         
         if (dialog->ai_dialog) {
             if (dialog->app_state && dialog->ai_dialog == dialog->app_state->ai_dialog) {

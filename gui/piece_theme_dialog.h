@@ -16,4 +16,7 @@ void piece_theme_dialog_set_parent_window(PieceThemeDialog* dialog, GtkWindow* p
 void piece_theme_dialog_show(PieceThemeDialog* dialog);
 void piece_theme_dialog_free(PieceThemeDialog* dialog);
 
+// Save state to config
+void piece_theme_dialog_save_config(PieceThemeDialog* dialog, void* config_struct);
+
 #endif
