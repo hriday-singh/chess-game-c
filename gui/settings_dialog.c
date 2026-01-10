@@ -3,6 +3,12 @@
 #include "app_state.h"
 #include "puzzles.h"
 #include "board_widget.h"
+#include "ai_dialog.h"
+#include "board_theme_dialog.h"
+#include "piece_theme_dialog.h"
+#include "app_theme_dialog.h"
+#include "tutorial.h"
+#include <ctype.h>
 
 struct _SettingsDialog {
     GtkWindow* window;
@@ -12,13 +18,8 @@ struct _SettingsDialog {
     AiDialog* ai_dialog;
     BoardThemeDialog* board_dialog;
     PieceThemeDialog* piece_dialog;
+    AppThemeDialog* app_theme_dialog;
 };
-
-#include "ai_dialog.h"
-#include "board_theme_dialog.h"
-#include "piece_theme_dialog.h"
-#include "tutorial.h"
-#include <ctype.h>
 
 static bool debug_mode = false;
 
@@ -61,14 +62,19 @@ static void on_sidebar_row_selected(GtkListBox* box, GtkListBoxRow* row, gpointe
     if (!row || !dialog->stack) return;
     
     int index = gtk_list_box_row_get_index(row);
-    const char* pages[] = {"ai", "board", "piece", "puzzles", "tutorial", "about"};
+    const char* pages[] = {"ai", "board", "piece", "app_theme", "puzzles", "tutorial", "about"};
     
-    if (index >= 0 && index < 6) {
+    if (index >= 0 && index < 7) {
         gtk_stack_set_visible_child_name(GTK_STACK(dialog->stack), pages[index]);
         // Update last settings page
         if (dialog->app_state) {
             g_strlcpy(dialog->app_state->last_settings_page, pages[index], 32);
         }
+    }
+    
+    // Refresh App Theme UI if selected
+    if (index == 3 && dialog->app_theme_dialog) {
+        app_theme_dialog_show(dialog->app_theme_dialog);
     }
 }
 
@@ -301,6 +307,7 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("AI Settings", "preferences-system-symbolic"));
     gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("Board Theme", "applications-graphics-symbolic"));
     gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("Piece Theme", "applications-graphics-symbolic"));
+    gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("App Theme", "preferences-desktop-theme-symbolic")); // New
     gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("Puzzles", "applications-games-symbolic"));
     gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("Tutorial", "user-available-symbolic"));
     gtk_list_box_append(GTK_LIST_BOX(dialog->sidebar), create_sidebar_row("About", "help-about-symbolic"));
@@ -318,6 +325,7 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     gtk_box_append(GTK_BOX(main_hbox), GTK_WIDGET(dialog->stack));
     
     // 1. Tutorial
+    // Note: Tutorial is added at sidebar index 5, but we name it "tutorial" 
     gtk_stack_add_named(GTK_STACK(dialog->stack), create_tutorial_page(dialog), "tutorial");
     
     // 2. AI Settings
@@ -328,16 +336,11 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
         GtkWidget* ai_widget = ai_dialog_get_widget(dialog->ai_dialog);
         
         // Ensure we own a reference so it survives stack removal
-        // (If it was previously floating, stack took ownership. If reused, we need to handle reparenting)
         GtkWidget* parent = gtk_widget_get_parent(ai_widget);
         if (parent) {
              g_object_ref(ai_widget);
-             if (GTK_IS_BOX(parent)) gtk_box_remove(GTK_BOX(parent), ai_widget); // Should not happen with current logic if handled correctly
+             if (GTK_IS_BOX(parent)) gtk_box_remove(GTK_BOX(parent), ai_widget); 
              else if (GTK_IS_WINDOW(parent)) gtk_window_set_child(GTK_WINDOW(parent), NULL);
-             else {
-                 // Try to remove from stack if we know it?
-                 // For now assume safely unparented
-             }
         }
         
         gtk_widget_set_margin_start(ai_widget, 20);
@@ -352,25 +355,10 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     }
     
     // 3. Board Theme
-    // We need ThemeData.
     ThemeData* theme_data = app_state ? app_state->theme : NULL;
-    // We use a dummy callback or the real one. 
-    // If we want live updates, we pass a callback that triggers redraw.
-    // Currently `main.c` handles updates via callback.
-    // We can pass a callback that calls `gtk_widget_queue_draw(app_state->board)`.
-    
     dialog->board_dialog = board_theme_dialog_new_embedded(theme_data, on_theme_update, app_state); 
-    // Note: We need to set the callback! But we don't have access to main's static callback `update_board_theme`.
-    // Should we expose it? Or just pass NULL and rely on the fact that theme_data changes might trigger something?
-    // `board_theme_dialog.c` logic: calls callback on update.
-    // We NEED the callback to redraw the main board.
-    // We can allow `settings_dialog_new` to take callbacks? 
-    // Or we assume `app_state` has what we need? `app_state->board` is a GtkWidget.
-    // We can make a local static callback here that redraws `app_state->board`.
-    
     board_theme_dialog_set_parent_window(dialog->board_dialog, dialog->window);
     GtkWidget* board_widget = board_theme_dialog_get_widget(dialog->board_dialog);
-    // Since board theme dialog has its own layout, we assume it is fine
     gtk_stack_add_named(GTK_STACK(dialog->stack), board_widget, "board");
     
     // 4. Piece Theme
@@ -379,36 +367,27 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     GtkWidget* piece_widget = piece_theme_dialog_get_widget(dialog->piece_dialog);
     gtk_stack_add_named(GTK_STACK(dialog->stack), piece_widget, "piece");
     
-    // 5. Puzzles
+    // 5. App Theme (New)
+    dialog->app_theme_dialog = app_theme_dialog_new_embedded(dialog->window);
+    GtkWidget* app_theme_widget = app_theme_dialog_get_widget(dialog->app_theme_dialog);
+    if (app_theme_widget) {
+        gtk_stack_add_named(GTK_STACK(dialog->stack), app_theme_widget, "app_theme");
+    }
+    
+    // 6. Puzzles
     gtk_stack_add_named(GTK_STACK(dialog->stack), create_puzzles_page(dialog), "puzzles");
     
-    // 6. About
+    // 7. About
     gtk_stack_add_named(GTK_STACK(dialog->stack), create_about_page(dialog), "about");
     
     // Restore last visited page or default to first
     const char* start_page = "ai";
     if (app_state && strlen(app_state->last_settings_page) > 0) {
         start_page = app_state->last_settings_page;
-        // Avoid starting on tutorial if it was last open (user request: "BYe default... should open AI settings or whatever last visited... right now it ALWAYS SHOWS TUTORIAL")
-        // Actually user said "Right now it ALWAYS SHOWS TUTORIAL... that shoudnt happen".
-        // They WANT last visited. "BYe default when you open settings, it should open AI settings or whatever last visited."
         if (strcmp(start_page, "tutorial") == 0) start_page = "ai"; 
     }
     
-    // Open page (this handles sidebar selection too)
     settings_dialog_open_page(dialog, start_page);
-    
-    /*
-    GtkListBoxRow* first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(dialog->sidebar), 0);
-    gtk_list_box_select_row(GTK_LIST_BOX(dialog->sidebar), first);
-    */
-    
-    /*
-    GtkListBoxRow* first = gtk_list_box_get_row_at_index(GTK_LIST_BOX(dialog->sidebar), 0);
-    gtk_list_box_select_row(GTK_LIST_BOX(dialog->sidebar), first);
-    */
-    
-    // Styles are now handled by global theme_manager.c
     
     return dialog;
 }
@@ -419,8 +398,9 @@ void settings_dialog_show(SettingsDialog* dialog) {
         gtk_window_present(dialog->window);
         
         // Refresh embedded dialogs if needed
-        if (dialog->board_dialog) board_theme_dialog_show(dialog->board_dialog); // Primarily for updating previews
+        if (dialog->board_dialog) board_theme_dialog_show(dialog->board_dialog); 
         if (dialog->piece_dialog) piece_theme_dialog_show(dialog->piece_dialog);
+        if (dialog->app_theme_dialog) app_theme_dialog_show(dialog->app_theme_dialog);
     }
 }
 
@@ -450,9 +430,10 @@ void settings_dialog_open_page(SettingsDialog* dialog, const char* page_name) {
     if (strcmp(page_name, "ai") == 0) idx = 0;
     else if (strcmp(page_name, "board") == 0) idx = 1;
     else if (strcmp(page_name, "piece") == 0) idx = 2;
-    else if (strcmp(page_name, "puzzles") == 0) idx = 3;
-    else if (strcmp(page_name, "tutorial") == 0) idx = 4;
-    else if (strcmp(page_name, "about") == 0) idx = 5;
+    else if (strcmp(page_name, "app_theme") == 0) idx = 3;
+    else if (strcmp(page_name, "puzzles") == 0) idx = 4;
+    else if (strcmp(page_name, "tutorial") == 0) idx = 5;
+    else if (strcmp(page_name, "about") == 0) idx = 6;
     
     if (idx >= 0 && dialog->sidebar) {
         GtkListBoxRow* row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(dialog->sidebar), idx);
@@ -486,6 +467,11 @@ static void settings_dialog_save_all(SettingsDialog* dialog) {
     // Piece Theme
     if (dialog->piece_dialog) {
         piece_theme_dialog_save_config(dialog->piece_dialog, cfg);
+    }
+    
+    // App Theme (no-op but robust)
+    if (dialog->app_theme_dialog) {
+        app_theme_dialog_save_config(dialog->app_theme_dialog, cfg);
     }
     
     // Write to disk
@@ -526,6 +512,9 @@ void settings_dialog_free(SettingsDialog* dialog) {
         if (dialog->piece_dialog) {
             if (debug_mode) printf("[Settings] Freeing piece_dialog\n");
             piece_theme_dialog_free(dialog->piece_dialog);
+        }
+        if (dialog->app_theme_dialog) {
+            app_theme_dialog_free(dialog->app_theme_dialog);
         }
         
         free(dialog);

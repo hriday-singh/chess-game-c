@@ -67,4 +67,23 @@ const char* config_get_path(void);
 // Must be called before config_init() if you want to change it.
 void config_set_app_param(const char* app_name);
 
+// --- App Themes (app_themes.json) ---
+#include "app_theme.h"
+
+// Load custom app themes
+void app_themes_init(void);
+
+// Get list of custom loaded themes
+// Returns pointer to array and sets count
+AppTheme* app_themes_get_list(int* count);
+
+// Add or update a theme
+void app_themes_save_theme(const AppTheme* theme);
+
+// Delete a theme by ID
+void app_themes_delete_theme(const char* id);
+
+// Save all themes to disk
+void app_themes_save_all(void);
+
 #endif // CONFIG_MANAGER_H

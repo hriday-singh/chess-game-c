@@ -1,4 +1,5 @@
 #include "config_manager.h"
+#include "theme_manager.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,7 +47,7 @@ static void determine_config_path(void) {
         return;
     }
 
-    char dir[2048];
+    char dir[1024];
 #ifdef _WIN32
     snprintf(dir, sizeof(dir), "%s/%s", home, g_app_name);
 #else
@@ -199,7 +200,7 @@ bool config_save(void) {
     
     FILE* f = fopen(g_config_path, "w");
     if (!f) {
-        printf("Failed to open config file for writing: %s\n", g_config_path);
+        if (is_debug) printf("Failed to open config file for writing: %s\n", g_config_path);
         return false;
     }
     
@@ -253,4 +254,224 @@ AppConfig* config_get(void) {
 const char* config_get_path(void) {
     determine_config_path();
     return g_config_path;
+}
+
+// --- App Themes Implementation ---
+
+#define MAX_CUSTOM_THEMES 50
+static AppTheme g_custom_themes[MAX_CUSTOM_THEMES];
+static int g_custom_theme_count = 0;
+static char g_themes_path[2048] = {0}; // Increased to match config_path
+
+static void determine_themes_path(void) {
+    if (g_themes_path[0] != '\0') return;
+    determine_config_path(); // Ensure base path exists
+    
+    // Replace config.json with app_themes.json
+    // g_config_path is like ".../config.json"
+    snprintf(g_themes_path, sizeof(g_themes_path), "%s", g_config_path);
+    char* last_slash = strrchr(g_themes_path, '/');
+    #ifdef _WIN32
+    if (!last_slash) last_slash = strrchr(g_themes_path, '\\');
+    #endif
+    
+    if (last_slash) {
+        strcpy(last_slash + 1, "app_themes.json");
+    } else {
+        // Should not happen if config path is full path
+        strcpy(g_themes_path, "app_themes.json");
+    }
+}
+
+// Minimal manual JSON parser for this specific structure
+// Function to extract string value by key from a line
+static void extract_json_str(const char* line, const char* key, char* dest, size_t dest_size) {
+    char search[128];
+    snprintf(search, sizeof(search), "\"%s\":", key);
+    const char* found = strstr(line, search);
+    if (found) {
+        const char* val_start = strchr(found, ':');
+        if (val_start) {
+            val_start = strchr(val_start, '\"');
+            if (val_start) {
+                val_start++;
+                const char* val_end = strchr(val_start, '\"');
+                if (val_end) {
+                    size_t len = val_end - val_start;
+                    if (len >= dest_size) len = dest_size - 1;
+                    strncpy(dest, val_start, len);
+                    dest[len] = '\0';
+                }
+            }
+        }
+    }
+}
+
+void app_themes_init(void) {
+    determine_themes_path();
+    g_custom_theme_count = 0;
+    
+    FILE* f = fopen(g_themes_path, "r");
+    if (!f) return;
+    
+    char line[1024];
+    AppTheme* current = NULL;
+    AppThemeColors* current_colors = NULL;
+    
+    while (fgets(line, sizeof(line), f)) {
+        // Detect start of object
+        if (strstr(line, "\"theme_id\"")) {
+            if (g_custom_theme_count < MAX_CUSTOM_THEMES) {
+                current = &g_custom_themes[g_custom_theme_count++];
+                extract_json_str(line, "theme_id", current->theme_id, sizeof(current->theme_id));
+            }
+        }
+        else if (current) {
+            if (strstr(line, "\"display_name\"")) extract_json_str(line, "display_name", current->display_name, sizeof(current->display_name));
+            else if (strstr(line, "\"light\": {")) current_colors = &current->light;
+            else if (strstr(line, "\"dark\": {")) current_colors = &current->dark;
+            else if (strstr(line, "},") || strstr(line, "}")) {
+               // End of color block or object, handled by context switch or next ID
+            }
+            else if (current_colors) {
+                // Parse colors
+                if (strstr(line, "\"base_bg\"")) extract_json_str(line, "base_bg", current_colors->base_bg, sizeof(current_colors->base_bg));
+                else if (strstr(line, "\"base_fg\"")) extract_json_str(line, "base_fg", current_colors->base_fg, sizeof(current_colors->base_fg));
+                else if (strstr(line, "\"base_panel_bg\"")) extract_json_str(line, "base_panel_bg", current_colors->base_panel_bg, sizeof(current_colors->base_panel_bg));
+                else if (strstr(line, "\"base_card_bg\"")) extract_json_str(line, "base_card_bg", current_colors->base_card_bg, sizeof(current_colors->base_card_bg));
+                else if (strstr(line, "\"base_entry_bg\"")) extract_json_str(line, "base_entry_bg", current_colors->base_entry_bg, sizeof(current_colors->base_entry_bg));
+                else if (strstr(line, "\"base_accent\"")) extract_json_str(line, "base_accent", current_colors->base_accent, sizeof(current_colors->base_accent));
+                else if (strstr(line, "\"base_accent_fg\"")) extract_json_str(line, "base_accent_fg", current_colors->base_accent_fg, sizeof(current_colors->base_accent_fg));
+                else if (strstr(line, "\"base_success_bg\"")) extract_json_str(line, "base_success_bg", current_colors->base_success_bg, sizeof(current_colors->base_success_bg));
+                else if (strstr(line, "\"base_success_text\"")) extract_json_str(line, "base_success_text", current_colors->base_success_text, sizeof(current_colors->base_success_text));
+                else if (strstr(line, "\"base_success_fg\"")) extract_json_str(line, "base_success_fg", current_colors->base_success_fg, sizeof(current_colors->base_success_fg));
+                else if (strstr(line, "\"success_hover\"")) extract_json_str(line, "success_hover", current_colors->success_hover, sizeof(current_colors->success_hover));
+                else if (strstr(line, "\"base_destructive_bg\"")) extract_json_str(line, "base_destructive_bg", current_colors->base_destructive_bg, sizeof(current_colors->base_destructive_bg));
+                else if (strstr(line, "\"base_destructive_fg\"")) extract_json_str(line, "base_destructive_fg", current_colors->base_destructive_fg, sizeof(current_colors->base_destructive_fg));
+                else if (strstr(line, "\"destructive_hover\"")) extract_json_str(line, "destructive_hover", current_colors->destructive_hover, sizeof(current_colors->destructive_hover));
+                else if (strstr(line, "\"border_color\"")) extract_json_str(line, "border_color", current_colors->border_color, sizeof(current_colors->border_color));
+                else if (strstr(line, "\"dim_label\"")) extract_json_str(line, "dim_label", current_colors->dim_label, sizeof(current_colors->dim_label));
+                else if (strstr(line, "\"tooltip_bg\"")) extract_json_str(line, "tooltip_bg", current_colors->tooltip_bg, sizeof(current_colors->tooltip_bg));
+                else if (strstr(line, "\"tooltip_fg\"")) extract_json_str(line, "tooltip_fg", current_colors->tooltip_fg, sizeof(current_colors->tooltip_fg));
+                else if (strstr(line, "\"button_bg\"")) extract_json_str(line, "button_bg", current_colors->button_bg, sizeof(current_colors->button_bg));
+                else if (strstr(line, "\"button_hover\"")) extract_json_str(line, "button_hover", current_colors->button_hover, sizeof(current_colors->button_hover));
+                else if (strstr(line, "\"error_text\"")) extract_json_str(line, "error_text", current_colors->error_text, sizeof(current_colors->error_text));
+                else if (strstr(line, "\"capture_bg_white\"")) extract_json_str(line, "capture_bg_white", current_colors->capture_bg_white, sizeof(current_colors->capture_bg_white));
+                else if (strstr(line, "\"capture_bg_black\"")) extract_json_str(line, "capture_bg_black", current_colors->capture_bg_black, sizeof(current_colors->capture_bg_black));
+            }
+        }
+    }
+    
+    fclose(f);
+    if (is_debug) printf("[DEBUG] Loaded %d custom themes\n", g_custom_theme_count);
+}
+
+AppTheme* app_themes_get_list(int* count) {
+    if (count) *count = g_custom_theme_count;
+    return g_custom_themes;
+}
+
+void app_themes_save_theme(const AppTheme* theme) {
+    if (!theme) return;
+    
+    // Check if exists, update if so
+    for (int i = 0; i < g_custom_theme_count; i++) {
+        if (strcmp(g_custom_themes[i].theme_id, theme->theme_id) == 0) {
+           // Prevent overwriting system theme if somehow a collision happens, check global list
+           if (theme_manager_is_system_theme(theme->theme_id)) {
+               if (is_debug) printf("[Config] Cannot overwrite system theme %s\n", theme->theme_id);
+               return; 
+           }
+
+            g_custom_themes[i] = *theme;
+            app_themes_save_all();
+            return;
+        }
+    }
+    
+    // Add new (Ensure not system ID)
+    if (theme_manager_is_system_theme(theme->theme_id)) {
+        if (is_debug) printf("[Config] Cannot save theme with system ID %s\n", theme->theme_id);
+        return;
+    }
+
+    if (g_custom_theme_count < MAX_CUSTOM_THEMES) {
+        g_custom_themes[g_custom_theme_count++] = *theme;
+        app_themes_save_all();
+    }
+}
+
+void app_themes_delete_theme(const char* id) {
+    if (!id) return;
+    int idx = -1;
+    for (int i = 0; i < g_custom_theme_count; i++) {
+        if (strcmp(g_custom_themes[i].theme_id, id) == 0) {
+            idx = i;
+            break;
+        }
+    }
+    
+    if (idx != -1) {
+        // Shift remaining
+        for (int i = idx; i < g_custom_theme_count - 1; i++) {
+            g_custom_themes[i] = g_custom_themes[i + 1];
+        }
+        g_custom_theme_count--;
+        app_themes_save_all();
+    }
+}
+
+static void write_colors_json(FILE* f, const AppThemeColors* c, bool is_last) {
+    (void)is_last; // Unused
+    fprintf(f, "    \"base_bg\": \"%s\",\n", c->base_bg);
+    fprintf(f, "    \"base_fg\": \"%s\",\n", c->base_fg);
+    fprintf(f, "    \"base_panel_bg\": \"%s\",\n", c->base_panel_bg);
+    fprintf(f, "    \"base_card_bg\": \"%s\",\n", c->base_card_bg);
+    fprintf(f, "    \"base_entry_bg\": \"%s\",\n", c->base_entry_bg);
+    fprintf(f, "    \"base_accent\": \"%s\",\n", c->base_accent);
+    fprintf(f, "    \"base_accent_fg\": \"%s\",\n", c->base_accent_fg);
+    fprintf(f, "    \"base_success_bg\": \"%s\",\n", c->base_success_bg);
+    fprintf(f, "    \"base_success_text\": \"%s\",\n", c->base_success_text);
+    fprintf(f, "    \"base_success_fg\": \"%s\",\n", c->base_success_fg);
+    fprintf(f, "    \"success_hover\": \"%s\",\n", c->success_hover);
+    fprintf(f, "    \"base_destructive_bg\": \"%s\",\n", c->base_destructive_bg);
+    fprintf(f, "    \"base_destructive_fg\": \"%s\",\n", c->base_destructive_fg);
+    fprintf(f, "    \"destructive_hover\": \"%s\",\n", c->destructive_hover);
+    fprintf(f, "    \"border_color\": \"%s\",\n", c->border_color);
+    fprintf(f, "    \"dim_label\": \"%s\",\n", c->dim_label);
+    fprintf(f, "    \"tooltip_bg\": \"%s\",\n", c->tooltip_bg);
+    fprintf(f, "    \"tooltip_fg\": \"%s\",\n", c->tooltip_fg);
+    fprintf(f, "    \"button_bg\": \"%s\",\n", c->button_bg);
+    fprintf(f, "    \"button_hover\": \"%s\",\n", c->button_hover);
+    fprintf(f, "    \"error_text\": \"%s\",\n", c->error_text);
+    fprintf(f, "    \"capture_bg_white\": \"%s\",\n", c->capture_bg_white);
+    fprintf(f, "    \"capture_bg_black\": \"%s\"\n", c->capture_bg_black);
+}
+
+void app_themes_save_all(void) {
+    determine_themes_path();
+    
+    FILE* f = fopen(g_themes_path, "w");
+    if (!f) return;
+    
+    fprintf(f, "[\n");
+    for (int i = 0; i < g_custom_theme_count; i++) {
+        AppTheme* t = &g_custom_themes[i];
+        fprintf(f, "  {\n");
+        fprintf(f, "    \"theme_id\": \"%s\",\n", t->theme_id);
+        fprintf(f, "    \"display_name\": \"%s\",\n", t->display_name);
+        
+        fprintf(f, "    \"light\": {\n");
+        write_colors_json(f, &t->light, false);
+        fprintf(f, "    },\n");
+        
+        fprintf(f, "    \"dark\": {\n");
+        write_colors_json(f, &t->dark, true);
+        fprintf(f, "    }\n");
+        
+        if (i < g_custom_theme_count - 1) fprintf(f, "  },\n");
+        else fprintf(f, "  }\n");
+    }
+    fprintf(f, "]\n");
+    fclose(f);
 }
