@@ -6,6 +6,7 @@ from io import BytesIO
 # Try importing Pillow
 try:
     from PIL import Image
+    HAS_PILLOW = True
 except ImportError:
     print("Error: 'Pillow' module not found.")
     print("Please install it: pip install Pillow")
@@ -29,12 +30,10 @@ def rasterize_svg(svg_path, size):
             png_data = cairosvg.svg2png(url=svg_path, output_width=size, output_height=size)
             return Image.open(BytesIO(png_data)).convert("RGBA")
         except Exception as e:
-            print(f"Warning: cairosvg failed for size {size}: {e}")
+            pass # Silently fail to try next method
     
     # Method 2: rsvg-convert (CLI tool, common on Linux/MinGW)
-    # Check if rsvg-convert is in path
     try:
-        # Run rsvg-convert to stdout
         result = subprocess.run(
             ["rsvg-convert", "-w", str(size), "-h", str(size), svg_path],
             capture_output=True,
@@ -46,22 +45,50 @@ def rasterize_svg(svg_path, size):
 
     return None
 
-def convert_svg_to_ico(svg_path, output_path):
-    if not os.path.exists(svg_path):
-        print(f"Error: File not found: {svg_path}")
+def process_raster_image(image_path, size):
+    """
+    Open a raster image (PNG, JPG) and resize it to the given size using high-quality resampling.
+    """
+    try:
+        with Image.open(image_path) as img:
+            # Convert to RGBA to ensure transparency support
+            img = img.convert("RGBA")
+            # Log resizing action
+            if size == 256: # Only print once or for the largest layer to avoid spam, or just let the main loop print
+                 pass 
+            # Resize using LANCZOS for best downscaling quality
+            # If the image is 1024x1024, this downscales it to size x size
+            return img.resize((size, size), Image.Resampling.LANCZOS)
+    except Exception as e:
+        print(f"Error processing raster image for size {size}: {e}")
+        return None
+
+def convert_to_ico(input_path, output_path):
+    if not os.path.exists(input_path):
+        print(f"Error: File not found: {input_path}")
         return
+
+    # Determine file type
+    ext = os.path.splitext(input_path)[1].lower()
+    is_svg = (ext == ".svg")
+
+    if is_svg:
+        print(f"Converting SVG '{input_path}' to ICO...")
+        if not HAS_CAIROSVG:
+            print("Note: 'cairosvg' not found. Attempting to use 'rsvg-convert' CLI...")
+    else:
+        print(f"Converting Raster Image ({ext}) '{input_path}' to ICO...")
 
     # Standard Windows ICO sizes
     sizes = [256, 128, 64, 48, 32, 16]
     img_layers = []
 
-    print(f"Converting '{svg_path}' to '{output_path}'...")
-    
-    if not HAS_CAIROSVG:
-        print("Note: 'cairosvg' not found. Attempting to use 'rsvg-convert' CLI...")
-
     for size in sizes:
-        img = rasterize_svg(svg_path, size)
+        if is_svg:
+            img = rasterize_svg(input_path, size)
+        else:
+            img = process_raster_image(input_path, size)
+            
         if img:
             img_layers.append(img)
             print(f"  - Generated layer: {size}x{size}")
@@ -69,25 +96,22 @@ def convert_svg_to_ico(svg_path, output_path):
             print(f"  - Failed to generate layer: {size}x{size}")
 
     if not img_layers:
-        print("Error: Could not generate any layers. Please install 'cairosvg' (pip install cairosvg) or ensure 'rsvg-convert' is in your PATH.")
+        print("Error: Could not generate any layers.")
         return
 
     # Save as ICO with all layers
-    # Use the first image (largest) as the "base" and append the rest
-    # Using format='ICO' automatically handles the sizes if passed as distinct images in 'append_images'
     try:
         img_layers[0].save(output_path, format='ICO', append_images=img_layers[1:])
         print("-" * 30)
         print(f"Success! Saved multi-layer ICO to: {output_path}")
-        print("You can verify the layers using 'analyze_ico.py'.")
     except Exception as e:
         print(f"Error saving ICO: {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python svg_to_ico.py <input.svg> [output.ico]")
-        print("Example: python svg_to_ico.py assets/images/logo.svg assets/images/icon/icon.ico")
+        print("Usage: python image_to_ico.py <input_file> [output.ico]")
+        print("Supported formats: SVG, PNG, JPG, JPEG")
     else:
-        svg_in = sys.argv[1]
-        ico_out = sys.argv[2] if len(sys.argv) > 2 else "icon.ico"
-        convert_svg_to_ico(svg_in, ico_out)
+        input_file = sys.argv[1]
+        output_file = sys.argv[2] if len(sys.argv) > 2 else "icon.ico"
+        convert_to_ico(input_file, output_file)
