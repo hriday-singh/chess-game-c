@@ -363,7 +363,7 @@ void app_themes_init(void) {
     }
     
     fclose(f);
-    if (is_debug) printf("[DEBUG] Loaded %d custom themes\n", g_custom_theme_count);
+    if (is_debug) printf("[DEBUG] Loaded %d custom themes from %s\n", g_custom_theme_count, g_themes_path);
 }
 
 AppTheme* app_themes_get_list(int* count) {
@@ -474,4 +474,5 @@ void app_themes_save_all(void) {
     }
     fprintf(f, "]\n");
     fclose(f);
+    if (is_debug) printf("[DEBUG] Themes saved to %s\n", g_themes_path);
 }

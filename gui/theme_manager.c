@@ -127,22 +127,22 @@ static const AppTheme SYSTEM_THEMES[] = {
     {
         .theme_id = "theme_d_mocha_gold", .display_name = "Mocha Gold",
         .light = {
-            "#fafafa", "#1f2937", "#ffffff", "#ffffff", "#ffffff",
-            "#3584e4", "#ffffff",
-            "#2e7d32", "#2e7d32", "#ffffff", "#256528",
-            "#dc3545", "#ffffff", "#bb2d3b",
-            "#d1d5db", "#6b7280", "#111827", "#ffffff", "#f1f5f9", "#e9eff6",
-            "#c62828",
-            "#e7f0ff", "#e9ddff"
+            "#FAFAFA", "#111827", "#FFFFFF", "#FFFFFF", "#FFFFFF",
+            "#D4A017", "#111827",
+            "#15803D", "#6EE7A6", "#FFFFFF", "#116C32",
+            "#EF4444", "#FFFFFF", "#DC2626",
+            "#D1D5DB", "#6B7280", "#111827", "#FFFFFF", "#F1F5F9", "#E9EFF6",
+            "#B91C1C",
+            "#EFE7DA", "#E7F0FF"
         },
         .dark = {
-            "#121212", "#e7e7e7", "#1a1a1a", "#1f1f1f", "#121212",
-            "#7fb2ff", "#0f172a",
-            "#66bb6a", "#6ee7a6", "#1e1e1e", "#57a85b",
-            "#ff5a6a", "#0f172a", "#e54b5a",
-            "#2f2f2f", "#a1a1aa", "#000000", "#ffffff", "#1f1f1f", "#2a2a2a",
-            "#ff6b6b",
-            "#7810ab", "#193456"
+            "#121212", "#E7E7E7", "#1A1A1A", "#1F1F1F", "#121212",
+            "#F1C75B", "#0F172A",
+            "#66BB6A", "#6EE7A6", "#1E1E1E", "#57A85B",
+            "#FF5A6A", "#0F172A", "#E54B5A",
+            "#2F2F2F", "#A1A1AA", "#000000", "#FFFFFF", "#1F1F1F", "#2A2A2A",
+            "#FF6B6B",
+            "#2F2450", "#24324A"
         }
     }
 };
@@ -210,6 +210,7 @@ static const char *CSS_STRUCTURAL =
 
     /* -------------------- Preview Frame -------------------- */
     ".preview-frame { border: 2px solid @border_color; border-radius: 8px; background: @bg_color; box-shadow: 0 2px 8px @border_color; }\n"
+    ".rounded-border { border: 1px solid @border_color; border-radius: 12px; }\n"
 
     /* Scrollbars - Rounded & Defined */
     "scrollbar { background-color: transparent; border: none; }\n"
@@ -613,4 +614,25 @@ const AppTheme* theme_manager_get_current_theme(void) {
     }
     
     return &SYSTEM_THEMES[0];
+}
+
+const AppTheme* theme_manager_get_theme_by_id(const char* id) {
+    if (!id) return NULL;
+    
+    // 1. System
+    for (size_t i = 0; i < sizeof(SYSTEM_THEMES)/sizeof(SYSTEM_THEMES[0]); i++) {
+        if (strcmp(id, SYSTEM_THEMES[i].theme_id) == 0) {
+            return &SYSTEM_THEMES[i];
+        }
+    }
+    
+    // 2. Custom
+    int count = 0;
+    AppTheme* customs = app_themes_get_list(&count);
+    for (int i = 0; i < count; i++) {
+        if (strcmp(customs[i].theme_id, id) == 0) {
+            return &customs[i];
+        }
+    }
+    return NULL;
 }

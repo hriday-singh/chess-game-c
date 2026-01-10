@@ -11,6 +11,7 @@ void theme_manager_toggle(void);
 bool theme_manager_is_dark(void);
 void theme_manager_set_theme_id(const char* id);
 const AppTheme* theme_manager_get_current_theme(void);
+const AppTheme* theme_manager_get_theme_by_id(const char* id);
 bool theme_manager_is_system_theme(const char* id);
 
 #endif // THEME_MANAGER_H
