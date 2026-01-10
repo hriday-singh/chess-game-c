@@ -141,13 +141,22 @@ $(TEST_SUITE_TARGET): $(TEST_SUITE_OBJECTS)
 	$(CC) $(CFLAGS) $^ -o $@
 	@echo "Build complete! Run: $(TEST_TARGET) or $(TEST_SUITE_TARGET)"
 
+# Resource file for Windows icon
+RC_FILE = chess.rc
+RES_OBJ = $(OBJDIR)/chess_res.o
+
+# Build resource file
+$(RES_OBJ): $(RC_FILE) | $(OBJDIR)
+	@echo "Compiling resources..."
+	windres $(RC_FILE) -O coff -o $(RES_OBJ)
+
 # GUI executable (links game + GUI + GTK4)
 GAME_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/main_test.o $(OBJDIR)/test_suite.o $(OBJDIR)/move_validation_test.o, $(GAME_OBJECTS))
 GUI_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/gui_icon_test.o, $(GUI_OBJECTS))
 
 # Force all dependencies to be built before linking
-$(GUI_TARGET): $(GAME_OBJS_FOR_GUI) $(GUI_OBJS_FOR_GUI) $(SF_OBJECTS) | $(OBJDIR)
-	@echo "Linking $@ (GUI + Stockfish)..."
+$(GUI_TARGET): $(GAME_OBJS_FOR_GUI) $(GUI_OBJS_FOR_GUI) $(SF_OBJECTS) $(RES_OBJ) | $(OBJDIR)
+	@echo "Linking $@ (GUI + Stockfish + Icon)..."
 	@echo "  Game objects: $(words $(GAME_OBJS_FOR_GUI)) files"
 	@echo "  GUI objects: $(words $(GUI_OBJS_FOR_GUI)) files"
 	@echo "  Stockfish objects: $(words $(SF_OBJECTS)) files"
