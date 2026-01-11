@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "gui_utils.h"
 
 struct AppThemeDialog {
     GtkWindow* window;
@@ -450,6 +451,9 @@ static void on_rename_clicked(GtkButton* btn, gpointer user_data) {
     gtk_window_set_modal(GTK_WINDOW(win), TRUE);
     gtk_window_set_title(GTK_WINDOW(win), "Rename Theme");
     gtk_window_set_default_size(GTK_WINDOW(win), 300, -1);
+    
+    // Auto-Focus Parent on Destroy
+    gui_utils_setup_auto_focus_restore(GTK_WINDOW(win));
 
     GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
     gtk_widget_set_margin_top(box, 20);
@@ -939,6 +943,9 @@ AppThemeDialog* app_theme_dialog_new(GtkWindow* parent) {
     gtk_window_set_title(dialog->window, "App Theme Editor");
     gtk_window_set_default_size(dialog->window, 500, 600);
     gtk_window_set_child(dialog->window, dialog->content_box);
+    
+    // Auto-Focus Parent on Destroy
+    gui_utils_setup_auto_focus_restore(dialog->window);
     
     if (parent) {
         gtk_window_set_transient_for(dialog->window, parent);

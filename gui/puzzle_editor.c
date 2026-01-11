@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <gtk/gtk.h>
+#include "gui_utils.h"
 
 typedef struct {
     GtkWidget* window;
@@ -180,6 +181,9 @@ static void on_import_clicked(GtkButton* btn, gpointer user_data) {
     gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
     gtk_window_set_default_size(GTK_WINDOW(dialog), 400, 300);
     
+    // Auto-Focus Parent on Destroy
+    gui_utils_setup_auto_focus_restore(GTK_WINDOW(dialog));
+    
     GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_margin_top(vbox, 10);
     gtk_widget_set_margin_bottom(vbox, 10);
@@ -296,6 +300,9 @@ void show_puzzle_editor(GtkWindow* parent, GCallback on_created, gpointer user_d
     gtk_window_set_transient_for(GTK_WINDOW(data->window), parent);
     gtk_window_set_modal(GTK_WINDOW(data->window), TRUE);
     gtk_window_set_default_size(GTK_WINDOW(data->window), 400, 500);
+    
+    // Auto-Focus Parent on Destroy
+    gui_utils_setup_auto_focus_restore(GTK_WINDOW(data->window));
     
     g_signal_connect(data->window, "destroy", G_CALLBACK(on_window_destroy), data);
     

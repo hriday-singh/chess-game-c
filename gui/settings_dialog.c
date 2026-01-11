@@ -8,6 +8,7 @@
 #include "piece_theme_dialog.h"
 #include "app_theme_dialog.h"
 #include "tutorial.h"
+#include "gui_utils.h"
 #include <ctype.h>
 
 struct _SettingsDialog {
@@ -285,6 +286,9 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     if (app_state && app_state->window) {
         gtk_window_set_transient_for(dialog->window, app_state->window);
     }
+    
+    // Auto-Focus Parent on Destroy
+    gui_utils_setup_auto_focus_restore(dialog->window);
     
     // Handle destruction
     g_signal_connect_swapped(dialog->window, "destroy", G_CALLBACK(settings_dialog_free), dialog);

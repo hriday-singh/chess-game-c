@@ -4,6 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
+#include "gui_utils.h"
 
 struct _AiDialog {
     GtkWindow* parent_window;
@@ -279,6 +280,9 @@ static void on_nnue_import_finished(GObject* src, GAsyncResult* r, gpointer d) {
             gtk_window_set_modal(GTK_WINDOW(error_window), TRUE);
             gtk_window_set_default_size(GTK_WINDOW(error_window), 300, 150);
             
+            // Auto-Focus Parent on Destroy
+            gui_utils_setup_auto_focus_restore(GTK_WINDOW(error_window));
+            
             GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
             gtk_widget_set_margin_top(box, 20);
             gtk_widget_set_margin_bottom(box, 20);
@@ -347,6 +351,10 @@ static void on_ok_clicked(GtkButton* btn, gpointer data) {
     AiDialog* dialog = (AiDialog*)data;
     if (dialog->window) {
         gtk_widget_set_visible(GTK_WIDGET(dialog->window), FALSE);
+        // Explicitly restore focus since we are hiding, not destroying
+        if (dialog->parent_window) {
+             gtk_window_present(dialog->parent_window);
+        }
     }
 }
 

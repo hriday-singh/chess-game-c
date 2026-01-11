@@ -5,6 +5,7 @@
 #include "sound_engine.h"
 #include "piece.h"
 #include "settings_dialog.h"
+#include "gui_utils.h"
 
 static bool debug_mode = false;
 
@@ -96,6 +97,9 @@ void show_message_dialog(GtkWindow* parent, const char* message, AppState* state
     gtk_window_set_transient_for(GTK_WINDOW(window), parent);
     gtk_window_set_modal(GTK_WINDOW(window), TRUE);
     gtk_window_set_default_size(GTK_WINDOW(window), 400, 200);
+    
+    // Ensure focus returns to parent on destroy
+    // gui_utils_setup_auto_focus_restore(GTK_WINDOW(window));
     
     state->tutorial_msg = window; // Track it!
     

@@ -523,11 +523,6 @@ static void on_edit_piece_theme(GSimpleAction* action, GVariant* parameter, gpoi
     open_settings_page(state, "piece");
 }
 
-// tutorial_setup functions moved to tutorial.c
-
-// Helper to grab focus after a short delay to ensure dialog is gone
-
-
 // Wrapper to show popover in timeout
 static gboolean popup_popover_delayed(gpointer user_data) {
     AppState* state = (AppState*)user_data;
@@ -544,7 +539,6 @@ static gboolean popup_popover_delayed(gpointer user_data) {
 }
 
 // Wrapper to activate action
-// Wrapper to activate action
 static void activate_tutorial_action(GtkWidget* widget, gpointer user_data) {
     (void)widget;
     AppState* state = (AppState*)user_data;
@@ -553,13 +547,6 @@ static void activate_tutorial_action(GtkWidget* widget, gpointer user_data) {
        on_tutorial_action(NULL, NULL, state);
     }
 }
-
-// Callback for when a step instruction dialog is closed (OK accepted)
-// static void on_step_instruction_closed(GtkWidget* dialog, int response_id, gpointer user_data) {
-//    ... removed ...
-// }
-
-// on_tutorial_next and on_tutorial_action moved to tutorial.c
 
 static void on_about_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
     (void)action; (void)parameter;
@@ -858,10 +845,6 @@ static void on_app_shutdown(GApplication* app, gpointer user_data) {
     AppState* state = (AppState*)user_data;
     if (state) {
         // Critical Fix: Explicitly destroy settings dialog FIRST while state is valid.
-        // This triggers settings_dialog_free -> checks state->ai_dialog correctly -> unparents shared widget.
-        // If we don't do this here, settings_dialog is destroyed LATER (after state g_free),
-        // causing Use-After-Free of state and Double-Free of AiDialog.
-        // Remove this later
         if (state->settings_dialog) {
             GtkWindow* w = settings_dialog_get_window(state->settings_dialog);
             if (w) gtk_window_destroy(w);
@@ -1158,7 +1141,6 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
 }
 
 // Helper to grab focus after window is fully realized
-// Helper to grab focus after window is fully realized
 static gboolean grab_board_focus_idle(gpointer user_data) {
     AppState* state = (AppState*)user_data;
     if (!state) return FALSE;
@@ -1167,6 +1149,7 @@ static gboolean grab_board_focus_idle(gpointer user_data) {
     if (state->board) gtk_widget_grab_focus(state->board);
     return FALSE;
 }
+
 int main(int argc, char** argv) {
     GtkApplication* app = gtk_application_new("com.hriday.chessc", G_APPLICATION_DEFAULT_FLAGS);
     AppState* state = g_new0(AppState, 1);

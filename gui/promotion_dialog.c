@@ -9,6 +9,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <glib.h>
+#include "gui_utils.h"
 
 // Static variable to store selected piece and main loop (for modal dialog)
 static PieceType g_selected_piece = NO_PROMOTION;
@@ -158,6 +159,9 @@ PieceType promotion_dialog_show(GtkWindow* parent, ThemeData* theme, Player play
     gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
     gtk_window_set_decorated(GTK_WINDOW(dialog), TRUE);
     
+    // Auto-Focus Parent on Destroy
+    gui_utils_setup_auto_focus_restore(GTK_WINDOW(dialog));
+    
     // Main container
     GtkWidget* main_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
     gtk_widget_set_halign(main_box, GTK_ALIGN_CENTER);
@@ -267,11 +271,5 @@ PieceType promotion_dialog_show(GtkWindow* parent, ThemeData* theme, Player play
     PieceType result = g_selected_piece;
     gtk_window_destroy(GTK_WINDOW(dialog));
     
-    // Ensure parent window gets focus back
-    if (parent) {
-        gtk_window_present(parent);
-    }
-    
     return result;
 }
-
