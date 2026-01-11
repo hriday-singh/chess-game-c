@@ -338,9 +338,15 @@ static void bind_theme_list_item(GtkSignalListItemFactory* factory, GtkListItem*
     } else {
         // Reverse lookup ID from name 
         // 1. Check System
-        const char* sys_names[] = { "Slate Blue", "Emerald Teal", "Aubergine Purple", "Mocha Gold" };
-        const char* sys_ids[] = { "theme_a_slate", "theme_b_emerald", "theme_c_aubergine", "theme_d_mocha_gold" };
-        for (int i=0; i<4; i++) {
+        const char* sys_names[] = { 
+            "Slate Blue", "Emerald Teal", "Aubergine Purple", "Mocha Gold",
+            "Slate Rose", "Ocean Mist", "Forest Amber", "Graphite Lime", "Sand Cobalt", "Sage Ash"
+        };
+        const char* sys_ids[] = { 
+            "theme_a_slate", "theme_b_emerald", "theme_c_aubergine", "theme_d_mocha_gold",
+            "theme_e_slate_rose", "theme_f_ocean_mist", "theme_g_forest_amber", "theme_h_graphite_lime", "theme_i_sand_cobalt", "theme_j_sage_ash"
+        };
+        for (int i=0; i<10; i++) {
             if (strcmp(display_name, sys_names[i]) == 0) {
                 id = sys_ids[i];
                 break;
@@ -384,6 +390,12 @@ static void on_theme_combine_changed(GObject* object, GParamSpec* pspec, gpointe
     else if (strcmp(label, "Emerald Teal") == 0) id = "theme_b_emerald";
     else if (strcmp(label, "Aubergine Purple") == 0) id = "theme_c_aubergine";
     else if (strcmp(label, "Mocha Gold") == 0) id = "theme_d_mocha_gold";
+    else if (strcmp(label, "Slate Rose") == 0) id = "theme_e_slate_rose";
+    else if (strcmp(label, "Ocean Mist") == 0) id = "theme_f_ocean_mist";
+    else if (strcmp(label, "Forest Amber") == 0) id = "theme_g_forest_amber";
+    else if (strcmp(label, "Graphite Lime") == 0) id = "theme_h_graphite_lime";
+    else if (strcmp(label, "Sand Cobalt") == 0) id = "theme_i_sand_cobalt";
+    else if (strcmp(label, "Sage Ash") == 0) id = "theme_j_sage_ash";
     else {
         int count = 0;
         AppTheme* customs = app_themes_get_list(&count);
@@ -729,6 +741,12 @@ static void refresh_theme_list(AppThemeDialog* dialog) {
     gtk_string_list_append(list, "Emerald Teal");
     gtk_string_list_append(list, "Aubergine Purple");
     gtk_string_list_append(list, "Mocha Gold");
+    gtk_string_list_append(list, "Slate Rose");
+    gtk_string_list_append(list, "Ocean Mist");
+    gtk_string_list_append(list, "Forest Amber");
+    gtk_string_list_append(list, "Graphite Lime");
+    gtk_string_list_append(list, "Sand Cobalt");
+    gtk_string_list_append(list, "Sage Ash");
     
     int count = 0;
     AppTheme* customs = app_themes_get_list(&count);
@@ -765,6 +783,12 @@ static void load_theme_into_ui(AppThemeDialog* dialog) {
             else if (strstr(current->theme_id, "theme_b") && strcmp(label, "Emerald Teal") == 0) match = true;
             else if (strstr(current->theme_id, "theme_c") && strcmp(label, "Aubergine Purple") == 0) match = true;
             else if (strstr(current->theme_id, "theme_d") && strcmp(label, "Mocha Gold") == 0) match = true;
+            else if (strstr(current->theme_id, "theme_e") && strcmp(label, "Slate Rose") == 0) match = true;
+            else if (strstr(current->theme_id, "theme_f") && strcmp(label, "Ocean Mist") == 0) match = true;
+            else if (strstr(current->theme_id, "theme_g") && strcmp(label, "Forest Amber") == 0) match = true;
+            else if (strstr(current->theme_id, "theme_h") && strcmp(label, "Graphite Lime") == 0) match = true;
+            else if (strstr(current->theme_id, "theme_i") && strcmp(label, "Sand Cobalt") == 0) match = true;
+            else if (strstr(current->theme_id, "theme_j") && strcmp(label, "Sage Ash") == 0) match = true;
             
             if (match) {
                 gtk_drop_down_set_selected(GTK_DROP_DOWN(dialog->theme_combo), i);

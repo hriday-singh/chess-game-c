@@ -19,7 +19,8 @@ typedef enum {
     SOUND_MOVE_OPPONENT,
     SOUND_PUZZLE_CORRECT,
     SOUND_PUZZLE_CORRECT_2,
-    SOUND_PUZZLE_WRONG
+    SOUND_PUZZLE_WRONG,
+    SOUND_RESET
 } SoundType;
 
 // Initialize sound engine (call once at startup)

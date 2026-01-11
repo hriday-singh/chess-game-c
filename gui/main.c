@@ -974,7 +974,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     AppState* state = (AppState*)user_data;
     state->window = GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(app)));
     gtk_window_set_title(state->window, "HAL :) Chess");
-    gtk_window_set_default_size(state->window, 1020, 780);
+    gtk_window_set_default_size(state->window, 1200, 960);
     
     config_set_app_param("HAL Chess");
     config_init(); // Initialize config from persistent storage
@@ -1024,14 +1024,6 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), dark_mode_btn);
 
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), settings_btn);
-    
-    // Exit Tutorial Button
-    GtkWidget* exit_tut = gtk_button_new_with_label("Exit Tutorial");
-    gtk_widget_add_css_class(exit_tut, "destructive-action");
-    gtk_widget_set_visible(exit_tut, FALSE);
-    g_signal_connect(exit_tut, "clicked", G_CALLBACK(on_tutorial_exit), state);
-    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), exit_tut);
-    state->tutorial_exit_btn = exit_tut;
     
     gtk_window_set_titlebar(state->window, header);
 
@@ -1086,6 +1078,9 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     
     // Set game reset callback to trigger AI after reset/side changes
     info_panel_set_game_reset_callback(state->info_panel, on_game_reset, state);
+    
+    // Connect tutorial callbacks to info panel (Moved here to ensure panel exists)
+    info_panel_set_tutorial_callbacks(state->info_panel, G_CALLBACK(tutorial_reset_step), G_CALLBACK(on_tutorial_exit), state);
     
     refresh_puzzle_list(state);
     gtk_widget_set_size_request(state->info_panel, 300, -1);

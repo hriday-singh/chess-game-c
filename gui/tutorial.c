@@ -6,6 +6,8 @@
 #include "piece.h"
 #include "settings_dialog.h"
 
+static bool debug_mode = false;
+
 // Forward declarations
 static void tutorial_setup_pawn(AppState* state);
 static void tutorial_setup_rook(AppState* state);
@@ -22,6 +24,12 @@ static gboolean on_tutorial_delay_complete(gpointer user_data) {
     if (!user_data) return FALSE;
     AppState* state = (AppState*)user_data;
     
+    // Safety check: if tutorial was disabled during delay (e.g. exit clicked), abort
+    if (state->tutorial_step == TUT_OFF) {
+        state->tutorial_wait = FALSE;
+        return FALSE;
+    }
+
     state->tutorial_step = state->tutorial_next_step;
     state->tutorial_wait = FALSE; // Reset wait flag
     
@@ -149,6 +157,30 @@ static void tutorial_clear_board(AppState* state) {
     
     board_widget_reset_selection(state->board);
     board_widget_refresh(state->board);
+}
+
+// Reset current tutorial step
+void tutorial_reset_step(GtkButton* btn, gpointer user_data) {
+    (void)btn;
+    AppState* state = (AppState*)user_data;
+    if (!state || state->tutorial_step == TUT_OFF) return;
+    
+    sound_engine_play(SOUND_RESET);
+    state->tutorial_wait = FALSE;
+    
+    switch (state->tutorial_step) {
+        case TUT_PAWN: tutorial_setup_pawn(state); break;
+        case TUT_ROOK: tutorial_setup_rook(state); break;
+        case TUT_BISHOP: tutorial_setup_bishop(state); break;
+        case TUT_KNIGHT: tutorial_setup_knight(state); break;
+        case TUT_QUEEN: tutorial_setup_queen(state); break;
+        case TUT_CHECK: tutorial_setup_check(state); break;
+        case TUT_ESCAPE: tutorial_setup_escape(state); break;
+        case TUT_CASTLING: tutorial_setup_castling(state); break;
+        case TUT_MATE: tutorial_setup_mate(state); break;
+        case TUT_DONE: tutorial_finish(state); break;
+        default: break;
+    }
 }
 
 static void tutorial_setup_pawn(AppState* state) {
@@ -395,13 +427,21 @@ void on_tutorial_action(GSimpleAction* action, GVariant* parameter, gpointer use
 }
 
 void tutorial_check_progress(AppState* state) {
-    
     if (state->tutorial_step == TUT_OFF) {
         state->tutorial_wait = FALSE;
         return;
     }
-    
-    if (state->tutorial_wait) return;
+
+    if (state->tutorial_wait) {
+        if (debug_mode) printf("DEBUG: Tutorial waiting...\n");
+        return;
+    }
+
+    // Fix: Wait for animation to finish before checking progress
+    if (board_widget_is_animating(state->board)) {
+        if (debug_mode) printf("DEBUG: Board animating, skipping tutorial check\n");
+        return;
+    }
     
     // logic...
     // FIX: Delay 500ms
@@ -410,7 +450,11 @@ void tutorial_check_progress(AppState* state) {
     if (state->tutorial_step == TUT_PAWN) {
         // d2->d4 (6,3 -> 4,3)
         Piece* p = state->logic->board[4][3];
+        if (debug_mode) printf("DEBUG: Checking PAWN success. Slot [4][3] = %p\n", (void*)p);
+        if (p) if (debug_mode) printf("DEBUG: Piece type=%d owner=%d\n", p->type, p->owner);
+        
         if (p && p->type == PIECE_PAWN && p->owner == PLAYER_WHITE) {
+            if (debug_mode) printf("DEBUG: PAWN Success! Locking board.\n");
             state->tutorial_wait = TRUE;
             board_widget_set_nav_restricted(state->board, true, -1, -1, -1, -1);
             state->tutorial_next_step = TUT_ROOK;

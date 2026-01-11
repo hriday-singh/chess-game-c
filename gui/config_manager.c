@@ -66,6 +66,13 @@ static void set_defaults(void) {
     strncpy(g_config.theme, DEFAULT_THEME, sizeof(g_config.theme) - 1);
     g_config.is_dark_mode = DEFAULT_DARK_MODE;
     g_config.show_tutorial_dialog = true;
+
+    // Game Settings
+    g_config.game_mode = 1; // Default: PVC
+    g_config.play_as = 0;   // Default: White
+    g_config.hints_dots = true; 
+    g_config.enable_animations = true;
+    g_config.enable_sfx = true;
     
     // AI - Internal
     g_config.int_elo = 1500;
@@ -90,7 +97,7 @@ static void set_defaults(void) {
     g_config.dark_square_color[0] = '\0';
 
     // Piece Theme
-    strncpy(g_config.piece_set, "alpha", sizeof(g_config.piece_set) - 1);
+    strncpy(g_config.piece_set, "caliente", sizeof(g_config.piece_set) - 1);
     g_config.white_piece_color[0] = '\0';
     g_config.white_stroke_color[0] = '\0';
     g_config.black_piece_color[0] = '\0';
@@ -152,6 +159,9 @@ static void parse_line(char* line) {
         else if (strcmp(key, "int_is_advanced") == 0) g_config.int_is_advanced = true;
         else if (strcmp(key, "nnue_enabled") == 0) g_config.nnue_enabled = true;
         else if (strcmp(key, "custom_is_advanced") == 0) g_config.custom_is_advanced = true;
+        else if (strcmp(key, "hints_dots") == 0) g_config.hints_dots = true;
+        else if (strcmp(key, "enable_animations") == 0) g_config.enable_animations = true;
+        else if (strcmp(key, "enable_sfx") == 0) g_config.enable_sfx = true;
     } 
     else if (strncmp(val_start, "false", 5) == 0) {
         if (strcmp(key, "is_dark_mode") == 0) g_config.is_dark_mode = false;
@@ -159,12 +169,17 @@ static void parse_line(char* line) {
         else if (strcmp(key, "int_is_advanced") == 0) g_config.int_is_advanced = false;
         else if (strcmp(key, "nnue_enabled") == 0) g_config.nnue_enabled = false;
         else if (strcmp(key, "custom_is_advanced") == 0) g_config.custom_is_advanced = false;
+        else if (strcmp(key, "hints_dots") == 0) g_config.hints_dots = false;
+        else if (strcmp(key, "enable_animations") == 0) g_config.enable_animations = false;
+        else if (strcmp(key, "enable_sfx") == 0) g_config.enable_sfx = false;
     }
     // NUMBERS
     else {
         if (strcmp(key, "int_elo") == 0) g_config.int_elo = atoi(val_start);
         else if (strcmp(key, "int_depth") == 0) g_config.int_depth = atoi(val_start);
         else if (strcmp(key, "int_movetime") == 0) g_config.int_movetime = atoi(val_start);
+        else if (strcmp(key, "game_mode") == 0) g_config.game_mode = atoi(val_start);
+        else if (strcmp(key, "play_as") == 0) g_config.play_as = atoi(val_start);
         else if (strcmp(key, "custom_elo") == 0) g_config.custom_elo = atoi(val_start);
         else if (strcmp(key, "custom_depth") == 0) g_config.custom_depth = atoi(val_start);
         else if (strcmp(key, "custom_movetime") == 0) g_config.custom_movetime = atoi(val_start);
@@ -191,7 +206,23 @@ bool config_load(void) {
     }
     
     fclose(f);
-    if (debug_mode) printf("Config loaded from %s\n", g_config_path);
+    fclose(f);
+    if (debug_mode) {
+        printf("Config loaded from %s\n", g_config_path);
+        printf("--- [DEBUG] Config Summary ---\n");
+        printf("  Theme: %s\n", g_config.theme);
+        printf("  Dark Mode: %s\n", g_config.is_dark_mode ? "true" : "false");
+        printf("  Tutorial: %s\n", g_config.show_tutorial_dialog ? "true" : "false");
+        printf("  Game Mode: %d\n", g_config.game_mode);
+        printf("  Play As: %d\n", g_config.play_as);
+        printf("  Hints: %s\n", g_config.hints_dots ? "Dots" : "Squares");
+        printf("  Animations: %s\n", g_config.enable_animations ? "ON" : "OFF");
+        printf("  SFX: %s\n", g_config.enable_sfx ? "ON" : "OFF");
+        printf("  Internal AI: ELO=%d, Depth=%d, MoveTime=%d\n", g_config.int_elo, g_config.int_depth, g_config.int_movetime);
+        printf("  NNUE: %s (Path: %s)\n", g_config.nnue_enabled ? "ON" : "OFF", g_config.nnue_path);
+        printf("  Custom Engine: %s (ELO=%d)\n", g_config.custom_engine_path, g_config.custom_elo);
+        printf("------------------------------\n");
+    }
     return true;
 }
 
@@ -208,6 +239,12 @@ bool config_save(void) {
     fprintf(f, "    \"theme\": \"%s\",\n", g_config.theme);
     fprintf(f, "    \"is_dark_mode\": %s,\n", g_config.is_dark_mode ? "true" : "false");
     fprintf(f, "    \"show_tutorial_dialog\": %s,\n", g_config.show_tutorial_dialog ? "true" : "false");
+    
+    fprintf(f, "    \"game_mode\": %d,\n", g_config.game_mode);
+    fprintf(f, "    \"play_as\": %d,\n", g_config.play_as);
+    fprintf(f, "    \"hints_dots\": %s,\n", g_config.hints_dots ? "true" : "false");
+    fprintf(f, "    \"enable_animations\": %s,\n", g_config.enable_animations ? "true" : "false");
+    fprintf(f, "    \"enable_sfx\": %s,\n", g_config.enable_sfx ? "true" : "false");
     
     fprintf(f, "    \"int_elo\": %d,\n", g_config.int_elo);
     fprintf(f, "    \"int_depth\": %d,\n", g_config.int_depth);

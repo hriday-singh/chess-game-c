@@ -60,5 +60,6 @@ void info_panel_set_game_reset_callback(GtkWidget* info_panel, GameResetCallback
 // Tutorial Mode Control
 void info_panel_set_tutorial_mode(GtkWidget* info_panel, bool enabled);
 void info_panel_update_tutorial_info(GtkWidget* info_panel, const char* instruction, const char* learning_objective);
+void info_panel_set_tutorial_callbacks(GtkWidget* info_panel, GCallback on_reset, GCallback on_exit, gpointer user_data);
 
 #endif // INFO_PANEL_H

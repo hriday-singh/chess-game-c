@@ -9,6 +9,7 @@ void on_tutorial_action(GSimpleAction* action, GVariant* parameter, gpointer use
 
 // Exit tutorial explicitly
 void on_tutorial_exit(GtkButton* btn, gpointer user_data);
+void tutorial_reset_step(GtkButton* btn, gpointer user_data);
 
 // Check tutorial progress (called from main update loop)
 void tutorial_check_progress(AppState* state);

@@ -41,7 +41,8 @@ static const char* SOUND_NAMES[] = {
     "move-opponent.mp3",  // SOUND_MOVE_OPPONENT
     "puzzle-correct.mp3", // SOUND_PUZZLE_CORRECT
     "puzzle-correct-2.mp3", // SOUND_PUZZLE_CORRECT_2
-    "puzzle-wrong.mp3"    // SOUND_PUZZLE_WRONG
+    "puzzle-wrong.mp3",     // SOUND_PUZZLE_WRONG
+    "game-start.mp3"        // SOUND_RESET
 };
 
 // Try to find a sound file in common locations

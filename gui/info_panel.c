@@ -1,4 +1,5 @@
 #include "info_panel.h"
+#include "config_manager.h"
 #include "piece_symbols.h"
 #include "board_widget.h"
 #include "sound_engine.h"
@@ -85,6 +86,8 @@ typedef struct {
         GtkWidget* box;
         GtkWidget* instruction_label;
         GtkWidget* learning_label;
+        GtkWidget* reset_btn;
+        GtkWidget* exit_btn;
     } tutorial_ui;
     
     // Captured pieces lists
@@ -680,6 +683,7 @@ static void on_elo_adjustment_changed(GtkAdjustment* adj, gpointer user_data) {
 static void on_reset_clicked(GtkButton* button, gpointer user_data) {
     (void)button;
     InfoPanel* panel = (InfoPanel*)user_data;
+    sound_engine_play(SOUND_RESET);
     reset_game(panel);
 }
 
@@ -764,6 +768,9 @@ static void reset_game(InfoPanel* panel) {
         panel->logic->playerSide = (rand_side == 1) ? PLAYER_BLACK : PLAYER_WHITE;
     }
     
+    // Clear selection on reset (UI request)
+    board_widget_reset_selection(panel->board_widget);
+
     // Delegate EVERYTHING else to the callback (main.c)
     // This prevents double-resets and fighting over board state
     if (panel->game_reset_callback) {
@@ -773,7 +780,6 @@ static void reset_game(InfoPanel* panel) {
         gamelogic_reset(panel->logic);
         bool flip = (panel->logic->playerSide == PLAYER_BLACK);
         board_widget_set_flipped(panel->board_widget, flip);
-        board_widget_reset_selection(panel->board_widget);
         board_widget_refresh(panel->board_widget);
     }
     
@@ -822,6 +828,11 @@ static void on_game_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_
     
     panel->logic->gameMode = (GameMode)selected;
     
+    // Save to config
+    AppConfig* cfg = config_get();
+    cfg->game_mode = selected;
+    config_save();
+    
     // Update AI settings visibility
     update_ai_settings_visibility(panel);
     
@@ -835,6 +846,13 @@ static void on_play_as_changed(GObject* obj, GParamSpec* pspec, gpointer user_da
     InfoPanel* panel = (InfoPanel*)user_data;
     if (!panel || !panel->logic) return;
     
+    int selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(panel->play_as_dropdown));
+    
+    // Save to config
+    AppConfig* cfg = config_get();
+    cfg->play_as = selected;
+    config_save();
+    
     // Reset game to apply new side
     reset_game(panel);
 }
@@ -846,6 +864,11 @@ static void on_animations_toggled(GtkCheckButton* button, gpointer user_data) {
     
     bool enabled = gtk_check_button_get_active(button);
     board_widget_set_animations_enabled(panel->board_widget, enabled);
+    
+    // Save to config
+    AppConfig* cfg = config_get();
+    cfg->enable_animations = enabled;
+    config_save();
 }
 
 // SFX checkbox callback
@@ -853,6 +876,11 @@ static void on_sfx_toggled(GtkCheckButton* button, gpointer user_data) {
     (void)user_data;  // Unused
     bool enabled = gtk_check_button_get_active(button);
     sound_engine_set_enabled(enabled ? 1 : 0);
+    
+    // Save to config
+    AppConfig* cfg = config_get();
+    cfg->enable_sfx = enabled;
+    config_save();
 }
 
 // Hints dropdown callback
@@ -868,6 +896,11 @@ static void on_hints_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user
     bool use_dots = (selected == 0);
     board_widget_set_hints_mode(panel->board_widget, use_dots);
     board_widget_refresh(panel->board_widget);
+    
+    // Save to config
+    AppConfig* cfg = config_get();
+    cfg->hints_dots = use_dots;
+    config_save();
 }
 
 
@@ -1036,6 +1069,21 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_label_set_wrap(GTK_LABEL(panel->tutorial_ui.instruction_label), TRUE);
     gtk_label_set_max_width_chars(GTK_LABEL(panel->tutorial_ui.instruction_label), 30);
     gtk_box_append(GTK_BOX(panel->tutorial_ui.box), panel->tutorial_ui.instruction_label);
+
+    // Tutorial Buttons (Reset and Exit)
+    GtkWidget* tut_btns = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_widget_set_halign(tut_btns, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(tut_btns, 15);
+    
+    panel->tutorial_ui.reset_btn = gtk_button_new_with_label("Reset Step");
+    gtk_widget_add_css_class(panel->tutorial_ui.reset_btn, "suggested-action");
+    gtk_box_append(GTK_BOX(tut_btns), panel->tutorial_ui.reset_btn);
+    
+    panel->tutorial_ui.exit_btn = gtk_button_new_with_label("Exit Tutorial");
+    gtk_widget_add_css_class(panel->tutorial_ui.exit_btn, "destructive-action");
+    gtk_box_append(GTK_BOX(tut_btns), panel->tutorial_ui.exit_btn);
+    
+    gtk_box_append(GTK_BOX(panel->tutorial_ui.box), tut_btns);
 
     gtk_box_append(GTK_BOX(panel->scroll_content), panel->tutorial_ui.box);
 
@@ -1218,7 +1266,17 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_box_append(GTK_BOX(settings_section), mode_label);
     
     panel->game_mode_dropdown = gtk_drop_down_new_from_strings((const char*[]){"Player vs. Player", "Player vs. Computer", "Computer vs. Computer", "Puzzles", NULL});
-    gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->game_mode_dropdown), GAME_MODE_PVC); // Default to PvC
+    
+    AppConfig* cfg = config_get();
+    
+    // Apply Game Mode from Config
+    if (cfg->game_mode >= 0 && cfg->game_mode <= 3) {
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->game_mode_dropdown), cfg->game_mode);
+        logic->gameMode = (GameMode)cfg->game_mode;
+    } else {
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->game_mode_dropdown), GAME_MODE_PVC); // Default
+    }
+
     gtk_widget_set_hexpand(panel->game_mode_dropdown, FALSE);
     g_signal_connect(panel->game_mode_dropdown, "notify::selected", G_CALLBACK(on_game_mode_changed), panel);
     gtk_box_append(GTK_BOX(settings_section), panel->game_mode_dropdown);
@@ -1231,7 +1289,16 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_box_append(GTK_BOX(settings_section), play_as_label);
     
     panel->play_as_dropdown = gtk_drop_down_new_from_strings((const char*[]){"White", "Black", "Random", NULL});
-    gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->play_as_dropdown), 0); // Default to White
+    
+    // Apply Play As from Config
+    if (cfg->play_as >= 0 && cfg->play_as <= 2) {
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->play_as_dropdown), cfg->play_as);
+        // Logic side will be set by reset_game(), but we can pre-set it roughly here if needed
+        // reset_game() handles it properly.
+    } else {
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->play_as_dropdown), 0);
+    }
+
     gtk_widget_set_hexpand(panel->play_as_dropdown, FALSE);
     g_signal_connect(panel->play_as_dropdown, "notify::selected", G_CALLBACK(on_play_as_changed), panel);
     gtk_box_append(GTK_BOX(settings_section), panel->play_as_dropdown);
@@ -1284,7 +1351,8 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     
     // Enable Animations checkbox
     panel->enable_animations_check = gtk_check_button_new_with_label("Enable Animations");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(panel->enable_animations_check), TRUE);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(panel->enable_animations_check), cfg->enable_animations);
+    board_widget_set_animations_enabled(panel->board_widget, cfg->enable_animations);
     g_signal_connect(panel->enable_animations_check, "toggled", G_CALLBACK(on_animations_toggled), panel);
     gtk_box_append(GTK_BOX(visual_section), panel->enable_animations_check);
     
@@ -1294,13 +1362,16 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_box_append(GTK_BOX(visual_section), hints_label);
     
     panel->hints_dropdown = gtk_drop_down_new_from_strings((const char*[]){"Dots", "Squares", NULL});
-    gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->hints_dropdown), 0); // Default to Dots
+    // 0=Dots, 1=Squares. Valid: hints_dots=true -> 0. hints_dots=false -> 1.
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->hints_dropdown), cfg->hints_dots ? 0 : 1); 
+    board_widget_set_hints_mode(panel->board_widget, cfg->hints_dots);
     g_signal_connect(panel->hints_dropdown, "notify::selected", G_CALLBACK(on_hints_mode_changed), panel);
     gtk_box_append(GTK_BOX(visual_section), panel->hints_dropdown);
     
     // Enable SFX
     panel->enable_sfx_check = gtk_check_button_new_with_label("Enable SFX");
-    gtk_check_button_set_active(GTK_CHECK_BUTTON(panel->enable_sfx_check), TRUE);
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(panel->enable_sfx_check), cfg->enable_sfx);
+    sound_engine_set_enabled(cfg->enable_sfx ? 1 : 0);
     g_signal_connect(panel->enable_sfx_check, "toggled", G_CALLBACK(on_sfx_toggled), panel);
     gtk_box_append(GTK_BOX(visual_section), panel->enable_sfx_check);
     
@@ -1650,6 +1721,20 @@ void info_panel_update_tutorial_info(GtkWidget* info_panel, const char* instruct
 
     if (instruction) gtk_label_set_text(GTK_LABEL(panel->tutorial_ui.instruction_label), instruction);
     if (learning_objective) gtk_label_set_text(GTK_LABEL(panel->tutorial_ui.learning_label), learning_objective);
+}
+
+void info_panel_set_tutorial_callbacks(GtkWidget* info_panel, GCallback on_reset, GCallback on_exit, gpointer user_data) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (!panel) return;
+
+    if (on_reset) {
+        g_signal_handlers_disconnect_by_func(panel->tutorial_ui.reset_btn, on_reset, user_data);
+        g_signal_connect(panel->tutorial_ui.reset_btn, "clicked", on_reset, user_data);
+    }
+    if (on_exit) {
+        g_signal_handlers_disconnect_by_func(panel->tutorial_ui.exit_btn, on_exit, user_data);
+        g_signal_connect(panel->tutorial_ui.exit_btn, "clicked", on_exit, user_data);
+    }
 }
 
 void info_panel_set_puzzle_list_callback(GtkWidget* info_panel, GCallback on_selected, gpointer user_data) {

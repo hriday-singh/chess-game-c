@@ -144,6 +144,137 @@ static const AppTheme SYSTEM_THEMES[] = {
             "#FF6B6B",
             "#2F2450", "#24324A"
         }
+    },
+    // Theme E - Slate Rose
+    {
+        .theme_id = "theme_e_slate_rose", .display_name = "Slate Rose",
+        .light = {
+            "#F7F7FA", "#111827", "#FFFFFF", "#FFFFFF", "#FFFFFF",
+            "#E11D48", "#FFFFFF",
+            "#15803D", "#15803D", "#FFFFFF", "#116C32",
+            "#EF4444", "#FFFFFF", "#DC2626",
+            "#D7DAE3", "#6B7280", "#111827", "#FFFFFF", "#F1F3F8", "#E7EAF3",
+            "#B91C1C",
+            "#F6E7EE", "#E7F0FF"
+        },
+        .dark = {
+            "#101218", "#E5E7EB", "#151824", "#1B2131", "#0F131D",
+            "#FB7185", "#1F2937",
+            "#22C55E", "#86EFAC", "#08110C", "#16A34A",
+            "#FF5A6A", "#0B1220", "#E54B5A",
+            "#2A3142", "#A1A1AA", "#000000", "#FFFFFF", "#1B2131", "#242C41",
+            "#FF6B6B",
+            "#3A2030", "#1E2A4A"
+        }
+    },
+    // Theme F - Ocean Mist
+    {
+        .theme_id = "theme_f_ocean_mist", .display_name = "Ocean Mist",
+        .light = {
+            "#F5FAFC", "#0F172A", "#FFFFFF", "#FFFFFF", "#FFFFFF",
+            "#0284C7", "#FFFFFF",
+            "#16A34A", "#166534", "#FFFFFF", "#15803D",
+            "#EF4444", "#FFFFFF", "#DC2626",
+            "#D6DEE6", "#64748B", "#0B1220", "#FFFFFF", "#EEF6FB", "#E2EEF8",
+            "#B91C1C",
+            "#E6F2FF", "#E7F0FF"
+        },
+        .dark = {
+            "#0A1014", "#E5E7EB", "#101A20", "#15232C", "#0B1318",
+            "#7DD3FC", "#08202A",
+            "#22C55E", "#86EFAC", "#08110C", "#16A34A",
+            "#FF5A6A", "#0B1220", "#E54B5A",
+            "#22313A", "#A1A1AA", "#000000", "#FFFFFF", "#15232C", "#1D3140",
+            "#FF6B6B",
+            "#14324A", "#1B2B3B"
+        }
+    },
+    // Theme G - Forest Amber
+    {
+        .theme_id = "theme_g_forest_amber", .display_name = "Forest Amber",
+        .light = {
+            "#FAFAF7", "#0F172A", "#FFFFFF", "#FFFFFF", "#FFFFFF",
+            "#F59E0B", "#111827",
+            "#15803D", "#166534", "#FFFFFF", "#116C32",
+            "#EF4444", "#FFFFFF", "#DC2626",
+            "#DDDCCF", "#6B7280", "#111827", "#FFFFFF", "#F5F3EE", "#EDE8DD",
+            "#B91C1C",
+            "#F3EBD7", "#E6F2FF"
+        },
+        .dark = {
+            "#0D100C", "#E5E7EB", "#131A12", "#182418", "#0F1510",
+            "#FCD34D", "#1F2937",
+            "#22C55E", "#86EFAC", "#08110C", "#16A34A",
+            "#FF5A6A", "#0B1220", "#E54B5A",
+            "#263225", "#A1A1AA", "#000000", "#FFFFFF", "#182418", "#223223",
+            "#FF6B6B",
+            "#2B2A1C", "#1E2A22"
+        }
+    },
+    // Theme H - Graphite Lime
+    {
+        .theme_id = "theme_h_graphite_lime", .display_name = "Graphite Lime",
+        .light = {
+            "#F7F7F7", "#111827", "#FFFFFF", "#FFFFFF", "#FFFFFF",
+            "#84CC16", "#111827",
+            "#16A34A", "#166534", "#FFFFFF", "#15803D",
+            "#EF4444", "#FFFFFF", "#DC2626",
+            "#D6D6D6", "#6B7280", "#111827", "#FFFFFF", "#F1F3F5", "#E6EAEE",
+            "#B91C1C",
+            "#EEF6D8", "#E7F0FF"
+        },
+        .dark = {
+            "#0E0F10", "#E5E7EB", "#141617", "#1A1D1F", "#0E1113",
+            "#C7F9A6", "#0B1220",
+            "#22C55E", "#86EFAC", "#08110C", "#16A34A",
+            "#FF5A6A", "#0B1220", "#E54B5A",
+            "#2A2D30", "#A1A1AA", "#000000", "#FFFFFF", "#1A1D1F", "#23282B",
+            "#FF6B6B",
+            "#2A3A1A", "#1F2A33"
+        }
+    },
+    // Theme I - Sand Cobalt
+    {
+        .theme_id = "theme_i_sand_cobalt", .display_name = "Sand Cobalt",
+        .light = {
+            "#FBFAF7", "#111827", "#FFFFFF", "#FFFFFF", "#FFFFFF",
+            "#1D4ED8", "#FFFFFF",
+            "#15803D", "#166534", "#FFFFFF", "#116C32",
+            "#EF4444", "#FFFFFF", "#DC2626",
+            "#E0DDD3", "#6B7280", "#111827", "#FFFFFF", "#F5F2EA", "#ECE7DB",
+            "#B91C1C",
+            "#F2E9D9", "#E7F0FF"
+        },
+        .dark = {
+            "#0F0F12", "#E5E7EB", "#16161B", "#1C1C25", "#12121A",
+            "#89B4FF", "#0B1220",
+            "#22C55E", "#86EFAC", "#08110C", "#16A34A",
+            "#FF5A6A", "#0B1220", "#E54B5A",
+            "#2B2B38", "#A1A1AA", "#000000", "#FFFFFF", "#1C1C25", "#252533",
+            "#FF6B6B",
+            "#2D2452", "#1E2E52"
+        }
+    },
+    {
+        .theme_id = "theme_j_sage_ash", .display_name = "Sage Ash",
+        .light = {
+            "#F7F8F6", "#1F2937", "#FFFFFF", "#FFFFFF", "#FFFFFF",
+            "#5D6658", "#FFFFFF",
+            "#4D6B57", "#4D6B57", "#FFFFFF", "#415E4B",
+            "#E24C4B", "#FFFFFF", "#C83F3E",
+            "#D6D9D2", "#6B7280", "#1F2937", "#FFFFFF", "#EEF1EC", "#E3E8E0",
+            "#B91C1C",
+            "#E7EAE3", "#DDE3DC"
+        },
+        .dark = {
+            "#121411", "#E5E7EB", "#171A16", "#1E221C", "#141712",
+            "#7A8575", "#0F172A",
+            "#6FA287", "#9AD3B3", "#0B1410", "#5C8E76",
+            "#FF6B6B", "#0F172A", "#E25757",
+            "#2A2F28", "#A1A1AA", "#000000", "#FFFFFF", "#1E221C", "#262B24",
+            "#FF8A8A",
+            "#2A3028", "#323A30"
+        }
     }
 };
 

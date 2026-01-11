@@ -24,7 +24,7 @@ GAME_OBJECTS = $(GAME_SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 GUI_SOURCES = $(wildcard $(GUIDIR)/*.c)
 # Exclude icon_test.c, and test_svg_loader.c from main GUI build
 # test_svg_loader.c is a standalone test program
-GUI_SOURCES := $(filter-out $(GUIDIR)/icon_test.c $(GUIDIR)/test_svg_loader.c, $(GUI_SOURCES))
+GUI_SOURCES := $(filter-out $(GUIDIR)/icon_test.c $(GUIDIR)/test_svg_loader.c $(GUIDIR)/test_focus_chain.c, $(GUI_SOURCES))
 GUI_OBJECTS = $(GUI_SOURCES:$(GUIDIR)/%.c=$(OBJDIR)/gui_%.o)
 
 # Stockfish sources (exclude main.cpp)
@@ -184,84 +184,6 @@ test-suite: $(TEST_SUITE_TARGET)
 	@echo "Running full test suite..."
 	./$(TEST_SUITE_TARGET)
 
-# Where MSYS2 MinGW64 binaries live (DLLs)
-MINGW_PREFIX := $(shell pkg-config --variable=prefix gtk4 2>/dev/null)
-MINGW_BIN    := $(MINGW_PREFIX)/bin
-
-# Robust Standalone Distribution
-DIST_DIR = $(BUILDDIR)/standalone
-
-# Helper to copy DLLs using ldd
-define copy_deps
-	@echo "Scanning and copying DLL dependencies..."
-	@ldd "$(1)" | grep -iE "\/mingw64\/bin\/.*\.dll|\/usr\/bin\/.*\.dll" | awk '{print $$3}' | sort -u | while read dll; do \
-		if [ -f "$$dll" ]; then \
-			cp -Wu "$$dll" "$(2)/"; \
-			echo "  [DLL] $$(basename "$$dll")"; \
-		fi; \
-	done
-endef
-
-copy-dlls: $(GUI_TARGET)
-	@mkdir -p "$(DIST_DIR)"
-	$(call copy_deps,$(GUI_TARGET),$(DIST_DIR))
-.PHONY: copy-dlls
-
-standalone: $(GUI_TARGET)
-	@echo "========================================"
-	@echo "Creating Standalone Release: $(DIST_DIR)"
-	@echo "========================================"
-	
-	@# 1. Clean and Create Directory
-	@rm -rf $(DIST_DIR)
-	@mkdir -p $(DIST_DIR)
-	
-	@# 2. Copy Executable
-	@echo "-> Copying executable..."
-	@cp $(GUI_TARGET) $(DIST_DIR)/
-	
-	@# 3. Copy Assets (Recursively)
-	@echo "-> Copying assets/ directory..."
-	@mkdir -p $(DIST_DIR)/assets
-	@cp -r assets/* $(DIST_DIR)/assets/
-	
-	@# 4. Copy Icon (if exists outside assets)
-	@if [ -f icon.png ]; then cp icon.png $(DIST_DIR)/; fi
-	
-	@# 5. Copy DLLs
-	$(call copy_deps,$(GUI_TARGET),$(DIST_DIR))
-	
-	@# 6. Setup GDK Pixbuf Loaders (Required for images)
-	@echo "-> Setting up GDK Pixbuf loaders..."
-	@PIXBUF_DIR="$$(pkg-config --variable=gdk_pixbuf_moduledir gdk-pixbuf-2.0 2>/dev/null)"; \
-	PIXBUF_QUERY="$$(pkg-config --variable=gdk_pixbuf_query_loaders gdk-pixbuf-2.0 2>/dev/null)"; \
-	if [ -d "$$PIXBUF_DIR" ]; then \
-		mkdir -p "$(DIST_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders"; \
-		cp -r "$$PIXBUF_DIR/"*.dll "$(DIST_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders/" 2>/dev/null || true; \
-		if [ -x "$$PIXBUF_QUERY" ]; then \
-			"$$PIXBUF_QUERY" > "$(DIST_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"; \
-			sed -i 's|.*/lib/|lib/|g' "$(DIST_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"; \
-		fi; \
-	fi
-	
-	@# 7. Setup GLib Schemas (Required for GTK settings)
-	@echo "-> Copying GLib schemas..."
-	@SCHEMAS_DIR="$$(pkg-config --variable=prefix glib-2.0 2>/dev/null)/share/glib-2.0/schemas"; \
-	if [ -d "$$SCHEMAS_DIR" ]; then \
-		mkdir -p "$(DIST_DIR)/share/glib-2.0/schemas"; \
-		cp "$$SCHEMAS_DIR/gschemas.compiled" "$(DIST_DIR)/share/glib-2.0/schemas/" 2>/dev/null || true; \
-	fi
-	
-	@# 8. Create Run Script (Sets up environment variables for portability)
-	@echo "-> Creating run_gui.bat..."
-	@printf "@echo off\r\nsetlocal\r\nset \"DIR=%%~dp0\"\r\nset \"PATH=%%DIR%%;%%PATH%%\"\r\nset \"GDK_PIXBUF_MODULE_FILE=%%DIR%%lib\\gdk-pixbuf-2.0\\2.10.0\\loaders.cache\"\r\nset \"GSETTINGS_SCHEMA_DIR=%%DIR%%share\\glib-2.0\\schemas\"\r\nstart \"\" \"%%DIR%%chessgame_gui.exe\"\r\n" > "$(DIST_DIR)/run_gui.bat"
-	
-	@echo "========================================"
-	@echo "Standalone build complete!"
-	@echo "Location: $(DIST_DIR)"
-	@echo "Run: double-click 'run_gui.bat' inside that folder."
-	@echo "========================================"
-
 # Build only GUI (skip tests)
 gui: $(GUI_TARGET)
 
@@ -276,5 +198,16 @@ test-svg: $(SVG_TEST_TARGET)
 	@echo "SVG test built: $(SVG_TEST_TARGET)"
 	@echo "Run with: ./$(SVG_TEST_TARGET) assets/images/piece/alpha/wN.svg"
 
+# Focus Chain Test
+FOCUS_TEST_TARGET = $(BUILDDIR)/test_focus_chain.exe
+
+$(FOCUS_TEST_TARGET): $(GUIDIR)/test_focus_chain.c $(GUIDIR)/gui_utils.c | $(BUILDDIR)
+	@echo "Building Focus Chain Test..."
+	$(CC) $(CFLAGS) $(GTK_CFLAGS) -I$(GUIDIR) $^ -o $@ $(GTK_LIBS)
+
+test-focus: $(FOCUS_TEST_TARGET)
+	@echo "Running Focus Chain Test..."
+	./$(FOCUS_TEST_TARGET)
+
 # Phony targets
-.PHONY: all all-tests clean test test-suite standalone gui test-svg
+.PHONY: all all-tests clean test test-suite gui test-svg test-focus

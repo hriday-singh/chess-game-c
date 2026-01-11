@@ -20,6 +20,8 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+static bool debug_mode = false;
+
 // Board widget state
 typedef struct {
     GameLogic* logic;
@@ -111,7 +113,7 @@ static BoardWidget* find_board_data(GtkWidget* widget) {
 }
 
 // Play appropriate sound for a move (non-blocking, lightweight)
-static void play_move_sound(BoardWidget* board, Move* move, bool skipStandardSound) {
+static void play_move_sound(BoardWidget* board, Move* move) {
     if (!board || !move || !board->logic) return;
     
     // Check game end states first (highest priority)
@@ -121,8 +123,10 @@ static void play_move_sound(BoardWidget* board, Move* move, bool skipStandardSou
         Player winner = gamelogic_is_checkmate(board->logic, PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
         if (winner == board->logic->playerSide) {
             sound_engine_play(SOUND_WIN);
+            if (debug_mode) printf("[DEBUG] Playing win sound\n");
         } else {
             sound_engine_play(SOUND_DEFEAT);
+            if (debug_mode) printf("[DEBUG] Playing defeat sound\n");
         }
         return;
     }
@@ -130,24 +134,27 @@ static void play_move_sound(BoardWidget* board, Move* move, bool skipStandardSou
     if (gamelogic_is_stalemate(board->logic, PLAYER_WHITE) || 
         gamelogic_is_stalemate(board->logic, PLAYER_BLACK)) {
         sound_engine_play(SOUND_DRAW);
+        if (debug_mode) printf("[DEBUG] Playing draw sound\n");
         return;
     }
     
-    // Check for check (after move, check the opponent)
-    Player opponent = (board->logic->turn == PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
-    if (gamelogic_is_in_check(board->logic, opponent)) {
+    if (gamelogic_is_in_check(board->logic, PLAYER_WHITE) || gamelogic_is_in_check(board->logic, PLAYER_BLACK)) {
         sound_engine_play(SOUND_CHECK);
+        if (debug_mode) printf("[DEBUG] Playing check sound\n");
         return;
     }
     
     // Check move type
     if (move->isCastling) {
         sound_engine_play(SOUND_CASTLES);
+        if (debug_mode) printf("[DEBUG] Playing castling sound\n");
     } else if (move->promotionPiece != NO_PROMOTION) {
         sound_engine_play(SOUND_PROMOTION);
+        if (debug_mode) printf("[DEBUG] Playing promotion sound\n");
     } else if (move->capturedPiece != NULL || move->isEnPassant) {
         sound_engine_play(SOUND_CAPTURE);
-    } else if (!skipStandardSound) {
+        if (debug_mode) printf("[DEBUG] Playing capture sound\n");
+    } else {
         // Regular move - play immediately (unless skipped because it was already played delayed)
         // In Puzzle Mode, the main logic handles sounds (Success/Failure), so don't play default move sound
         if (board->logic->gameMode != GAME_MODE_PUZZLE) {
@@ -159,8 +166,10 @@ static void play_move_sound(BoardWidget* board, Move* move, bool skipStandardSou
              // Check if the mover is a computer
              if (gamelogic_is_computer(board->logic, mover)) {
                  sound_engine_play(SOUND_MOVE_OPPONENT);
+                 if (debug_mode) printf("[DEBUG] Playing move sound for opponent\n");
              } else {
                  sound_engine_play(SOUND_MOVE);
+                 if (debug_mode) printf("[DEBUG] Playing move sound for player\n");
              }
         }
     }
@@ -205,7 +214,7 @@ static bool is_last_move_square(BoardWidget* board, int r, int c) {
 }
 
 // Centralized move execution helper
-static void execute_move_with_updates(BoardWidget* board, Move* move, bool playStandardSound) {
+static void execute_move_with_updates(BoardWidget* board, Move* move) {
     if (!board || !move) return;
     
     // 1. Update Game Logic
@@ -215,14 +224,7 @@ static void execute_move_with_updates(BoardWidget* board, Move* move, bool playS
     // 2. Play Sound (if enabled)
     // IMPORTANT: Play sound AFTER move so we can detect check/checkmate
     if (board->theme && sound_engine_is_enabled()) {
-        if (playStandardSound) {
-            // Standard move sound (delayed only for animation start, but here we are executing)
-             play_move_sound(board, move, false); // false = DON'T skip standard sound
-        } else {
-             // If standard sound was skipped (e.g. played via delay), 
-             // we STILL need to check for Capture/Check/Checkmate overrides!
-             play_move_sound(board, move, true); // true = SKIP standard sound (only play special)
-        }
+        play_move_sound(board, move);
     }
     
     // 3. Refresh Board
@@ -908,8 +910,7 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
                     gtk_widget_set_visible(board->animOverlay, FALSE);
                 }
                 
-                // USE CENTRALIZED HELPER (Standard sound OK for drag drop)
-                execute_move_with_updates(board, moveToMake, true);
+                execute_move_with_updates(board, moveToMake);
                 
                 move_free(moveToMake);
                 return; 
@@ -1081,15 +1082,7 @@ static gboolean animation_tick(gpointer user_data) {
         
         // Execute the move using centralized helper
         Move* move = board->animatingMove;
-        
-        // USE CENTRALIZED HELPER
-        // We always request standard sound here.
-        // play_move_sound will intelligently determine which sound to play:
-        // - if Check/Mate/Win/Draw -> Special Sound
-        // - if Capture/Castle/Promo -> Special Sound
-        // - Else -> Standard Move Sound
-        // This prevents double sounds.
-        execute_move_with_updates(board, move, true);
+        execute_move_with_updates(board, move);
         
         move_free(move);
         board->animatingMove = NULL;
@@ -1147,8 +1140,7 @@ static void animate_move(BoardWidget* board, Move* move, void (*on_finished)(voi
     
     if (!board->animationsEnabled) {
         // No animation - execute immediately
-                // USE CENTRALIZED HELPER (Standard sound OK)
-                execute_move_with_updates(board, move, true);
+        execute_move_with_updates(board, move);
         move_free(move);
         return;
     }

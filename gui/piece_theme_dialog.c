@@ -41,12 +41,12 @@ static void print_memory_usage() {
 #define DEFAULT_BLACK_STROKE_WIDTH 0.1
 
 // Manually set default option here
-const char* DEFAULT_STARTUP_PIECE_THEME = "alpha";
+const char* DEFAULT_STARTUP_PIECE_THEME = "caliente";
 
 // Piece set information
 typedef struct {
-    char* name;  // Folder name (e.g., "alfonso", "alpha")
-    char* display_name;  // Display name (capitalized, e.g., "Alfonso")
+    char* name;  // Folder name (e.g., "alfonso", "alpha", "caliente")
+    char* display_name;  // Display name (capitalized, e.g., "Alfonso", "Alpha", "Caliente")
 } PieceSetInfo;
 
 struct PieceThemeDialog {

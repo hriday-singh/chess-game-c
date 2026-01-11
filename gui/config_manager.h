@@ -4,14 +4,21 @@
 #include <stdbool.h>
 
 // Define defaults
-#define DEFAULT_THEME "default"
-#define DEFAULT_DARK_MODE false
+#define DEFAULT_THEME "theme_b_emerald"
+#define DEFAULT_DARK_MODE true
 
 typedef struct {
     // General
     bool show_tutorial_dialog;
     bool is_dark_mode;
     char theme[64]; // Theme ID (e.g. "theme_d_mocha_gold")
+    
+    // Game Settings
+    int game_mode;      // 0:PVP, 1:PVC, 2:CVC
+    int play_as;        // 0:White, 1:Black, 2:Random
+    bool hints_dots;    // true: dots, false: squares
+    bool enable_animations;
+    bool enable_sfx;
     
     // AI - Internal
     int int_elo;
