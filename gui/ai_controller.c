@@ -5,7 +5,7 @@
 #include "move.h"
 #include <stdbool.h>
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 struct _AiController {
     GameLogic* logic;
@@ -34,7 +34,24 @@ struct _AiController {
     
     // State to avoid unnecessary engine restarts
     bool analysis_is_custom;
-    char* analysis_custom_path; 
+    char* analysis_custom_path;
+    char last_analysis_fen[256]; 
+    
+    // Thread management
+    GThread* analysis_thread;
+    
+    // Rating Baseline
+    double eval_before_move;
+    bool rating_scan_active;
+    
+    // Throttling
+    gint64 last_dispatch_time;
+    int last_dispatch_score;
+    bool last_dispatch_mate;
+    
+    // Safety
+    bool destroyed;
+    guint64 think_gen;
 };
 
 typedef struct {
@@ -48,6 +65,8 @@ typedef struct {
 // Thread-safe UI update
 static gboolean dispatch_eval_update(gpointer user_data) {
     AiDispatchData* data = (AiDispatchData*)user_data;
+    if (!data) return FALSE;
+    
     AiController* ctrl = data->controller;
     
     // Check validity
@@ -57,70 +76,57 @@ static gboolean dispatch_eval_update(gpointer user_data) {
         return FALSE;
     }
     
+    if (ctrl->destroyed) {
+        g_free(data->best_move);
+        g_free(data);
+        return FALSE;
+    }
+    
+    // Critical Guard: Live Analysis Enabled?
     AppConfig* cfg = config_get();
     if (!cfg || !cfg->enable_live_analysis) {
         g_free(data->best_move);
         g_free(data);
         return FALSE;
     }
-
+    
+    // Prepare stats
     AiStats stats = {0};
     stats.score = data->score;
     stats.is_mate = data->is_mate;
     stats.mate_distance = data->mate_distance;
-    stats.best_move = data->best_move;
-
-    double evaluation = (double)data->score / 100.0;
     
-    // Rating Logic
-    if (ctrl->rating_pending && cfg->show_move_rating) {
-        int count = gamelogic_get_move_count(ctrl->logic);
-        stats.move_number = count - 1;
-        double loss = 0;
-        if (count % 2 == 1) { // White just moved
-            loss = ctrl->last_eval - evaluation;
-        } else if (count > 0) { // Black just moved
-            loss = evaluation - ctrl->last_eval;
-        }
-
-        const char* rating = "Good";
-        const char* reason = NULL;
-
-        if (loss > 3.0) { rating = "Blunder"; reason = "Lost major advantage"; }
-        else if (loss > 1.5) { rating = "Mistake"; reason = "Poor strategy"; }
-        else if (loss > 0.6) { rating = "Inaccuracy"; }
-        else if (loss < 0.1) { rating = "Best"; }
-
-        if (data->is_mate && abs(data->mate_distance) <= 5) reason = "Allowed mate threat";
-        
-        int w_h = gamelogic_count_hanging_pieces(ctrl->logic, PLAYER_WHITE);
-        int b_h = gamelogic_count_hanging_pieces(ctrl->logic, PLAYER_BLACK);
-        if ((count % 2 == 1 && w_h > 0) || (count % 2 == 0 && b_h > 0)) {
-            reason = "Hung piece";
-        }
-
-        stats.rating_label = rating;
-        stats.rating_reason = reason;
-        
-        ctrl->rating_pending = false;
+    // Safety: Duplicate string for the callback to own/use violently if it wants
+    // Then we free our own copy regardless.
+    if (data->best_move) {
+        stats.best_move = g_strdup(data->best_move);
     }
-    ctrl->last_eval = evaluation;
-
-    // Hanging Pieces
-    if (cfg->show_hanging_pieces) {
+    
+    // Hanging Pieces (only if enabled)
+    if (cfg && cfg->show_hanging_pieces && ctrl->logic) {
         stats.white_hanging = gamelogic_count_hanging_pieces(ctrl->logic, PLAYER_WHITE);
         stats.black_hanging = gamelogic_count_hanging_pieces(ctrl->logic, PLAYER_BLACK);
     }
-
-    // Dispatch via callback
+    
+    // Rating Logic
     if (ctrl->eval_cb) {
+        // Apply Feature Toggles
+        if (cfg && !cfg->show_mate_warning) {
+             stats.is_mate = false;
+             stats.mate_distance = 0;
+        }
+        
         ctrl->eval_cb(&stats, ctrl->eval_cb_data);
     }
     
-    g_free(data->best_move);
+    // Cleanup
+    g_free((char*)stats.best_move); // Free the copy we made for the callback
+    g_free(data->best_move); // Free the original from thread
     g_free(data);
+    
     return FALSE;
 }
+
 
 typedef struct {
     AiController* controller;
@@ -131,6 +137,7 @@ typedef struct {
     bool nnue_enabled;
     AiMoveReadyCallback callback;
     gpointer user_data;
+    guint64 gen;
 } AiTaskData;
 
 typedef struct {
@@ -139,13 +146,26 @@ typedef struct {
     char* bestmove;
     AiMoveReadyCallback callback;
     gpointer user_data;
+    guint64 gen;
 } AiResultData;
 
 static int g_ai_move_delay_ms = 250;
 
 static gboolean apply_ai_move_idle(gpointer user_data) {
     AiResultData* result = (AiResultData*)user_data;
+    if (!result) return FALSE;
+    
     AiController* controller = result->controller;
+    
+    // Safety Guard
+    if (!controller || controller->destroyed || !controller->logic) {
+        goto cleanup;
+    }
+    
+    // Generation Guard (Stale result check)
+    if (result->gen != controller->think_gen) {
+        goto cleanup;
+    }
     
     char current_fen[256];
     gamelogic_generate_fen(controller->logic, current_fen, sizeof(current_fen));
@@ -157,6 +177,12 @@ static gboolean apply_ai_move_idle(gpointer user_data) {
 
     if (result->bestmove) {
         const char* move_ptr = result->bestmove;
+        
+        if (strcmp(move_ptr, "(none)") == 0 || strcmp(move_ptr, "0000") == 0) {
+            controller->ai_thinking = false;
+            goto cleanup;
+        }
+
         if (strlen(move_ptr) >= 4) {
             int c1 = move_ptr[0] - 'a', r1 = 8 - (move_ptr[1] - '0');
             int c2 = move_ptr[2] - 'a', r2 = 8 - (move_ptr[3] - '0');
@@ -172,6 +198,8 @@ static gboolean apply_ai_move_idle(gpointer user_data) {
             controller->ai_thinking = false;
             if (result->callback) {
                 result->callback(m, result->user_data);
+            } else {
+                move_free(m); 
             }
         }
     } else {
@@ -189,7 +217,7 @@ static gpointer ai_think_thread(gpointer user_data) {
     AiTaskData* data = (AiTaskData*)user_data;
     AiController* controller = data->controller;
     
-    ai_engine_send_command(data->engine, "ucinewgame");
+    // ai_engine_send_command(data->engine, "ucinewgame"); // Optimization: Removed per user request
     
     char pos_cmd[512];
     snprintf(pos_cmd, sizeof(pos_cmd), "position fen %s", data->fen);
@@ -198,6 +226,7 @@ static gpointer ai_think_thread(gpointer user_data) {
     if (data->nnue_enabled && data->nnue_path) {
         ai_engine_set_option(data->engine, "Use NNUE", "true");
         ai_engine_set_option(data->engine, "EvalFile", data->nnue_path);
+        ai_engine_send_command(data->engine, "isready"); // Ensure options applied
     }
     
     char go_cmd[128];
@@ -212,6 +241,15 @@ static gpointer ai_think_thread(gpointer user_data) {
 
     char* bestmove_str = ai_engine_wait_for_bestmove(data->engine);
     
+    // Stale result check (optimization)
+    if (!controller || controller->destroyed || data->gen != controller->think_gen) {
+        if (bestmove_str) ai_engine_free_response(bestmove_str);
+        g_free(data->fen);
+        if (data->nnue_path) g_free(data->nnue_path);
+        g_free(data);
+        return NULL;
+    }
+    
     if (bestmove_str && strlen(bestmove_str) > 9) {
         AiResultData* result = g_new0(AiResultData, 1);
         result->controller = controller;
@@ -219,6 +257,7 @@ static gpointer ai_think_thread(gpointer user_data) {
         result->bestmove = g_strdup(bestmove_str + 9);
         result->callback = data->callback;
         result->user_data = data->user_data;
+        result->gen = data->gen;
         
         ai_engine_free_response(bestmove_str);
         if (data->nnue_path) g_free(data->nnue_path);
@@ -226,8 +265,10 @@ static gpointer ai_think_thread(gpointer user_data) {
         
         g_timeout_add(g_ai_move_delay_ms, apply_ai_move_idle, result);
     } else {
-        controller->ai_thinking = false;
-        ai_engine_free_response(bestmove_str);
+        if (controller && !controller->destroyed && data->gen == controller->think_gen) {
+             controller->ai_thinking = false;
+        }
+        if (bestmove_str) ai_engine_free_response(bestmove_str);
         g_free(data->fen);
         if (data->nnue_path) g_free(data->nnue_path);
         g_free(data);
@@ -236,53 +277,70 @@ static gpointer ai_think_thread(gpointer user_data) {
     return NULL;
 }
 
-static void parse_info_line(AiController* controller, const char* line) {
-    if (!line) return;
+static void parse_info_line(AiController* controller, char* line) {
+    if (!controller || !line) return;
     
-    // Search for "score cp" or "score mate"
-    const char* score_ptr = strstr(line, "score ");
-    if (score_ptr) {
-        score_ptr += 6; // skip "score "
-        if (strncmp(score_ptr, "cp ", 3) == 0) {
-            controller->last_score = atoi(score_ptr + 3);
-            controller->last_is_mate = false;
-            controller->last_mate_distance = 0;
-        } else if (strncmp(score_ptr, "mate ", 5) == 0) {
-            controller->last_mate_distance = atoi(score_ptr + 5);
-            controller->last_score = (controller->last_mate_distance > 0) ? 30000 : -30000;
-            controller->last_is_mate = true;
-        }
-        
-        // Search for PV (Principal Variation) for best move
-        char last_pv[16] = "";
-        const char* pv_ptr = strstr(line, " pv ");
-        if (pv_ptr) {
-            pv_ptr += 4; // skip " pv "
-            int i = 0;
-            while (pv_ptr[i] && pv_ptr[i] != ' ' && i < 15) {
-                last_pv[i] = pv_ptr[i];
-                i++;
-            }
-            last_pv[i] = '\0';
-        }
-
-        if (last_pv[0] != '\0') {
-             // We could store best move if needed
-        }
-
-        // Dispatch to main thread
-        AiDispatchData* dispatch = g_new0(AiDispatchData, 1);
-        dispatch->controller = controller;
-        dispatch->score = controller->last_score;
-        dispatch->is_mate = controller->last_is_mate;
-        dispatch->mate_distance = controller->last_mate_distance;
-        dispatch->best_move = (last_pv[0] != '\0') ? g_strdup(last_pv) : NULL;
-        
-        if (debug_mode) printf("[AI Controller] Parsed Info: Score=%d, Mate=%d, BestMove=%s\n", 
-                      controller->last_score, controller->last_mate_distance, last_pv);
-        
-        g_idle_add(dispatch_eval_update, dispatch);
+    // Standard UCI parsing: "info score cp 50 mate 0 pv e2e4 ..."
+    int score = 0;
+    bool is_mate = false;
+    int mate_dist = 0;
+    char best_move[32] = {0};
+    bool found_score = false;
+    
+    char* p;
+    // Simple manual parsing to avoid strict tok checks
+    if ((p = strstr(line, "score cp"))) {
+        sscanf(p + 9, "%d", &score);
+        found_score = true;
+    } else if ((p = strstr(line, "score mate"))) {
+        sscanf(p + 11, "%d", &mate_dist);
+        is_mate = true;
+        // Fix: Set large score for mate
+        score = (mate_dist > 0) ? 30000 : -30000;
+        found_score = true;
     }
+    
+    if (found_score) {
+        if ((p = strstr(line, " pv "))) {
+             char* m = p + 4;
+             int i = 0;
+             while (*m && *m != ' ' && i < 31) {
+                 best_move[i++] = *m++;
+             }
+             best_move[i] = '\0';
+        }
+    }
+    
+    if (!found_score) return;
+    
+    // --- Throttling Logic ---
+    gint64 now = g_get_monotonic_time();
+    bool urgent = false;
+    
+    if (is_mate != controller->last_dispatch_mate) urgent = true;
+    if (!urgent && abs(score - controller->last_dispatch_score) > 15) urgent = true;
+    
+    // 200ms throttle
+    if (!urgent && (now - controller->last_dispatch_time) < 200000) {
+        return; 
+    }
+    
+    // Dispatch
+    controller->last_dispatch_time = now;
+    controller->last_dispatch_score = score;
+    controller->last_dispatch_mate = is_mate;
+    controller->last_score = score; // Sync for other threads/accessors
+    controller->last_is_mate = is_mate;
+    controller->last_mate_distance = mate_dist;
+    
+    AiDispatchData* data = g_new0(AiDispatchData, 1);
+    data->controller = controller;
+    data->score = score;
+    data->is_mate = is_mate;
+    data->mate_distance = mate_dist;
+    if (best_move[0]) data->best_move = g_strdup(best_move);
+    
+    g_idle_add(dispatch_eval_update, data);
 }
 
 static gpointer ai_analysis_thread(gpointer user_data) {
@@ -294,10 +352,15 @@ static gpointer ai_analysis_thread(gpointer user_data) {
             continue;
         }
         
+        if (!controller->analysis_engine) {
+            g_usleep(50000); 
+            continue; 
+        }
+        
         char* response = ai_engine_try_get_response(controller->analysis_engine);
         if (response) {
             // Debug every line
-            if (debug_mode) printf("[AI Thread] Piped: %s", response); 
+            // if (debug_mode) printf("[AI Thread] Piped: %s", response); 
 
             if (strncmp(response, "info ", 5) == 0) {
                 parse_info_line(controller, response);
@@ -311,20 +374,58 @@ static gpointer ai_analysis_thread(gpointer user_data) {
     return NULL;
 }
 
+static void on_ai_settings_changed(void* user_data) {
+    AiController* controller = (AiController*)user_data;
+    if (!controller) return;
+    
+    AppConfig* cfg = config_get();
+    if (cfg && cfg->enable_live_analysis) {
+        // Safe restart/update
+        ai_controller_start_analysis(controller, cfg->analysis_use_custom, cfg->custom_engine_path);
+    } else {
+        ai_controller_stop_analysis(controller, true); // Clean release
+    }
+}
+
+// Constructor
 AiController* ai_controller_new(GameLogic* logic, AiDialog* ai_dialog) {
-    AiController* ctrl = g_new0(AiController, 1);
-    ctrl->logic = logic;
-    ctrl->ai_dialog = ai_dialog;
-    return ctrl;
+    if (!logic || !ai_dialog) return NULL;
+    
+    AiController* controller = g_new0(AiController, 1);
+    controller->logic = logic;
+    controller->ai_dialog = ai_dialog;
+    
+    // Listen for changes
+    ai_dialog_set_settings_changed_callback(ai_dialog, on_ai_settings_changed, controller);
+    
+    // Init values
+    controller->last_dispatch_score = 999999;
+    
+    return controller;
 }
 
 void ai_controller_free(AiController* controller) {
     if (!controller) return;
-    controller->analysis_running = false;
-    if (controller->internal_engine) ai_engine_cleanup(controller->internal_engine);
-    if (controller->custom_engine) ai_engine_cleanup(controller->custom_engine);
-    if (controller->analysis_engine) ai_engine_cleanup(controller->analysis_engine);
+    
+    controller->destroyed = true; // Mark as destroying to prevent callbacks
+    
+    // Safety: Stop threads first!
+    ai_controller_stop(controller); // Stops move thinking
+    ai_controller_stop_analysis(controller, true); // Stops analysis AND cleans up engine
+    
+    // internal_engine and custom_engine are independent from analysis_engine now
+    if (controller->internal_engine) {
+        ai_engine_cleanup(controller->internal_engine);
+    }
+    
+    if (controller->custom_engine) {
+        ai_engine_cleanup(controller->custom_engine);
+    }
+    
+    // analysis_engine was cleaned up by stop_analysis(..., true)
+    
     if (controller->analysis_custom_path) g_free(controller->analysis_custom_path);
+    
     g_free(controller);
 }
 
@@ -361,6 +462,7 @@ void ai_controller_request_move(AiController* controller,
     }
     
     controller->ai_thinking = true;
+    controller->think_gen++;
     
     AiTaskData* data = g_new0(AiTaskData, 1);
     data->controller = controller;
@@ -369,6 +471,7 @@ void ai_controller_request_move(AiController* controller,
     data->engine = engine;
     data->callback = callback;
     data->user_data = user_data;
+    data->gen = controller->think_gen;
     
     // Check NNUE settings from dialog
     bool nnue_enabled = false;
@@ -376,98 +479,154 @@ void ai_controller_request_move(AiController* controller,
     if (nn_path) data->nnue_path = g_strdup(nn_path);
     data->nnue_enabled = nnue_enabled;
     
-    g_thread_new("ai-think", ai_think_thread, data);
+    // Start Thread
+    // controller->ai_thinking = true; // Removed redundant assignment
+    GThread* thread = g_thread_new("ai-think", ai_think_thread, data);
+    g_thread_unref(thread);
 }
 
 void ai_controller_stop(AiController* controller) {
-    if (controller->ai_thinking) {
-        if (controller->internal_engine) ai_engine_send_command(controller->internal_engine, "stop");
-        if (controller->custom_engine) ai_engine_send_command(controller->custom_engine, "stop");
-    }
+    if (!controller) return;
+    
+    controller->think_gen++; // Always invalidate pending results
+    
+    if (controller->internal_engine) ai_engine_send_command(controller->internal_engine, "stop");
+    if (controller->custom_engine) ai_engine_send_command(controller->custom_engine, "stop");
+    
+    controller->ai_thinking = false;
 }
 
 #include "config_manager.h"
 
 // Analysis Controls
+// Start continuous analysis (Independent Engine Instance)
 bool ai_controller_start_analysis(AiController* controller, bool use_custom, const char* custom_path) {
+    if (!controller) return false;
+    
+    // 0. Guard: Configuration Check
     AppConfig* cfg = config_get();
-    if (!cfg || !cfg->enable_live_analysis) return false;
-
-    // Check if we can reuse the existing engine
-    if (debug_mode) printf("[AI Controller] Start Analysis. UseCustom=%d, Path=%s\n", use_custom, custom_path ? custom_path : "NULL");
-    bool reuse_engine = false;
-    if (controller->analysis_engine && controller->analysis_running) {
-        if (use_custom == controller->analysis_is_custom) {
-            if (!use_custom) {
-                reuse_engine = true; // Internal stays internal
-            } else if (custom_path && controller->analysis_custom_path && 
-                       strcmp(custom_path, controller->analysis_custom_path) == 0) {
-                reuse_engine = true; // Same custom engine path
-            }
+    if (!cfg || !cfg->enable_live_analysis) {
+        if (controller->analysis_running) {
+            ai_controller_stop_analysis(controller, true); // Always free on disable
         }
+        return false;
     }
 
-    if (reuse_engine) {
-        // Just stop calculation but keep process alive
-        ai_engine_send_command(controller->analysis_engine, "stop");
-    } else {
-        // Full restart needed
-        if (controller->analysis_running) {
-            ai_controller_stop_analysis(controller);
-        }
+    // 1. Validate inputs
+    if (use_custom && (!custom_path || strlen(custom_path) == 0)) {
+        return false; 
+    }
     
-        if (use_custom && custom_path) {
+    // 2. Generate Current FEN
+    char current_fen[256];
+    gamelogic_generate_fen(controller->logic, current_fen, 256);
+    
+    // 3. Check for Reuse Suitability
+    bool engine_exists = (controller->analysis_engine != NULL);
+    bool thread_active = (controller->analysis_thread != NULL);
+    bool type_match = (use_custom == controller->analysis_is_custom);
+    bool path_match = true;
+    
+    // Fix: Strict path match logic
+    if (use_custom) {
+        path_match = (controller->analysis_custom_path && strcmp(custom_path, controller->analysis_custom_path) == 0);
+    } else {
+        path_match = true; // Internal engine always matches internal request
+    }
+    
+    bool can_reuse_engine = (engine_exists && thread_active && type_match && path_match);
+    
+    // 4. Check for Position Match (Optimization)
+    if (can_reuse_engine) {
+        if (strcmp(controller->last_analysis_fen, current_fen) == 0 && controller->analysis_running) {
+             return true; // Exact match, do nothing
+        }
+    }
+    
+    // 5. Initialize Engine (if reuse not possible)
+    if (!can_reuse_engine) {
+        // Strict Stop & Free if we are switching engines
+        // If we are just restarting the same engine (e.g. thread died?), we might want to keep it?
+        // But here !can_reuse mostly means type/path mismatch or no engine.
+        // If engine exists but thread dead, we should restart thread but maybe reuse engine?
+        // Simplicity: if not fully reusable, kill it and start fresh.
+        // This ensures no state contamination.
+        
+        if (engine_exists || controller->analysis_running) {
+             ai_controller_stop_analysis(controller, true); // Free the old engine
+        }
+        
+        // Start New Independent Instance
+        if (use_custom) {
             controller->analysis_engine = ai_engine_init_external(custom_path);
-            if (controller->analysis_custom_path) g_free(controller->analysis_custom_path);
-            controller->analysis_custom_path = g_strdup(custom_path);
-            controller->analysis_is_custom = true;
         } else {
             controller->analysis_engine = ai_engine_init_internal();
-            controller->analysis_is_custom = false;
         }
         
         if (!controller->analysis_engine) return false;
         
-        // Initial setup for new engine
+        // Init Commands
         ai_engine_send_command(controller->analysis_engine, "uci");
         ai_engine_send_command(controller->analysis_engine, "isready");
         ai_engine_send_command(controller->analysis_engine, "ucinewgame");
+        
+        // Update Metadata
+        controller->analysis_is_custom = use_custom;
+        if (controller->analysis_custom_path) g_free(controller->analysis_custom_path);
+        controller->analysis_custom_path = use_custom ? g_strdup(custom_path) : NULL;
+        
+        // Start Thread
+        controller->analysis_running = true;
+        controller->analysis_thread = g_thread_new("ai-analysis", ai_analysis_thread, controller);
+    } else {
+        // Reusing: ensure running
+        controller->analysis_running = true;
     }
+
+    // 6. Send Position
+    g_strlcpy(controller->last_analysis_fen, current_fen, 256);
     
-    controller->analysis_running = true;
-    
-    char fen[256];
-    gamelogic_generate_fen(controller->logic, fen, 256);
     char pos_cmd[512];
-    snprintf(pos_cmd, sizeof(pos_cmd), "position fen %s", fen);
-    ai_engine_send_command(controller->analysis_engine, pos_cmd);
+    snprintf(pos_cmd, sizeof(pos_cmd), "position fen %s", current_fen);
+    
+    ai_engine_send_command(controller->analysis_engine, "stop");
     ai_engine_send_command(controller->analysis_engine, pos_cmd);
     ai_engine_send_command(controller->analysis_engine, "go infinite");
     
-    if (debug_mode) printf("[AI Controller] Analysis started: %s\n", pos_cmd);
-    
-    // Only start thread if not already running (reusing engine doesn't kill thread, 
-    // BUT we need to be careful. ai_controller_stop_analysis sets analysis_running=false
-    // which exits the loop. So if we reuse, we must ensure loop continues or restart it.
-    // My previous logic for reuse: "Just stop calculation". 
-    // The thread 'ai_analysis_thread' loops on 'controller->analysis_running'.
-    // If we kept 'analysis_running=true', the thread is still alive.
-    // So we don't need to start a new thread.
-    
-    if (!reuse_engine) {
-        g_thread_new("ai-analysis", ai_analysis_thread, controller);
-    }
     return true;
 }
 
-void ai_controller_stop_analysis(AiController* controller) {
-    if (debug_mode) printf("[AI Controller] Analysis Stopped.\n");
+void ai_controller_stop_analysis(AiController* controller, bool free_engine) {
+    if (!controller) return;
+    
+    // Logical Stop
     controller->analysis_running = false;
+    
+    // Stop Command
     if (controller->analysis_engine) {
         ai_engine_send_command(controller->analysis_engine, "stop");
+    }
+    
+    // Join Thread
+    if (controller->analysis_thread) {
+        g_thread_join(controller->analysis_thread);
+        controller->analysis_thread = NULL;
+    }
+    
+    // Cleanup Engine if requested
+    if (free_engine && controller->analysis_engine) {
         ai_engine_cleanup(controller->analysis_engine);
         controller->analysis_engine = NULL;
+        
+        // Clear state to prevent stale reuse
+        controller->last_analysis_fen[0] = '\0';
+        controller->analysis_is_custom = false;
+        if (controller->analysis_custom_path) {
+            g_free(controller->analysis_custom_path);
+            controller->analysis_custom_path = NULL;
+        }
     }
+    // If not freeing, we leave controller->analysis_engine populated for potential reuse
 }
 
 void ai_controller_set_nnue(AiController* controller, bool enabled, const char* path) {

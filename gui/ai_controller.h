@@ -66,6 +66,6 @@ void ai_controller_set_rating_pending(AiController* controller, bool pending);
 
 // Analysis Control
 bool ai_controller_start_analysis(AiController* controller, bool use_custom, const char* custom_path);
-void ai_controller_stop_analysis(AiController* controller);
+void ai_controller_stop_analysis(AiController* controller, bool free_engine);
 
 #endif // AI_CONTROLLER_H

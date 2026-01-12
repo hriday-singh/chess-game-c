@@ -1,8 +1,5 @@
 #include "right_side_panel.h"
-#include <stdlib.h>
 #include <string.h>
-
-// Struct is now defined in the header for visibility/consistency
 
 typedef struct {
     RightSidePanel* panel;
@@ -214,6 +211,8 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     gtk_widget_add_css_class(panel->container, "right-side-panel-v4");
     gtk_widget_set_size_request(panel->container, 300, -1);
     gtk_widget_set_hexpand(panel->container, FALSE); // STRICT: Do not grow
+    gtk_widget_set_vexpand(panel->container, TRUE);  // Force vertical expansion
+    gtk_widget_set_valign(panel->container, GTK_ALIGN_FILL);
     
     // --- 1. Side Rail (Full Height) ---
     GtkWidget* rail_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
@@ -342,13 +341,15 @@ void right_side_panel_update_stats(RightSidePanel* panel, double evaluation, boo
     panel->current_eval = evaluation;
     panel->is_mate = is_mate;
     
-    char buf[32];
-    if (is_mate) {
-        snprintf(buf, sizeof(buf), "M%s", evaluation >= 0 ? "+" : "-"); 
-    } else {
-        snprintf(buf, sizeof(buf), "%s%.1f", evaluation >= 0 ? "+" : "", evaluation);
+    if (panel->eval_lbl && GTK_IS_LABEL(panel->eval_lbl)) {
+        char buf[32];
+        if (is_mate) {
+            snprintf(buf, sizeof(buf), "M%s", evaluation >= 0 ? "+" : "-"); 
+        } else {
+            snprintf(buf, sizeof(buf), "%s%.1f", evaluation >= 0 ? "+" : "", evaluation);
+        }
+        gtk_label_set_text(GTK_LABEL(panel->eval_lbl), buf);
     }
-    gtk_label_set_text(GTK_LABEL(panel->eval_lbl), buf);
     
     if (panel->adv_rail) {
         gtk_widget_queue_draw(panel->adv_rail);
@@ -356,7 +357,7 @@ void right_side_panel_update_stats(RightSidePanel* panel, double evaluation, boo
 }
 
 void right_side_panel_set_mate_warning(RightSidePanel* panel, int moves) {
-    if (!panel || !panel->mate_lbl) return;
+    if (!panel || !panel->mate_lbl || !GTK_IS_LABEL(panel->mate_lbl)) return;
     if (moves > 0) {
         char buf[32];
         snprintf(buf, sizeof(buf), "MATE IN %d", moves);
@@ -368,7 +369,7 @@ void right_side_panel_set_mate_warning(RightSidePanel* panel, int moves) {
 }
 
 void right_side_panel_set_hanging_pieces(RightSidePanel* panel, int white_count, int black_count) {
-    if (!panel || !panel->hanging_lbl) return;
+    if (!panel || !panel->hanging_lbl || !GTK_IS_LABEL(panel->hanging_lbl)) return;
     char buf[64];
     snprintf(buf, sizeof(buf), "HANGING\nWhite: %d   Black: %d", white_count, black_count);
     gtk_label_set_text(GTK_LABEL(panel->hanging_lbl), buf);
@@ -378,8 +379,13 @@ void right_side_panel_show_rating_toast(RightSidePanel* panel, const char* ratin
     if (!panel) return;
     
     panel->last_feedback_ply = ply_index;
-    gtk_label_set_text(GTK_LABEL(panel->feedback_rating_lbl), rating);
-    gtk_label_set_text(GTK_LABEL(panel->feedback_desc_lbl), reason ? reason : "Analyzing...");
+    
+    if (panel->feedback_rating_lbl && GTK_IS_LABEL(panel->feedback_rating_lbl)) {
+        gtk_label_set_text(GTK_LABEL(panel->feedback_rating_lbl), rating);
+    }
+    if (panel->feedback_desc_lbl && GTK_IS_LABEL(panel->feedback_desc_lbl)) {
+        gtk_label_set_text(GTK_LABEL(panel->feedback_desc_lbl), reason ? reason : "Analyzing...");
+    }
     
     // Clear old severity classes
     gtk_widget_remove_css_class(panel->feedback_zone, "feedback-best");

@@ -307,7 +307,7 @@ static void sync_live_analysis(AppState* state) {
     }
 
     if (!cfg || !cfg->enable_live_analysis || (state->logic && state->logic->isGameOver)) {
-        ai_controller_stop_analysis(state->ai_controller);
+        ai_controller_stop_analysis(state->ai_controller, false);
         return;
     }
     

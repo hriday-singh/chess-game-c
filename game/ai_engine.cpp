@@ -263,6 +263,7 @@ char* ai_engine_wait_for_bestmove(EngineHandle* handle) {
                 return line;
             }
             ai_engine_free_response(line);
+            continue; // Optimization: Don't sleep if we have data (drain queue fast)
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }

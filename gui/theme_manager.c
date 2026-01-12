@@ -614,10 +614,12 @@ static const char *CSS_STRUCTURAL =
     " .nav-btn-v4:hover { opacity: 1; background: alpha(@fg_color, 0.05); }"
     
     // --- HAL Chess Console (Right Panel) ---
-    ".right-side-panel-v2 { background: @panel_bg; border-left: 1px solid rgba(0,0,0,0.1); }\n"
+    ".main-col-v4 { background: @panel_bg; }\n"
+    ".right-side-panel-v4 { background: @panel_bg; border-left: 1px solid @border_color; }\n"
+    ".right-side-panel-v2 { background: @panel_bg; border-left: 1px solid @border_color; }\n"
     
     // 1. Live Summary Zone
-    ".analysis-summary-v2 { padding: 12px; background: rgba(0,0,0,0.02); }\n"
+    ".analysis-summary-v2 { padding: 12px; background: @bg_color; }\n"
     ".eval-text-hal { font-family: monospace; font-size: 20px; font-weight: 800; color: @fg_color; }\n"
     ".hanging-text-hal { font-size: 11px; color: @dim_label; text-transform: uppercase; letter-spacing: 0.5px; }\n"
     
