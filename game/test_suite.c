@@ -5,7 +5,6 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
-#include <ctype.h>
 
 // MoveList structure (matches gamelogic_movegen.c)
 typedef struct {

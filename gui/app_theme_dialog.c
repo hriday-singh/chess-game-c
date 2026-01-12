@@ -204,6 +204,16 @@ static GtkWidget* create_color_row(AppThemeDialog* dialog, const char* label, si
     return box;
 }
 
+// Helper to add header
+static void add_header(GtkWidget* container, const char* text) {
+    GtkWidget* h = gtk_label_new(text);
+    gtk_widget_set_halign(h, GTK_ALIGN_START);
+    gtk_widget_add_css_class(h, "heading");
+    gtk_widget_set_margin_top(h, 12);
+    gtk_widget_set_margin_bottom(h, 4);
+    gtk_box_append(GTK_BOX(container), h);
+}
+
 static void build_tab_content(AppThemeDialog* dialog, GtkWidget* container, bool is_dark) {
     GtkWidget* list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
     gtk_widget_set_margin_start(list, 10);
@@ -211,35 +221,25 @@ static void build_tab_content(AppThemeDialog* dialog, GtkWidget* container, bool
     gtk_widget_set_margin_top(list, 10);
     gtk_widget_set_margin_bottom(list, 10);
     
-    // Helper to add header
-    void add_header(const char* text) {
-        GtkWidget* h = gtk_label_new(text);
-        gtk_widget_set_halign(h, GTK_ALIGN_START);
-        gtk_widget_add_css_class(h, "heading");
-        gtk_widget_set_margin_top(h, 12);
-        gtk_widget_set_margin_bottom(h, 4);
-        gtk_box_append(GTK_BOX(list), h);
-    }
-    
     size_t count = sizeof(COLOR_FIELDS) / sizeof(COLOR_FIELDS[0]);
     for (size_t i = 0; i < count; i++) {
         // Insert Headers based on index ranges matching COLOR_FIELDS array
-        if (i == 0) add_header("Surfaces");
+        if (i == 0) add_header(list, "Surfaces");
         else if (i == 4) { // After Surfaces
             gtk_box_append(GTK_BOX(list), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-            add_header("Text & Typography");
+            add_header(list, "Text & Typography");
         }
         else if (i == 8) { // After Text
             gtk_box_append(GTK_BOX(list), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-            add_header("Borders");
+            add_header(list, "Borders");
         }
         else if (i == 9) { // After Borders
             gtk_box_append(GTK_BOX(list), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-            add_header("Accents");
+            add_header(list, "Accents");
         }
         else if (i == 18) { // After Accents
             gtk_box_append(GTK_BOX(list), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-            add_header("Components & Board");
+            add_header(list, "Components & Board");
         }
         
         GtkWidget* row = create_color_row(dialog, COLOR_FIELDS[i].label, COLOR_FIELDS[i].offset, is_dark);

@@ -3,7 +3,6 @@
 #include "theme_data.h"
 #include "../game/gamelogic.h"
 #include "../game/move.h"
-#include "../game/piece.h"
 #include "../game/types.h"
 #include "promotion_dialog.h"
 #include <gtk/gtk.h>
@@ -431,8 +430,9 @@ static void draw_square(GtkDrawingArea* area, cairo_t* cr, int width, int height
     bool hidePiece = false;
     if (board->isAnimating && board->animatingMove) {
         Move* move = board->animatingMove;
-        if ((r == move->startRow && c == move->startCol) ||
-            (r == move->endRow && c == move->endCol)) {
+        // Only hide the piece at the START position (the one moving)
+        // Ensure destination remains visible (e.g. for captures) until animation finishes/board updates
+        if (r == move->startRow && c == move->startCol) {
             hidePiece = true;
         }
     }
@@ -1146,6 +1146,13 @@ static void animate_move(BoardWidget* board, Move* move, void (*on_finished)(voi
     }
     
     board->isAnimating = true;
+    
+    // Cleanup previous move if it wasn't finished
+    if (board->animatingMove) {
+        move_free(board->animatingMove);
+        board->animatingMove = NULL;
+    }
+    
     board->animatingMove = move_copy(move); // Copy move for animation
     board->animProgress = 0.0;
     board->animStartTime = g_get_monotonic_time(); // Set start time for this animation

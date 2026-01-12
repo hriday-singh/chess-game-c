@@ -1,15 +1,11 @@
 #include "info_panel.h"
 #include "config_manager.h"
-#include "piece_symbols.h"
 #include "board_widget.h"
 #include "sound_engine.h"
 #include "gamelogic.h"
-#include "piece.h"
 #include <pango/pango.h>
 #include <glib.h>
-#include <string.h>
 #include <stdlib.h>
-#include "ai_engine.h"
 
 // Simple list for captured pieces
 typedef struct PieceTypeNode {
@@ -26,9 +22,6 @@ static PieceTypeList* piece_type_list_create(void) {
     PieceTypeList* list = (PieceTypeList*)calloc(1, sizeof(PieceTypeList));
     return list;
 }
-
-// Note: piece_type_list_add is defined in gamelogic.c and used by gamelogic_get_captured_pieces
-// We don't need it here since gamelogic_get_captured_pieces handles adding to the list
 
 static void piece_type_list_clear(PieceTypeList* list) {
     if (!list) return;
@@ -134,6 +127,10 @@ typedef struct {
     // Game reset callback to trigger AI
     GameResetCallback game_reset_callback;
     gpointer game_reset_callback_data;
+
+    // Undo callback to refresh analysis
+    UndoCallback undo_callback;
+    gpointer undo_callback_data;
 } InfoPanel;
 
 // Forward declarations
@@ -372,6 +369,7 @@ static void update_captured_pieces(InfoPanel* panel) {
 
 // Draw function for graveyard piece
 static void draw_graveyard_piece(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
+    if (!gtk_widget_get_realized(GTK_WIDGET(area)) || !gtk_widget_get_visible(GTK_WIDGET(area)) || width <= 1 || height <= 1) return;
     (void)area;
     // Data passed is [type, owner] encoded as int or struct
     // We'll pack it into a pointer: owner << 8 | type
@@ -413,6 +411,10 @@ static void draw_graveyard_piece(GtkDrawingArea* area, cairo_t* cr, int width, i
         if (!font_name) font_name = "Segoe UI Symbol, DejaVu Sans, Sans";
         
         PangoLayout* layout = pango_cairo_create_layout(cr);
+        if (!layout) {
+            cairo_restore(cr);
+            return;
+        }
         PangoFontDescription* desc = pango_font_description_new();
         pango_font_description_set_family(desc, font_name);
         pango_font_description_set_size(desc, (int)(height * 0.7 * PANGO_SCALE)); 
@@ -740,6 +742,11 @@ static void on_undo_clicked(GtkButton* button, gpointer user_data) {
     GtkWidget* info_panel_widget = gtk_widget_get_parent(panel->scroll_content);
     if (info_panel_widget) {
         info_panel_update_status(info_panel_widget);
+    }
+
+    // Trigger undo callback to refresh live analysis
+    if (panel->undo_callback) {
+        panel->undo_callback(panel->undo_callback_data);
     }
 }
 
@@ -1776,11 +1783,19 @@ void info_panel_set_sensitive(GtkWidget* info_panel, bool sensitive) {
 
 void info_panel_set_game_reset_callback(GtkWidget* info_panel, GameResetCallback callback, gpointer user_data) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
-    if (!panel) return;
-    panel->game_reset_callback = callback;
-    panel->game_reset_callback_data = user_data;
+    if (panel) {
+        panel->game_reset_callback = callback;
+        panel->game_reset_callback_data = user_data;
+    }
 }
 
+void info_panel_set_undo_callback(GtkWidget* info_panel, UndoCallback callback, gpointer user_data) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (panel) {
+        panel->undo_callback = callback;
+        panel->undo_callback_data = user_data;
+    }
+}
 // Puzzle List Management
 
 // Public wrapper to refresh graveyard (for theme updates)

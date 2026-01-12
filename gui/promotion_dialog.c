@@ -1,6 +1,5 @@
 #include "promotion_dialog.h"
-#include "piece_symbols.h"
-#include "../game/piece.h"
+#include "theme_data.h"
 #include "../game/types.h"
 #include <gtk/gtk.h>
 #include <pango/pango.h>
@@ -108,7 +107,7 @@ static void draw_piece_button(GtkDrawingArea* area, cairo_t* cr, int width, int 
          cairo_paint(cr);
     } else {
         // Fallback to text
-        const char* symbol = piece_symbols_get(type, owner);
+        const char* symbol = theme_data_get_piece_symbol(theme, type, owner);
         
         // Set up Cairo for crisp rendering
         cairo_set_antialias(cr, CAIRO_ANTIALIAS_GRAY);

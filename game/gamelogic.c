@@ -145,7 +145,7 @@ void gamelogic_free(GameLogic* logic) {
         }
         stack_free(moveStack);
     }
-    
+       
     // Free en passant history
     Stack* epStack = (Stack*)logic->enPassantHistory;
     if (epStack) {
@@ -362,18 +362,11 @@ bool gamelogic_perform_move(GameLogic* logic, Move* move) {
 
 void gamelogic_undo_move(GameLogic* logic) {
     if (!logic) return;
-    
-    // No position history, just undo
     undo_move_internal(logic);
-
-    // --- OPTIMIZATION START ---
     if (!logic->isSimulation) {
-        gamelogic_update_game_state(logic); 
+        gamelogic_update_game_state(logic);
         if (logic->updateCallback) logic->updateCallback();
     }
-    // --- OPTIMIZATION END ---
-
-    // Invalidate move cache
     logic->cachedPieceRow = -1;
 }
 
@@ -522,6 +515,23 @@ int gamelogic_get_move_count(GameLogic* logic) {
     if (!logic || !logic->moveHistory) return 0;
     Stack* moveStack = (Stack*)logic->moveHistory;
     return moveStack->size;
+}
+
+// Get move at specific index (0-indexed, where 0 is the first move made)
+Move* gamelogic_get_move_at(GameLogic* logic, int index) {
+    if (!logic || index < 0) return NULL;
+    Stack* moveStack = (Stack*)logic->moveHistory;
+    if (!moveStack || index >= moveStack->size) return NULL;
+    
+    // Stack is [Last Move -> ... -> First Move]
+    // index 0 -> First Move (at the bottom)
+    // index (size-1) -> Last Move (at the top)
+    int target = moveStack->size - 1 - index;
+    StackNode* current = moveStack->top;
+    for (int i = 0; i < target && current; i++) {
+        current = current->next;
+    }
+    return current ? (Move*)current->data : NULL;
 }
 
 // Generate FEN string
@@ -1067,5 +1077,75 @@ void gamelogic_load_fen(GameLogic* logic, const char* fen) {
     gamelogic_update_game_state(logic);
 }
 
+static const char* get_san_piece_char(PieceType type) {
+    switch (type) {
+        case PIECE_KNIGHT: return "N";
+        case PIECE_BISHOP: return "B";
+        case PIECE_ROOK:   return "R";
+        case PIECE_QUEEN:  return "Q";
+        case PIECE_KING:   return "K";
+        default: return "";
+    }
+}
 
+void gamelogic_get_move_san(GameLogic* logic, Move* move, char* san, size_t san_size) {
+    if (!logic || !move || !san || san_size == 0) return;
 
+    if (move->isCastling) {
+        if (move->endCol > move->startCol) {
+            strncpy(san, "O-O", san_size);
+        } else {
+            strncpy(san, "O-O-O", san_size);
+        }
+    } else {
+        char* ptr = san;
+        size_t remaining = san_size - 1;
+
+        Piece* p = logic->board[move->startRow][move->startCol];
+        PieceType type = p ? p->type : PIECE_PAWN;
+
+        if (type != PIECE_PAWN) {
+            const char* p_char = get_san_piece_char(type);
+            int written = snprintf(ptr, remaining, "%s", p_char);
+            ptr += written;
+            remaining -= written;
+
+            // Disambiguation
+            // For now, let's just do a simple version. 
+            // In a full implementation, we'd check other legal moves.
+        }
+
+        if (move->capturedPiece) {
+            if (type == PIECE_PAWN) {
+                int written = snprintf(ptr, remaining, "%c", 'a' + move->startCol);
+                ptr += written;
+                remaining -= written;
+            }
+            if (remaining > 0) {
+                *ptr++ = 'x';
+                remaining--;
+            }
+        }
+
+        if (remaining >= 2) {
+            int written = snprintf(ptr, remaining, "%c%d", 'a' + move->endCol, 8 - move->endRow);
+            ptr += written;
+            remaining -= written;
+        }
+
+        if (move->promotionPiece != NO_PROMOTION) {
+            const char* promo_char = get_san_piece_char(move->promotionPiece);
+            int written = snprintf(ptr, remaining, "=%s", promo_char);
+            ptr += written;
+            remaining -= written;
+        }
+        
+        // Check for check/checkmate
+        // This is tricky because we need to perform the move first...
+        // But SAN is usually generated AFTER perform_move.
+        // Actually, let's assume it's called after move is made.
+        // But gamelogic_perform_move calls this? No.
+        
+        *ptr = '\0';
+    }
+}

@@ -2,7 +2,6 @@
 #define APP_THEME_DIALOG_H
 
 #include <gtk/gtk.h>
-#include "app_theme.h"
 
 // Callback type (optional, generic)
 typedef void (*AppThemeUpdateCallback)(void* user_data);

@@ -2,7 +2,6 @@
 #define BOARD_WIDGET_H
 
 #include <gtk/gtk.h>
-#include "gamelogic.h"
 #include "theme_data.h"
 
 // Create a simple 8x8 board grid widget.

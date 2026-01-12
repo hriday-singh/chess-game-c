@@ -46,9 +46,23 @@ struct _AiDialog {
     GtkWidget* custom_elo_slider;
     GtkWidget* custom_elo_spin;
     
+    // --- Live Analysis Tab ---
+    GtkWidget* analysis_toggle;
+    GtkWidget* advantage_bar_toggle;
+    GtkWidget* mate_warning_toggle;
+    GtkWidget* hanging_pieces_toggle;
+    GtkWidget* move_rating_toggle;
+    GtkWidget* analysis_engine_internal;
+    GtkWidget* analysis_engine_custom;
+    GtkWidget* analysis_cust_hint;
+    GtkWidget* analysis_cust_connect_btn;
+    
     AiSettingsChangedCallback change_cb;
     void* change_cb_data;
 };
+
+// --- Forward Declarations ---
+static void sync_analysis_tab_sensitivity(AiDialog* dialog);
 
 // --- Callbacks ---
 
@@ -203,6 +217,7 @@ static void on_clear_path_clicked(GtkButton* btn, gpointer user_data) {
         gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->custom_adv_check), FALSE);
     }
     gtk_editable_set_text(GTK_EDITABLE(dialog->custom_path_entry), "");
+    sync_analysis_tab_sensitivity(dialog);
 }
 
 static void on_custom_path_changed(GtkEditable* editable, gpointer user_data) {
@@ -225,6 +240,7 @@ static void on_custom_path_changed(GtkEditable* editable, gpointer user_data) {
         dialog->is_custom_configured = false;
     }
     update_custom_controls_state(dialog);
+    sync_analysis_tab_sensitivity(dialog);
 }
 
 static void on_browse_finished(GObject* src, GAsyncResult* r, gpointer d) {
@@ -367,6 +383,61 @@ static gboolean on_close_request(GtkWindow* window, gpointer data) {
         gtk_window_present(dialog->parent_window);
     }
     return TRUE;
+}
+
+static void sync_analysis_tab_sensitivity(AiDialog* dialog) {
+    if (!dialog) return;
+
+    bool main_on = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->analysis_toggle));
+    
+    // 1. Child Toggles
+    gtk_widget_set_sensitive(dialog->advantage_bar_toggle, main_on);
+    gtk_widget_set_sensitive(dialog->mate_warning_toggle, main_on);
+    gtk_widget_set_sensitive(dialog->hanging_pieces_toggle, main_on);
+    gtk_widget_set_sensitive(dialog->move_rating_toggle, main_on);
+    gtk_widget_set_sensitive(dialog->analysis_engine_internal, main_on);
+    
+    // 2. Custom Engine Gating
+    const char* custom_path = gtk_editable_get_text(GTK_EDITABLE(dialog->custom_path_entry));
+    bool custom_avail = (custom_path && strlen(custom_path) > 0);
+    
+    gtk_widget_set_sensitive(dialog->analysis_engine_custom, main_on && custom_avail);
+    
+    // Fallback if custom becomes unavailable while selected
+    if (main_on && !custom_avail && gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->analysis_engine_custom))) {
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_engine_internal), TRUE);
+    }
+    
+    // 3. Hint & Connect Button
+    if (custom_avail) {
+        char buf[256];
+        char* basename = g_path_get_basename(custom_path);
+        snprintf(buf, sizeof(buf), "<span size='small'>Connected: %s</span>", basename);
+        gtk_label_set_markup(GTK_LABEL(dialog->analysis_cust_hint), buf);
+        g_free(basename);
+        if (gtk_widget_get_visible(dialog->analysis_cust_connect_btn))
+            gtk_widget_set_visible(dialog->analysis_cust_connect_btn, FALSE);
+    } else {
+        gtk_label_set_markup(GTK_LABEL(dialog->analysis_cust_hint), 
+            "<span size='small'>No custom engine connected. Configure it in the next tab.</span>");
+        if (gtk_widget_get_visible(dialog->analysis_cust_connect_btn) != main_on)
+            gtk_widget_set_visible(dialog->analysis_cust_connect_btn, main_on);
+    }
+    gtk_widget_set_opacity(dialog->analysis_cust_hint, 0.6);
+}
+
+static void on_analysis_toggle_toggled(GtkCheckButton* btn, gpointer user_data) {
+    (void)btn;
+    sync_analysis_tab_sensitivity((AiDialog*)user_data);
+}
+
+
+static void on_connect_btn_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn;
+    AiDialog* dialog = (AiDialog*)user_data;
+    // Jump to Custom Engine Tab (Index 1 usually, but let's check)
+    // 0: Internal, 1: Custom, 2: Analysis
+    gtk_notebook_set_current_page(GTK_NOTEBOOK(dialog->notebook), 1);
 }
 
 static void on_focus_lost_gesture(GtkGestureClick* gesture, int n_press, double x, double y, gpointer user_data) {
@@ -658,6 +729,72 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
 
     gtk_notebook_append_page(GTK_NOTEBOOK(dialog->notebook), cust_scroller, gtk_label_new("Custom Engine"));
 
+    // --- TAB 3: Live Analysis ---
+    GtkWidget* analysis_tab = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_add_css_class(analysis_tab, "settings-content");
+    gtk_widget_set_margin_top(analysis_tab, 24);
+    gtk_widget_set_margin_bottom(analysis_tab, 24);
+    gtk_widget_set_margin_start(analysis_tab, 24);
+    gtk_widget_set_margin_end(analysis_tab, 24);
+
+    GtkWidget* anal_header = gtk_label_new("Real-time Evaluation");
+    gtk_widget_add_css_class(anal_header, "heading");
+    gtk_widget_set_halign(anal_header, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(analysis_tab), anal_header);
+
+    dialog->analysis_toggle = gtk_check_button_new_with_label("Enable Live Analysis");
+    g_signal_connect(dialog->analysis_toggle, "toggled", G_CALLBACK(on_analysis_toggle_toggled), dialog);
+    gtk_box_append(GTK_BOX(analysis_tab), dialog->analysis_toggle);
+
+    gtk_box_append(GTK_BOX(analysis_tab), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    dialog->advantage_bar_toggle = gtk_check_button_new_with_label("Show Vertical Advantage Bar");
+    gtk_box_append(GTK_BOX(analysis_tab), dialog->advantage_bar_toggle);
+
+    dialog->mate_warning_toggle = gtk_check_button_new_with_label("Show Mate-in-X Warning Chip");
+    gtk_box_append(GTK_BOX(analysis_tab), dialog->mate_warning_toggle);
+
+    dialog->hanging_pieces_toggle = gtk_check_button_new_with_label("Show Hanging Pieces Counter");
+    gtk_box_append(GTK_BOX(analysis_tab), dialog->hanging_pieces_toggle);
+
+    dialog->move_rating_toggle = gtk_check_button_new_with_label("Show After-Move Rating Toast");
+    gtk_box_append(GTK_BOX(analysis_tab), dialog->move_rating_toggle);
+
+    GtkWidget* anal_instr = gtk_label_new("When enabled, the engine will analyze the current position in the background during your turn.");
+    gtk_label_set_wrap(GTK_LABEL(anal_instr), TRUE);
+    gtk_widget_set_opacity(anal_instr, 0.7);
+    gtk_box_append(GTK_BOX(analysis_tab), anal_instr);
+
+    gtk_box_append(GTK_BOX(analysis_tab), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
+    GtkWidget* engine_header = gtk_label_new("Analysis Engine");
+    gtk_widget_add_css_class(engine_header, "heading");
+    gtk_widget_set_halign(engine_header, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(analysis_tab), engine_header);
+
+    dialog->analysis_engine_internal = gtk_check_button_new_with_label("Internal Engine (Stockfish 17.1)");
+    gtk_box_append(GTK_BOX(analysis_tab), dialog->analysis_engine_internal);
+
+    dialog->analysis_engine_custom = gtk_check_button_new_with_label("Custom UCI Engine");
+    gtk_check_button_set_group(GTK_CHECK_BUTTON(dialog->analysis_engine_custom), GTK_CHECK_BUTTON(dialog->analysis_engine_internal));
+    gtk_box_append(GTK_BOX(analysis_tab), dialog->analysis_engine_custom);
+    
+    // Help label for custom
+    GtkWidget* hint_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    dialog->analysis_cust_hint = gtk_label_new("");
+    gtk_label_set_use_markup(GTK_LABEL(dialog->analysis_cust_hint), TRUE);
+    gtk_widget_set_halign(dialog->analysis_cust_hint, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(hint_hbox), dialog->analysis_cust_hint);
+
+    dialog->analysis_cust_connect_btn = gtk_button_new_with_label("Connect...");
+    gtk_widget_add_css_class(dialog->analysis_cust_connect_btn, "small-button");
+    g_signal_connect(dialog->analysis_cust_connect_btn, "clicked", G_CALLBACK(on_connect_btn_clicked), dialog);
+    gtk_box_append(GTK_BOX(hint_hbox), dialog->analysis_cust_connect_btn);
+    
+    gtk_box_append(GTK_BOX(analysis_tab), hint_hbox);
+
+    gtk_notebook_append_page(GTK_NOTEBOOK(dialog->notebook), analysis_tab, gtk_label_new("Analysis"));
+
     // Focus clearing gesture on main box
     GtkGesture* gesture = gtk_gesture_click_new();
     g_signal_connect(gesture, "pressed", G_CALLBACK(on_focus_lost_gesture), dialog->content_box);
@@ -866,6 +1003,21 @@ void ai_dialog_load_config(AiDialog* dialog, void* config_struct) {
     if (dialog->custom_time_spin) gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_time_spin), (double)cfg->custom_movetime);
     if (dialog->custom_adv_check) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->custom_adv_check), cfg->custom_is_advanced);
     if (dialog->custom_adv_vbox) gtk_widget_set_visible(dialog->custom_adv_vbox, cfg->custom_is_advanced);
+    
+    // Analysis
+    if (dialog->analysis_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_toggle), cfg->enable_live_analysis);
+    if (dialog->advantage_bar_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->advantage_bar_toggle), cfg->show_advantage_bar);
+    if (dialog->mate_warning_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->mate_warning_toggle), cfg->show_mate_warning);
+    if (dialog->hanging_pieces_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->hanging_pieces_toggle), cfg->show_hanging_pieces);
+    if (dialog->move_rating_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->move_rating_toggle), cfg->show_move_rating);
+    
+    if (cfg->analysis_use_custom) {
+        if (dialog->analysis_engine_custom) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_engine_custom), TRUE);
+    } else {
+        if (dialog->analysis_engine_internal) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_engine_internal), TRUE);
+    }
+
+    sync_analysis_tab_sensitivity(dialog);
 }
 
 void ai_dialog_save_config(AiDialog* dialog, void* config_struct) {
@@ -902,4 +1054,15 @@ void ai_dialog_save_config(AiDialog* dialog, void* config_struct) {
     if (dialog->custom_depth_spin) cfg->custom_depth = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->custom_depth_spin));
     if (dialog->custom_time_spin) cfg->custom_movetime = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->custom_time_spin));
     if (dialog->custom_adv_check) cfg->custom_is_advanced = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->custom_adv_check));
+
+    // Analysis
+    if (dialog->analysis_toggle) cfg->enable_live_analysis = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->analysis_toggle));
+    if (dialog->advantage_bar_toggle) cfg->show_advantage_bar = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->advantage_bar_toggle));
+    if (dialog->mate_warning_toggle) cfg->show_mate_warning = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->mate_warning_toggle));
+    if (dialog->hanging_pieces_toggle) cfg->show_hanging_pieces = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->hanging_pieces_toggle));
+    if (dialog->move_rating_toggle) cfg->show_move_rating = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->move_rating_toggle));
+    
+    if (dialog->analysis_engine_custom) {
+        cfg->analysis_use_custom = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->analysis_engine_custom));
+    }
 }

@@ -1,7 +1,6 @@
 #include "piece_theme_dialog.h"
 #include "theme_data.h"
 #include "../game/types.h"
-#include "../game/piece.h"
 #include <gtk/gtk.h>
 #include <gio/gio.h>
 #include <cairo.h>

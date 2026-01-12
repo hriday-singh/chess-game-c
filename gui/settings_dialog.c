@@ -28,12 +28,12 @@ static bool debug_mode = false;
 static void on_theme_update(void* user_data) {
     if (!user_data) return;
     AppState* app = (AppState*)user_data;
-    if (app && app->board) {
-        board_widget_refresh(app->board);
+    if (app && app->gui.board) {
+        board_widget_refresh(app->gui.board);
     }
     // Refresh graveyard (captured pieces) as they use theme assets
-    if (app && app->info_panel) {
-        info_panel_refresh_graveyard(app->info_panel);
+    if (app && app->gui.info_panel) {
+        info_panel_refresh_graveyard(app->gui.info_panel);
     }
 }
 
@@ -283,8 +283,8 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     gtk_window_set_title(dialog->window, "Settings");
     gtk_window_set_default_size(dialog->window, 850, 580);
     gtk_window_set_modal(dialog->window, TRUE);
-    if (app_state && app_state->window) {
-        gtk_window_set_transient_for(dialog->window, app_state->window);
+    if (app_state && app_state->gui.window) {
+        gtk_window_set_transient_for(dialog->window, app_state->gui.window);
     }
     
     // Auto-Focus Parent on Destroy
@@ -334,8 +334,8 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     
     // 2. AI Settings
     // Use the shared AI Dialog from AppState
-    if (app_state && app_state->ai_dialog) {
-        dialog->ai_dialog = app_state->ai_dialog;
+    if (app_state && app_state->gui.ai_dialog) {
+        dialog->ai_dialog = app_state->gui.ai_dialog;
         ai_dialog_set_parent_window(dialog->ai_dialog, dialog->window);
         GtkWidget* ai_widget = ai_dialog_get_widget(dialog->ai_dialog);
         
@@ -489,7 +489,7 @@ void settings_dialog_free(SettingsDialog* dialog) {
         settings_dialog_save_all(dialog);
         
         if (dialog->ai_dialog) {
-            if (dialog->app_state && dialog->ai_dialog == dialog->app_state->ai_dialog) {
+            if (dialog->app_state && dialog->ai_dialog == dialog->app_state->gui.ai_dialog) {
                 // Shared dialog: Prevent destruction handling by removing from stack if possible
                 if (debug_mode) printf("[Settings] Preserving shared ai_dialog\n");
                 GtkWidget* w = ai_dialog_get_widget(dialog->ai_dialog);

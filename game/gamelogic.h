@@ -73,6 +73,8 @@ bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player 
 
 // Get last move
 Move* gamelogic_get_last_move(GameLogic* logic);
+// Get move at specific index (0-indexed)
+Move* gamelogic_get_move_at(GameLogic* logic, int index);
 // Get total moves made
 int gamelogic_get_move_count(GameLogic* logic);
 
@@ -96,12 +98,16 @@ void gamelogic_update_game_state(GameLogic* logic);
 
 // Square safety check
 bool gamelogic_is_square_safe(GameLogic* logic, int r, int c, Player p);
+int gamelogic_count_hanging_pieces(GameLogic* logic, Player player);
 
 // Callbacks
 void gamelogic_set_callback(GameLogic* logic, void (*callback)(void));
 
 // Learning
 void gamelogic_handle_game_end_learning(GameLogic* logic, Player winner);
+
+// SAN generation
+void gamelogic_get_move_san(GameLogic* logic, Move* move, char* san, size_t san_size);
 
 #endif // GAMELOGIC_H
 

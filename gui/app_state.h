@@ -2,13 +2,10 @@
 #define APP_STATE_H
 
 #include <gtk/gtk.h>
-#include "gamelogic.h"
 #include "info_panel.h"
 #include "board_theme_dialog.h"
 #include "piece_theme_dialog.h"
 #include "ai_dialog.h"
-#include "ai_engine.h"
-// #include "types.h" // If needed
 
 // Tutorial Enums
 enum {
@@ -26,48 +23,59 @@ enum {
     TUT_DONE = 11
 };
 
-typedef struct AppState {
-    GameLogic* logic;
+typedef struct GuiState {
+    // Widgets
     GtkWidget* info_panel;
     GtkWidget* board;
     GtkWindow* window;
-    ThemeData* theme;
+    GtkWidget* tutorial_msg; 
+    GtkWidget* tutorial_exit_btn;
+    GtkWidget* onboarding_popover;
+    GtkWidget* header_right_panel_btn;
+
+    // Dialogs & Panels
     BoardThemeDialog* theme_dialog;
     PieceThemeDialog* piece_theme_dialog;
     AiDialog* ai_dialog;
     struct _SettingsDialog* settings_dialog;
+    struct _RightSidePanel* right_side_panel;
+} GuiState;
+
+typedef struct TutorialState {
+    int step; 
+    int next_step; // For delayed transition
+    gboolean message_shown; 
+    gboolean wait; // To prevent rapid progression
+} TutorialState;
+
+typedef struct PuzzleState {
+    int current_idx;
+    int move_idx;
+    int last_processed_move; // Track processed move count from game logic
+    gboolean wait; // Waiting for opponent response
+} PuzzleState;
+
+typedef struct AppState {
+    // Core Logic & Data
+    GameLogic* logic;
+    struct _AiController* ai_controller;
+    ThemeData* theme;
     
-    gboolean ai_thinking;
-    EngineHandle* internal_engine;
-    EngineHandle* custom_engine;
-    
+    // Sub-states
+    GuiState gui;
+    TutorialState tutorial;
+    PuzzleState puzzle;
+
+    // Session State
     CvCMatchState cvc_match_state;
-
-    // Tutorial State
-    int tutorial_step; 
-    
-    // Timers
-    guint settings_timer_id;
-    int tutorial_next_step; // For delayed transition
-    GtkWidget* tutorial_msg; 
-    GtkWidget* tutorial_exit_btn;
-    gboolean tutorial_message_shown; 
-    gboolean tutorial_wait; // To prevent rapid progression
-
-    // Puzzle State
-    int current_puzzle_idx;
-    int puzzle_move_idx;
-    int puzzle_last_processed_move; // Track processed move count from game logic
-    gboolean puzzle_wait; // Waiting for opponent response
-    
-    // Settings State
     char last_settings_page[32];
     
-    // Onboarding Timer (to cancel on destroy)
+    // Analysis/Rating State
+    int last_move_count;
+
+    // Timers
+    guint settings_timer_id;
     guint onboarding_timer_id;
-    GtkWidget* onboarding_popover;
-    
-    // AI Trigger Timer (to cancel on destroy)
     guint ai_trigger_id;
 } AppState;
 

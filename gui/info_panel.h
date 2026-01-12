@@ -2,8 +2,6 @@
 #define INFO_PANEL_H
 
 #include <gtk/gtk.h>
-#include "gamelogic.h"
-#include "board_widget.h"
 #include "theme_data.h"
 
 typedef enum {
@@ -56,6 +54,10 @@ void info_panel_set_game_mode(GtkWidget* info_panel, GameMode mode);
 // Callback for game reset/side change to trigger AI
 typedef void (*GameResetCallback)(gpointer user_data);
 void info_panel_set_game_reset_callback(GtkWidget* info_panel, GameResetCallback callback, gpointer user_data);
+
+// Callback for move undo
+typedef void (*UndoCallback)(gpointer user_data);
+void info_panel_set_undo_callback(GtkWidget* info_panel, UndoCallback callback, gpointer user_data);
 
 // Tutorial Mode Control
 void info_panel_set_tutorial_mode(GtkWidget* info_panel, bool enabled);

@@ -1,5 +1,4 @@
 #include "gamelogic.h"
-#include "piece.h"
 #include "move.h"
 #include <stdbool.h>
 #include <stdlib.h>
@@ -79,6 +78,29 @@ bool gamelogic_is_in_check(GameLogic* logic, Player player) {
     
     // Check if king's square is attacked
     return !gamelogic_is_square_safe(logic, kr, kc, player);
+}
+
+int gamelogic_count_hanging_pieces(GameLogic* logic, Player player) {
+    if (!logic) return 0;
+    int count = 0;
+    Player opp = get_opponent(player);
+    
+    for (int r = 0; r < 8; r++) {
+        for (int c = 0; c < 8; c++) {
+            Piece* p = logic->board[r][c];
+            if (p && p->owner == player && p->type != PIECE_KING) {
+                // Attacked by opponent
+                bool attacked = !gamelogic_is_square_safe(logic, r, c, player);
+                // Defended by own pieces (we check if it's "safe" for the opponent to land there)
+                bool defended = !gamelogic_is_square_safe(logic, r, c, opp);
+                
+                if (attacked && !defended) {
+                    count++;
+                }
+            }
+        }
+    }
+    return count;
 }
 
 // Simple move list for checking moves

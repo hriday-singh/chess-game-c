@@ -586,7 +586,81 @@ static const char *CSS_STRUCTURAL =
     "window.transparent-overlay > widget { background: transparent; }\n"
 
     /* -------------------- Dark Mode Button (Accent Mapping) -------------------- */
-    ".dark-mode-button { color: @accent_color; }\n";
+    ".dark-mode-button, .accent-color-proxy { color: @accent_color; }\n"
+
+    // --- HAL Chess Console (Right Panel) ---
+    // --- Right Side Panel v4 (HAL Console Rail Layout) ---
+    " .right-side-panel-v4 { border-left: 1px solid @border_color; background: @panel_bg; }"
+    " .adv-rail-box { background: alpha(@bg_color, 0.5); padding: 8px 0; border-radius: 50px; margin-left: 8px; }"
+    " .rail-side-label { font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 800; color: @dim_label; margin: 4px 0; }"
+    
+    " .pos-info-v4 { padding: 16px; }"
+    " .eval-text-v4 { font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 800; color: @fg_color; }"
+    " .mate-notice-v4 { background: alpha(@base_destructive_bg, 0.15); color: @base_destructive_bg; font-weight: 900; font-size: 11px; padding: 4px 8px; border-radius: 6px; margin-left: 12px; }"
+    " .hanging-text-v4 { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: @dim_label; font-weight: 600; }"
+    
+    " .feedback-zone-v4 { padding: 12px; margin: 12px; border-radius: 12px; border: 1px solid alpha(@border_color, 0.5); }"
+    " .feedback-rating-v4 { font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }"
+    " .feedback-desc-v4 { font-size: 13px; color: @fg_color; opacity: 0.9; }"
+    
+    " .feedback-best { background: alpha(@base_success_bg, 0.12); color: @base_success_bg; }"
+    " .feedback-blunder { background: alpha(@base_destructive_bg, 0.12); color: @base_destructive_bg; }"
+    " .feedback-mistake { background: rgba(230, 126, 34, 0.1); color: #e67e22; }" // Keeping mistake orange as it's often not in base themes
+    
+    " .history-header-v4 { padding: 8px 16px; font-size: 10px; font-weight: 800; text-transform: uppercase; color: @dim_label; letter-spacing: 1px; background: alpha(@fg_color, 0.02); border-top: 1px solid @border_color; }"
+    " .move-history-list-v4 { background: transparent; }"
+    " .nav-footer-v4 { padding: 10px; border-top: 1px solid @border_color; }"
+    " .nav-btn-v4 { border: none; background: transparent; opacity: 0.5; color: @fg_color; transition: opacity 0.2s; }"
+    " .nav-btn-v4:hover { opacity: 1; background: alpha(@fg_color, 0.05); }"
+    
+    // --- HAL Chess Console (Right Panel) ---
+    ".right-side-panel-v2 { background: @panel_bg; border-left: 1px solid rgba(0,0,0,0.1); }\n"
+    
+    // 1. Live Summary Zone
+    ".analysis-summary-v2 { padding: 12px; background: rgba(0,0,0,0.02); }\n"
+    ".eval-text-hal { font-family: monospace; font-size: 20px; font-weight: 800; color: @fg_color; }\n"
+    ".hanging-text-hal { font-size: 11px; color: @dim_label; text-transform: uppercase; letter-spacing: 0.5px; }\n"
+    
+    // 2. Feedback Zone
+    ".feedback-zone-v2 { padding: 12px; transition: background 0.3s ease; border-radius: 4px; margin: 4px 8px; }\n"
+    ".feedback-rating-hal { font-weight: 800; font-size: 13px; text-transform: uppercase; margin-bottom: 2px; }\n"
+    ".feedback-desc-hal { font-size: 12px; opacity: 0.9; line-height: 1.3; }\n"
+    
+    // Severity Tints (Subtle backgrounds)
+    ".feedback-best { background: rgba(39, 174, 96, 0.15); color: #27ae60; }\n"
+    ".feedback-good { background: rgba(46, 204, 113, 0.1); color: #2ecc71; }\n"
+    ".feedback-inaccuracy { background: rgba(241, 196, 15, 0.1); color: #f1c40f; }\n"
+    ".feedback-mistake { background: rgba(230, 126, 34, 0.1); color: #e67e22; }\n"
+    ".feedback-blunder { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }\n"
+    
+    // 3. Move History Zone
+    ".history-header-v2 { padding: 6px 12px; background: rgba(0,0,0,0.03); border-top: 1px solid rgba(0,0,0,0.05); border-bottom: 1px solid rgba(0,0,0,0.05); }\n"
+    ".history-header-v2 label { font-size: 10px; font-weight: 800; color: @dim_label; text-transform: uppercase; letter-spacing: 1px; }\n"
+    
+    ".move-history-row-v2 { border-bottom: 1px solid rgba(0,0,0,0.01); }\n"
+    ".move-number-v2 { min-width: 32px; padding: 6px 8px; color: @dim_label; font-size: 11px; background: rgba(0,0,0,0.01); border-right: 1px solid rgba(0,0,0,0.02); }\n"
+    ".move-cell-v2 { padding: 6px 8px; min-width: 75px; }\n"
+    ".move-cell-v2:hover { background: rgba(0,0,0,0.03); }\n"
+    
+    // --- Info Panel Refining ---
+    ".status-label-v2 { margin-bottom: 12px; padding: 6px 12px; border-radius: 12px; background: rgba(0,0,0,0.03); color: @fg_color; }\n"
+    ".capture-box-v2 { background: rgba(0,0,0,0.02); border-radius: 6px; padding: 4px; }\n"
+    ".capture-box-v2 flowboxchild { padding: 2px; transition: transform 0.1s ease; }\n"
+    ".capture-box-v2 flowboxchild:hover { transform: scale(1.1); }\n"
+    
+    ".move-history-list { background-color: transparent; padding-bottom: 12px; }\n"
+    ".move-history-row { padding: 0; border-bottom: none; transition: background 0.1s; }\n"
+    ".move-history-row:hover { background-color: alpha(@accent_color, 0.03); }\n"
+    ".move-number { color: @dim_label; font-weight: bold; padding: 4px 4px 4px 12px; min-width: 42px; font-size: 0.85rem; }\n"
+    ".move-cell { padding: 2px 4px; }\n"
+    ".move-text { font-family: system-ui, -apple-system, sans-serif; font-size: 0.92rem; font-weight: 600; padding: 4px 10px; border-radius: 4px; color: @fg_color; border: none; background: transparent; }\n"
+    ".move-text:hover { background-color: alpha(@accent_color, 0.08); }\n"
+    ".move-text.active { background-color: alpha(@accent_color, 0.15); color: @accent_color; font-weight: 800; }\n"
+    
+    ".nav-footer-v2 { padding: 4px; border-top: 1px solid rgba(0,0,0,0.05); background: rgba(0,0,0,0.01); }\n"
+    ".nav-btn-v2 { padding: 4px 8px; font-size: 1.1rem; background: transparent; border: none; opacity: 0.7; }\n"
+    ".nav-btn-v2:hover { opacity: 1.0; background: rgba(0,0,0,0.05); }\n"
+    ".nav-btn-v2:disabled { opacity: 0.2; }\n";
 
 
 static void update_provider(void) {

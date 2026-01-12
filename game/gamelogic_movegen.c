@@ -1,8 +1,6 @@
 #include "gamelogic.h"
 #include "move.h"
-#include "piece.h"
 #include <stdlib.h>
-#include <string.h>
 
 // Forward declarations
 static bool is_valid_pos(int r, int c);

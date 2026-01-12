@@ -73,6 +73,12 @@ static void set_defaults(void) {
     g_config.hints_dots = true; 
     g_config.enable_animations = true;
     g_config.enable_sfx = true;
+    g_config.enable_live_analysis = false;
+    g_config.show_advantage_bar = true;
+    g_config.show_mate_warning = true;
+    g_config.show_hanging_pieces = true;
+    g_config.show_move_rating = true;
+    g_config.analysis_use_custom = false;
     
     // AI - Internal
     g_config.int_elo = 1500;
@@ -162,6 +168,12 @@ static void parse_line(char* line) {
         else if (strcmp(key, "hints_dots") == 0) g_config.hints_dots = true;
         else if (strcmp(key, "enable_animations") == 0) g_config.enable_animations = true;
         else if (strcmp(key, "enable_sfx") == 0) g_config.enable_sfx = true;
+        else if (strcmp(key, "enable_live_analysis") == 0) g_config.enable_live_analysis = true;
+        else if (strcmp(key, "show_advantage_bar") == 0) g_config.show_advantage_bar = true;
+        else if (strcmp(key, "show_mate_warning") == 0) g_config.show_mate_warning = true;
+        else if (strcmp(key, "show_hanging_pieces") == 0) g_config.show_hanging_pieces = true;
+        else if (strcmp(key, "show_move_rating") == 0) g_config.show_move_rating = true;
+        else if (strcmp(key, "analysis_use_custom") == 0) g_config.analysis_use_custom = true;
     } 
     else if (strncmp(val_start, "false", 5) == 0) {
         if (strcmp(key, "is_dark_mode") == 0) g_config.is_dark_mode = false;
@@ -172,6 +184,12 @@ static void parse_line(char* line) {
         else if (strcmp(key, "hints_dots") == 0) g_config.hints_dots = false;
         else if (strcmp(key, "enable_animations") == 0) g_config.enable_animations = false;
         else if (strcmp(key, "enable_sfx") == 0) g_config.enable_sfx = false;
+        else if (strcmp(key, "enable_live_analysis") == 0) g_config.enable_live_analysis = false;
+        else if (strcmp(key, "show_advantage_bar") == 0) g_config.show_advantage_bar = false;
+        else if (strcmp(key, "show_mate_warning") == 0) g_config.show_mate_warning = false;
+        else if (strcmp(key, "show_hanging_pieces") == 0) g_config.show_hanging_pieces = false;
+        else if (strcmp(key, "show_move_rating") == 0) g_config.show_move_rating = false;
+        else if (strcmp(key, "analysis_use_custom") == 0) g_config.analysis_use_custom = false;
     }
     // NUMBERS
     else {
@@ -245,6 +263,12 @@ bool config_save(void) {
     fprintf(f, "    \"hints_dots\": %s,\n", g_config.hints_dots ? "true" : "false");
     fprintf(f, "    \"enable_animations\": %s,\n", g_config.enable_animations ? "true" : "false");
     fprintf(f, "    \"enable_sfx\": %s,\n", g_config.enable_sfx ? "true" : "false");
+    fprintf(f, "    \"enable_live_analysis\": %s,\n", g_config.enable_live_analysis ? "true" : "false");
+    fprintf(f, "    \"show_advantage_bar\": %s,\n", g_config.show_advantage_bar ? "true" : "false");
+    fprintf(f, "    \"show_mate_warning\": %s,\n", g_config.show_mate_warning ? "true" : "false");
+    fprintf(f, "    \"show_hanging_pieces\": %s,\n", g_config.show_hanging_pieces ? "true" : "false");
+    fprintf(f, "    \"show_move_rating\": %s,\n", g_config.show_move_rating ? "true" : "false");
+    fprintf(f, "    \"analysis_use_custom\": %s,\n", g_config.analysis_use_custom ? "true" : "false");
     
     fprintf(f, "    \"int_elo\": %d,\n", g_config.int_elo);
     fprintf(f, "    \"int_depth\": %d,\n", g_config.int_depth);

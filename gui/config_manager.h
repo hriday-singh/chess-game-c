@@ -19,6 +19,12 @@ typedef struct {
     bool hints_dots;    // true: dots, false: squares
     bool enable_animations;
     bool enable_sfx;
+    bool enable_live_analysis;
+    bool show_advantage_bar;
+    bool show_mate_warning;
+    bool show_hanging_pieces;
+    bool show_move_rating;
+    bool analysis_use_custom;
     
     // AI - Internal
     int int_elo;
