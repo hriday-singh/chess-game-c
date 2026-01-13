@@ -351,6 +351,12 @@ Move** gamelogic_get_valid_moves_for_piece(GameLogic* logic, int row, int col, i
         return NULL;
     }
     
+    // UI ARBITRATION: Don't show moves for pieces that aren't for the current turn
+    if (p->owner != logic->turn && !logic->isSimulation) {
+        if (count) *count = 0;
+        return NULL;
+    }
+    
     MoveList* pseudo = movelist_create();
     get_pseudo_moves(logic, row, col, p, pseudo);
     

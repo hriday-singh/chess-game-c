@@ -205,6 +205,14 @@ static gboolean apply_ai_move_idle(gpointer user_data) {
     } else {
         controller->ai_thinking = false;
     }
+    
+    // Restart analysis if it was running (and using shared engine, or just to update position)
+    if (controller->analysis_running) {
+        // Delay slightly to let things settle? No, just fire.
+        // We need to re-invoke start logic to send new position and 'go infinite'
+        // We use the cached settings
+        ai_controller_start_analysis(controller, controller->analysis_is_custom, controller->analysis_custom_path);
+    }
 
 cleanup:
     g_free(result->fen);
@@ -221,13 +229,31 @@ static gpointer ai_think_thread(gpointer user_data) {
     
     char pos_cmd[512];
     snprintf(pos_cmd, sizeof(pos_cmd), "position fen %s", data->fen);
-    ai_engine_send_command(data->engine, pos_cmd);
     
+    if (debug_mode) printf("[AI Thread] Engine Setup: FEN=%s\n", data->fen);
+
     if (data->nnue_enabled && data->nnue_path) {
         ai_engine_set_option(data->engine, "Use NNUE", "true");
         ai_engine_set_option(data->engine, "EvalFile", data->nnue_path);
-        ai_engine_send_command(data->engine, "isready"); // Ensure options applied
+        // ai_engine_send_command(data->engine, "isready"); // Ensure options applied
     }
+    
+    // Safety: If sharing engine with analysis, ensure analysis is stopped.
+    // AND DRAIN the output queue to ensure we don't pick up a stale bestmove from the analysis stop!
+    ai_engine_send_command(data->engine, "stop");
+    
+    if (debug_mode) printf("[AI Thread] Draining engine output...\n");
+    int drained = 0;
+    while (true) {
+        char* stale = ai_engine_try_get_response(data->engine);
+        if (!stale) break;
+        if (debug_mode && drained < 5) printf("[AI Thread] Drained stale: %s", stale);
+        drained++;
+        ai_engine_free_response(stale);
+    }
+    if (debug_mode && drained > 0) printf("[AI Thread] Drained %d stale messages.\n", drained);
+
+    ai_engine_send_command(data->engine, pos_cmd);
     
     char go_cmd[128];
     if (data->params.depth > 0) {
@@ -239,16 +265,24 @@ static gpointer ai_think_thread(gpointer user_data) {
     
     if (debug_mode) printf("[AI Thread] Thinking Command Sent: %s\n", go_cmd);
 
+    // Debug: Check if engine is still valid
+    if (controller && controller->destroyed) {
+         if (debug_mode) printf("[AI Thread] Controller destroyed immediately after send!\n");
+    }
+
     char* bestmove_str = ai_engine_wait_for_bestmove(data->engine);
     
     // Stale result check (optimization)
     if (!controller || controller->destroyed || data->gen != controller->think_gen) {
+        if (debug_mode) printf("[AI Thread] Result discarded: Stale generation (Data: %lu, Ctrl: %lu). Bestmove: %s\n", (unsigned long)data->gen, (unsigned long)(controller ? controller->think_gen : 0), bestmove_str ? bestmove_str : "NULL");
         if (bestmove_str) ai_engine_free_response(bestmove_str);
         g_free(data->fen);
         if (data->nnue_path) g_free(data->nnue_path);
         g_free(data);
         return NULL;
     }
+    
+    if (debug_mode) printf("[AI Thread] Received Bestmove for FEN '%s': %s\n", data->fen, bestmove_str ? bestmove_str : "NULL");
     
     if (bestmove_str && strlen(bestmove_str) > 9) {
         AiResultData* result = g_new0(AiResultData, 1);
@@ -360,7 +394,7 @@ static gpointer ai_analysis_thread(gpointer user_data) {
         char* response = ai_engine_try_get_response(controller->analysis_engine);
         if (response) {
             // Debug every line
-            // if (debug_mode) printf("[AI Thread] Piped: %s", response); 
+            // if (debug_mode) printf("[AI Analysis] Piped: %s", response);  
 
             if (strncmp(response, "info ", 5) == 0) {
                 parse_info_line(controller, response);
@@ -371,6 +405,7 @@ static gpointer ai_analysis_thread(gpointer user_data) {
         }
     }
     
+    if (debug_mode) printf("[AI Analysis] Thread exiting...\n");
     return NULL;
 }
 
@@ -461,6 +496,7 @@ void ai_controller_request_move(AiController* controller,
         return;
     }
     
+    // Set flag IMMEDIATELY to stop analysis thread from interfering
     controller->ai_thinking = true;
     controller->think_gen++;
     
@@ -501,6 +537,7 @@ void ai_controller_stop(AiController* controller) {
 // Analysis Controls
 // Start continuous analysis (Independent Engine Instance)
 bool ai_controller_start_analysis(AiController* controller, bool use_custom, const char* custom_path) {
+    if (debug_mode) printf("[AI Controller] Start Analysis Requested (Custom=%d)\n", use_custom);
     if (!controller) return false;
     
     // 0. Guard: Configuration Check
@@ -546,29 +583,39 @@ bool ai_controller_start_analysis(AiController* controller, bool use_custom, con
     // 5. Initialize Engine (if reuse not possible)
     if (!can_reuse_engine) {
         // Strict Stop & Free if we are switching engines
-        // If we are just restarting the same engine (e.g. thread died?), we might want to keep it?
-        // But here !can_reuse mostly means type/path mismatch or no engine.
-        // If engine exists but thread dead, we should restart thread but maybe reuse engine?
-        // Simplicity: if not fully reusable, kill it and start fresh.
-        // This ensures no state contamination.
         
         if (engine_exists || controller->analysis_running) {
              ai_controller_stop_analysis(controller, true); // Free the old engine
         }
         
-        // Start New Independent Instance
+        EngineHandle* new_engine = NULL;
+        
+        // Start New Instance OR Share Internal
         if (use_custom) {
-            controller->analysis_engine = ai_engine_init_external(custom_path);
+            new_engine = ai_engine_init_external(custom_path);
         } else {
-            controller->analysis_engine = ai_engine_init_internal();
+            // SHARED INTERNAL ENGINE LOGIC
+            if (!controller->internal_engine) {
+                controller->internal_engine = ai_engine_init_internal();
+            }
+            new_engine = controller->internal_engine;
         }
+        
+        controller->analysis_engine = new_engine;
         
         if (!controller->analysis_engine) return false;
         
         // Init Commands
+        // If shared, maybe don't reset? But ucinewgame is good.
+        // For internal, ucinewgame might clear hash?
+        // Let's send it.
+        if (use_custom || !controller->internal_engine) {
+             // Only if distinct? No, always init.
+        }
+        
         ai_engine_send_command(controller->analysis_engine, "uci");
-        ai_engine_send_command(controller->analysis_engine, "isready");
-        ai_engine_send_command(controller->analysis_engine, "ucinewgame");
+        // ai_engine_send_command(controller->analysis_engine, "isready");
+        // ai_engine_send_command(controller->analysis_engine, "ucinewgame");
         
         // Update Metadata
         controller->analysis_is_custom = use_custom;
@@ -593,6 +640,7 @@ bool ai_controller_start_analysis(AiController* controller, bool use_custom, con
     ai_engine_send_command(controller->analysis_engine, pos_cmd);
     ai_engine_send_command(controller->analysis_engine, "go infinite");
     
+    if (debug_mode) printf("[AI Controller] Analysis Started successfully.\n");
     return true;
 }
 
@@ -615,7 +663,16 @@ void ai_controller_stop_analysis(AiController* controller, bool free_engine) {
     
     // Cleanup Engine if requested
     if (free_engine && controller->analysis_engine) {
-        ai_engine_cleanup(controller->analysis_engine);
+        
+        // Shared Engine Guard: Don't free if it's the internal singleton
+        bool is_shared = (controller->analysis_engine == controller->internal_engine);
+        
+        if (!is_shared) {
+            ai_engine_cleanup(controller->analysis_engine);
+        } else {
+             if (debug_mode) printf("[AI Controller] Skipping cleanup of shared internal engine.\n");
+        }
+        
         controller->analysis_engine = NULL;
         
         // Clear state to prevent stale reuse

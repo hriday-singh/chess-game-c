@@ -234,14 +234,9 @@ static void execute_move_with_updates(BoardWidget* board, Move* move) {
     board->selectedCol = -1;
     free_valid_moves(board);
 
-    // 4. Trigger generic animation/move finished callback (for AI immediate response)
-    // Stored on the grid widget by main controller.
-    // We execute this AFTER the board update so the logic state is consistent for the AI.
-    GSourceFunc finish_cb = (GSourceFunc)g_object_get_data(G_OBJECT(board->grid), "anim-finish-cb");
-    gpointer finish_data = g_object_get_data(G_OBJECT(board->grid), "anim-finish-data");
-    if (finish_cb) {
-        finish_cb(finish_data);
-    }
+    // 4. Analysis and AI orchestration is now handled centrally via 
+    // the GameLogic update callback (update_ui_callback in main.c).
+    // The previous 'anim-finish-cb' is removed to avoid double-triggering.
 }
 
 // Helper to draw piece from cache or fallback to text
@@ -715,19 +710,8 @@ static void on_drag_press(GtkGestureClick* gesture, int n_press, double x, doubl
     Piece* piece = board->logic->board[r][c];
     
     // Prepare drag if piece belongs to current player
-    if (piece && piece->owner == board->logic->turn) {
-        // CRITICAL PvC FIX: In PvC mode, only allow human to move their pieces
-        if (board->logic->gameMode == GAME_MODE_PVC) {
-            // Check if it's AI's turn (human cannot move)
-            if (gamelogic_is_computer(board->logic, board->logic->turn)) {
-                return;
-            }
-            // Additional safety: verify piece belongs to human player
-            if (gamelogic_is_computer(board->logic, piece->owner)) {
-                return;
-            }
-        }
-
+    // Note: gamelogic_get_valid_moves_for_piece now enforces turn checks.
+    if (piece) {
         board->dragPrepared = true;  // Mark as prepared, but NOT dragging yet
         board->isDragging = false;   // Not dragging until mouse moves
         board->dragSourceRow = r;  // Store logical coordinates
@@ -963,30 +947,24 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
     visual_to_logical(board, visualR, visualC, &logicalR, &logicalC);
     
     // If no piece selected, try to select one
-    // BUT: on_drag_press also runs on every click and handles this
-    // So skip selection here if drag system already prepared it
+    // Note: gamelogic_get_valid_moves_for_piece now returns empty list if it's not the player's turn or piece.
     if (board->selectedRow < 0 && !board->dragPrepared) {
-        Piece* piece = board->logic->board[logicalR][logicalC];
-        if (piece && piece->owner == board->logic->turn) {
-            // PvC mode check: only allow human to select their pieces
-            if (board->logic->gameMode == GAME_MODE_PVC) {
-                if (gamelogic_is_computer(board->logic, board->logic->turn) ||
-                    gamelogic_is_computer(board->logic, piece->owner)) {
-                    return;
-                }
-            }
-            
-            // Select this piece  
-            board->selectedRow = logicalR;
-            board->selectedCol = logicalC;
-            
-            // Get all legal moves starting from selected square
-            free_valid_moves(board);
-            board->validMoves = gamelogic_get_valid_moves_for_piece(
-                board->logic, logicalR, logicalC, &board->validMovesCount);
-            
-            refresh_board(board);
+        // Select this piece  
+        board->selectedRow = logicalR;
+        board->selectedCol = logicalC;
+        
+        // Get all legal moves starting from selected square
+        free_valid_moves(board);
+        board->validMoves = gamelogic_get_valid_moves_for_piece(
+            board->logic, logicalR, logicalC, &board->validMovesCount);
+        
+        // If selection produced no valid moves (e.g. wrong turn or empty square), deselect immediately
+        if (board->validMovesCount == 0) {
+            board->selectedRow = -1;
+            board->selectedCol = -1;
         }
+        
+        refresh_board(board);
     } else if (board->selectedRow >= 0 || board->dragSourceRow >= 0) {
         // We have a selection - check if this is a valid destination
         bool isValid = false;

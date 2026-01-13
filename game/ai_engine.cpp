@@ -98,6 +98,8 @@ static void internal_engine_main(EngineHandle* handle) {
         Position::init();
     });
 
+    fprintf(stderr, "[Engine Internal] Starting internal engine loop...\n");
+
     EngineInputBuf input_buf(handle);
     EngineOutputBuf output_buf(handle);
     
@@ -150,6 +152,7 @@ static void external_reader_thread(EngineHandle* handle) {
 extern "C" {
 
 EngineHandle* ai_engine_init_internal(void) {
+    fprintf(stderr, "[Engine] init_internal called.\n");
     EngineHandle* h = new EngineHandle();
     h->is_internal = true;
     h->running = true;
@@ -158,6 +161,7 @@ EngineHandle* ai_engine_init_internal(void) {
 }
 
 EngineHandle* ai_engine_init_external(const char* binary_path) {
+    fprintf(stderr, "[Engine] init_external called: %s\n", binary_path ? binary_path : "NULL");
     if (!binary_path) return nullptr;
 
     EngineHandle* h = new EngineHandle();
@@ -189,6 +193,8 @@ EngineHandle* ai_engine_init_external(const char* binary_path) {
 
 void ai_engine_cleanup(EngineHandle* handle) {
     if (!handle) return;
+    
+    fprintf(stderr, "[Engine] cleanup called (Internal=%d)\n", handle->is_internal);
 
     ai_engine_send_command(handle, "quit");
     handle->running = false;

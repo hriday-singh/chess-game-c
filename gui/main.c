@@ -3,6 +3,7 @@
 #include "config_manager.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gio/gio.h>
+#include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -30,9 +31,9 @@
 #include "right_side_panel.h"
 #include "puzzle_controller.h"
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 static int app_height = 960;
-static int app_width = 1530;
+static int app_width = 1485;
 
 // Globals
 static AppState* g_app_state = NULL;
@@ -68,16 +69,6 @@ static void on_window_mapped_notify(GObject *obj, GParamSpec *pspec, gpointer us
         // Now focus a widget inside the active window
         g_idle_add(grab_board_focus_idle, state);
     }
-}
-
-// Explicit callback for animation finished (Debug requirements)
-static gboolean on_animation_finished(gpointer user_data) {
-    AppState* state = (AppState*)user_data;
-    if (debug_mode) printf("[DEBUG] Turn complete (animation finished).\n");
-    if (debug_mode) printf("[DEBUG] Requesting AI now.\n");
-    // Directly request AI move - the check_trigger_ai_idle does the same thing
-    request_ai_move(state);
-    return FALSE;
 }
 
 // --- CvC Orchestration ---
@@ -189,23 +180,23 @@ static void on_right_panel_nav(const char* action, int ply_index, gpointer user_
     }
 }
 
-// Callback from game logic when state changes (e.g. move made)
+// CENTRAL DISPATCHER: Orchestrates UI updates and AI triggers
 static void update_ui_callback(void) {
     if (!g_app_state) return;
     AppState* state = g_app_state;
     if (!state->gui.board || !state->gui.info_panel || !state->logic) return;
     
+    // 1. Logic State Check
     if (state->logic->isGameOver) {
         if (state->ai_controller) ai_controller_stop(state->ai_controller);
         if (state->cvc_match_state == CVC_STATE_RUNNING) {
             state->cvc_match_state = CVC_STATE_STOPPED;
         }
-    } else {
-        if (state->ai_controller && !ai_controller_is_thinking(state->ai_controller)) {
-            if (state->ai_trigger_id == 0) {
-                state->ai_trigger_id = g_idle_add(check_trigger_ai_idle, state);
-            }
-        }
+    }
+    
+    // 2. UI Persistence & Dashboards
+    if (state->gui.info_panel) {
+        info_panel_update_status(state->gui.info_panel);
     }
     
     // Update Right Side Panel
@@ -236,35 +227,36 @@ static void update_ui_callback(void) {
         right_side_panel_highlight_ply(state->gui.right_side_panel, count - 1);
     }
 
-    sync_live_analysis(state);
-    
-    // Refresh UI
-    if (state->gui.board) { // Added NULL check
+    // 5. Board Grid Refresh
+    if (state->gui.board) {
         board_widget_refresh(state->gui.board);
     }
     
-    if (state->gui.info_panel) { // Added NULL check
-        info_panel_update_status(state->gui.info_panel);
-    }
-
-    // Update Puzzle Status (Turn Indicator)
-    if (state->logic->gameMode == GAME_MODE_PUZZLE && !state->puzzle.wait) {
-        // Only update if not solved (solved message is static)
-        const Puzzle* p = puzzles_get_at(state->puzzle.current_idx);
-        if (p && state->puzzle.move_idx < p->solution_length) {
-            const char* turn_str = (state->logic->turn == PLAYER_WHITE) ? "Your turn! (White to Move)" : "Your turn! (Black to Move)";
-            // We pass NULL for title/desc to avoid overwriting them?
-            // info_panel_update_puzzle_info usage: if title is NULL, it's ignored.
-            if (state->gui.info_panel) info_panel_update_puzzle_info(state->gui.info_panel, NULL, NULL, turn_str, true); // Added NULL check
+    // 6. AI & Match Orchestration
+    // Only trigger if not game over and NOT currently animating
+    if (!state->logic->isGameOver && !board_widget_is_animating(state->gui.board)) {
+        if (state->ai_controller && !ai_controller_is_thinking(state->ai_controller)) {
+            // Trigger AI if it's currently a computer turn in PvC or we are in CvC
+            GameMode mode = state->logic->gameMode;
+            Player turn = state->logic->turn;
+            bool is_ai_turn = (mode == GAME_MODE_CVC && state->cvc_match_state == CVC_STATE_RUNNING) ||
+                              (mode == GAME_MODE_PVC && gamelogic_is_computer(state->logic, turn));
+            
+            if (is_ai_turn) {
+                if (state->ai_trigger_id == 0) {
+                    state->ai_trigger_id = g_idle_add(check_trigger_ai_idle, state);
+                }
+            }
         }
     }
-    
-    // Tutorial Check
+
+    // 7. Analysis Re-sync (Always after move/undo)
+    sync_live_analysis(state);
+
+    // 8. Extension Logic (Tutorials, Puzzles)
     if (state->tutorial.step != TUT_OFF) {
         tutorial_check_progress(state);
     }
-    
-    // Puzzle Check
     if (state->logic->gameMode == GAME_MODE_PUZZLE) {
         puzzle_controller_check_move(state);
     }
@@ -389,10 +381,8 @@ static void on_game_reset(gpointer user_data) {
     if (state->gui.window) gtk_window_present(state->gui.window);
     if (state->gui.board) gtk_widget_grab_focus(state->gui.board); // Added NULL check
     
-    // Trigger AI if it's its turn (e.g. Play as Black)
-    if (state->ai_trigger_id == 0) {
-        state->ai_trigger_id = g_idle_add(check_trigger_ai_idle, state);
-    }
+    // Note: AI is now triggered centrally via the logic update callback (update_ui_callback)
+    // which is called inside gamelogic_reset.
 }
 
 static void on_toggle_panel_clicked(GtkButton* btn, gpointer user_data) {
@@ -536,11 +526,16 @@ static void on_ai_move_ready(Move* move, gpointer user_data) {
     AppState* state = (AppState*)user_data;
     if (!state || !state->gui.board || !state->logic || !move) return;
     
+    if (debug_mode) {
+        printf("[AI] Move Ready. Applying to board.\n");
+    }
+
     // Add visual delay effect is handled in controller
     board_widget_animate_move(state->gui.board, move);
 }
 
 static void request_ai_move(AppState* state) {
+    if(debug_mode) printf("[AI] Requesting move from system...\n");
     if (!state->ai_controller) return;
     
     if (ai_controller_is_thinking(state->ai_controller)) return;
@@ -800,14 +795,6 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* main_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     state->gui.board = board_widget_new(state->logic);
     
-    // Fix AI Latency: Register animation finish callback to trigger AI immediately
-    // state->gui.board is the frame, we need the grid child where the callback is invoked
-    GtkWidget* grid_child = gtk_frame_get_child(GTK_FRAME(state->gui.board));
-    if (grid_child) {
-        g_object_set_data(G_OBJECT(grid_child), "anim-finish-cb", (gpointer)on_animation_finished);
-        g_object_set_data(G_OBJECT(grid_child), "anim-finish-data", state);
-    }
-
     board_widget_set_theme(state->gui.board, state->theme);
     
     state->gui.info_panel = info_panel_new(state->logic, state->gui.board, state->theme);

@@ -343,7 +343,15 @@ bool gamelogic_perform_move(GameLogic* logic, Move* move) {
     if (!movingPiece) return false;
     
     // Safety check: ensure only the mover can move their own pieces
-    if (movingPiece->owner != logic->turn) return false;
+    // This is the CENTRAL ENFORCEMENT for the orchestration refactor.
+    if (movingPiece->owner != logic->turn) {
+        if (!logic->isSimulation) {
+            fprintf(stderr, "[Logic] REJECTED: Attempted to move %s piece on %s's turn.\n", 
+                   movingPiece->owner == PLAYER_WHITE ? "White" : "Black",
+                   logic->turn == PLAYER_WHITE ? "White" : "Black");
+        }
+        return false;
+    }
     
     make_move_internal(logic, move);
     
