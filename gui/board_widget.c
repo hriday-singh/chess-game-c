@@ -47,6 +47,7 @@ typedef struct {
     // Animation state
     bool isAnimating;
     Move* animatingMove;
+    Move* animCastlingRookMove; // For castling: secondary move for the rook
     double animProgress;  // 0.0 to 1.0
     guint animTickId;    // Frame tick callback ID
     gint64 animStartTime; // Start time for current animation (microseconds)
@@ -67,6 +68,10 @@ typedef struct {
     // Callback for invalid moves (tutorial feedback)
     BoardInvalidMoveCallback invalidMoveCb;
     void* invalidMoveData;
+    
+    // Callback before human move execution (for state capture)
+    BoardPreMoveCallback preMoveCb;
+    void* preMoveData;
 } BoardWidget;
 
 // Safe lookup key
@@ -216,7 +221,12 @@ static bool is_last_move_square(BoardWidget* board, int r, int c) {
 static void execute_move_with_updates(BoardWidget* board, Move* move) {
     if (!board || !move) return;
     
-    // 1. Update Game Logic
+    // 1. Trigger Pre-Move Callback (for AI rating snapshots etc)
+    if (board->preMoveCb) {
+        board->preMoveCb(board->preMoveData);
+    }
+
+    // 2. Update Game Logic
     bool moved = gamelogic_perform_move(board->logic, move);
     if (!moved) return;
     
@@ -385,6 +395,33 @@ static void draw_animated_piece(GtkDrawingArea* overlay, cairo_t* cr, int width,
             double pieceSize = (width / 8.0);
             draw_piece_graphic(cr, board, piece->type, piece->owner, x, y, pieceSize * 0.85, 1.0);
         }
+        
+        // Draw SECOND animated piece (Rook during castling)
+        if (board->animCastlingRookMove) {
+            Move* rookMove = board->animCastlingRookMove;
+            Piece* piece = board->logic->board[rookMove->startRow][rookMove->startCol];
+            
+            if (piece) {
+                int visualStartR, visualStartC, visualEndR, visualEndC;
+                logical_to_visual(board, rookMove->startRow, rookMove->startCol, &visualStartR, &visualStartC);
+                logical_to_visual(board, rookMove->endRow, rookMove->endCol, &visualEndR, &visualEndC);
+                
+                double startX = (visualStartC + 0.5) * (width / 8.0);
+                double startY = (visualStartR + 0.5) * (height / 8.0);
+                double endX = (visualEndC + 0.5) * (width / 8.0);
+                double endY = (visualEndR + 0.5) * (height / 8.0);
+                
+                double t = board->animProgress;
+                if (t < 0.0) t = 0.0; else if (t > 1.0) t = 1.0;
+                double eased = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
+                
+                double x = startX + (endX - startX) * eased;
+                double y = startY + (endY - startY) * eased;
+                
+                double pieceSize = (width / 8.0);
+                draw_piece_graphic(cr, board, piece->type, piece->owner, x, y, pieceSize * 0.85, 1.0);
+            }
+        }
     }
     
     // Draw dragged piece
@@ -429,6 +466,13 @@ static void draw_square(GtkDrawingArea* area, cairo_t* cr, int width, int height
         // Ensure destination remains visible (e.g. for captures) until animation finishes/board updates
         if (r == move->startRow && c == move->startCol) {
             hidePiece = true;
+        }
+        // Also hide the Rook if castling
+        if (board->animCastlingRookMove) {
+            if (r == board->animCastlingRookMove->startRow && 
+                c == board->animCastlingRookMove->startCol) {
+                hidePiece = true;
+            }
         }
     }
     // Hide piece if it's being dragged (source square)
@@ -1065,6 +1109,12 @@ static gboolean animation_tick(gpointer user_data) {
         move_free(move);
         board->animatingMove = NULL;
         
+        // Clean up Rook animation move if present
+        if (board->animCastlingRookMove) {
+            move_free(board->animCastlingRookMove);
+            board->animCastlingRookMove = NULL;
+        }
+        
         // Clean up animation state
         board->animTickId = 0;
         board->animStartTime = 0;
@@ -1136,6 +1186,43 @@ static void animate_move(BoardWidget* board, Move* move, void (*on_finished)(voi
     board->animStartTime = g_get_monotonic_time(); // Set start time for this animation
     board->animatingFromDrag = false; // Regular move animation from square
 
+    // Detect Castling and setup Rook animation
+    if (move->isCastling) {
+        // Determine Rook's move based on King's move
+        int r = move->startRow;
+        int c = move->startCol; // King start col (e-file, index 4)
+        int destC = move->endCol;
+        
+        // Ensure we handle both 0-7 and 7-0 row indexing consistently
+        // (Move coords satisfy logic directly)
+        
+        Move* rookMove = (Move*)calloc(1, sizeof(Move));
+        rookMove->startRow = r;
+        rookMove->endRow = r;
+        rookMove->isCastling = 0; // The rook itself is just moving, not "castling" recursively
+        rookMove->mover = move->mover;
+        
+        // Determine side based on target column
+        // King start is usually 4.
+        // Kingside: destC > c (6 or 7)
+        // Queenside: destC < c (2 or 0)
+        
+        // Note: Logic allows castling end col to be 6 (g-file) or 2 (c-file) for King
+        if (destC > c) {
+            // Kingside
+            rookMove->startCol = 7; // h-file
+            rookMove->endCol = 5;   // f-file
+        } else {
+            // Queenside
+            rookMove->startCol = 0; // a-file
+            rookMove->endCol = 3;   // d-file
+        }
+        
+        board->animCastlingRookMove = rookMove;
+    } else {
+        board->animCastlingRookMove = NULL;
+    }
+
     // Create overlay for animated piece if it doesn't exist
     if (!board->animOverlay) {
         board->animOverlay = gtk_drawing_area_new();
@@ -1194,6 +1281,10 @@ static void board_widget_destroy(gpointer user_data) {
         if (board->cssProvider) {
             g_object_unref(board->cssProvider);
         }
+        // Free animation moves
+        if (board->animatingMove) move_free(board->animatingMove);
+        if (board->animCastlingRookMove) move_free(board->animCastlingRookMove);
+        
         // Stop animations
         if (board->animTickId > 0) {
             g_source_remove(board->animTickId);
@@ -1227,6 +1318,7 @@ GtkWidget* board_widget_new(GameLogic* logic) {
     board->pressStartY = 0;
     board->isAnimating = false;
     board->animatingMove = NULL;
+    board->animCastlingRookMove = NULL;
     board->animProgress = 0.0;
     board->animTickId = 0;
     board->animStartTime = 0;
@@ -1477,8 +1569,14 @@ void board_widget_set_nav_restricted(GtkWidget* board_widget, bool restricted, i
 
 void board_widget_set_invalid_move_callback(GtkWidget* board_widget, BoardInvalidMoveCallback cb, void* data) {
     BoardWidget* board = find_board_data(board_widget);
-    if (board) {
-        board->invalidMoveCb = cb;
-        board->invalidMoveData = data;
-    }
+    if (!board) return;
+    board->invalidMoveCb = cb;
+    board->invalidMoveData = data;
+}
+
+void board_widget_set_pre_move_callback(GtkWidget* board_widget, BoardPreMoveCallback cb, void* data) {
+    BoardWidget* board = find_board_data(board_widget);
+    if (!board) return;
+    board->preMoveCb = cb;
+    board->preMoveData = data;
 }

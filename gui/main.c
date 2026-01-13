@@ -470,7 +470,7 @@ static void on_ai_eval_update(const AiStats* stats, gpointer user_data) {
     
     // Mate Warning
     if (cfg->show_mate_warning) {
-        int mate_dist = stats->is_mate ? abs(stats->mate_distance) : 0;
+        int mate_dist = stats->is_mate ? stats->mate_distance : 0;
         right_side_panel_set_mate_warning(state->gui.right_side_panel, mate_dist);
     }
     
@@ -654,6 +654,14 @@ static gboolean on_window_close_request(GtkWindow* window, gpointer user_data) {
     return FALSE; // Allow close to proceed
 }
 
+// Callback from BoardWidget (before human move execution)
+static void on_board_before_move(void* user_data) {
+    AppState* state = (AppState*)user_data;
+    if (state && state->ai_controller) {
+        ai_controller_mark_human_move_begin(state->ai_controller);
+    }
+}
+
 static void on_app_activate(GtkApplication* app, gpointer user_data) {
     AppState* state = (AppState*)user_data;
     state->gui.window = GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(app)));
@@ -746,6 +754,9 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* main_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     state->gui.board = board_widget_new(state->logic);
     
+    // Register Pre-Move Callback for Rating Accuracy
+    board_widget_set_pre_move_callback(state->gui.board, on_board_before_move, state);
+    
     board_widget_set_theme(state->gui.board, state->theme);
     
     state->gui.info_panel = info_panel_new(state->logic, state->gui.board, state->theme);
@@ -763,7 +774,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     info_panel_set_undo_callback(state->gui.info_panel, on_undo_move, state);
     
     puzzle_controller_refresh_list(state);
-    gtk_widget_set_size_request(state->gui.info_panel, 280, -1);
+    gtk_widget_set_size_request(state->gui.info_panel, 290, -1);
     gtk_widget_set_hexpand(state->gui.info_panel, FALSE);
     gtk_box_append(GTK_BOX(main_box), state->gui.info_panel);
     

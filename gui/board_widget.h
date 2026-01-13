@@ -59,6 +59,10 @@ bool board_widget_is_animating(GtkWidget* board_widget);
 typedef void (*BoardInvalidMoveCallback)(void* user_data);
 void board_widget_set_invalid_move_callback(GtkWidget* board_widget, BoardInvalidMoveCallback cb, void* data);
 
+// Pre-move callback (fired before a human move is committed)
+typedef void (*BoardPreMoveCallback)(void* user_data);
+void board_widget_set_pre_move_callback(GtkWidget* board_widget, BoardPreMoveCallback cb, void* data);
+
 #endif // BOARD_WIDGET_H
 
 

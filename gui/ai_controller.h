@@ -13,15 +13,16 @@ typedef void (*AiMoveReadyCallback)(Move* move, gpointer user_data);
 
 // Analysis/Evaluation Statistics to broadcast
 typedef struct {
-    int score;
-    bool is_mate;
-    int mate_distance;
+    int score;           // White perspective centipawns
+    bool is_mate;        // White perspective
+    int mate_distance;    // Positive = White mates, Negative = Black mates
     const char* best_move;
     
     // Rating / Toast Info (NULL if no rating update)
     const char* rating_label; 
     const char* rating_reason;
     int move_number;
+    char* fen;           // FEN this analysis belongs to
     
     // Hanging Pieces Count
     int white_hanging;
@@ -67,5 +68,8 @@ void ai_controller_set_rating_pending(AiController* controller, bool pending);
 // Analysis Control
 bool ai_controller_start_analysis(AiController* controller, bool use_custom, const char* custom_path);
 void ai_controller_stop_analysis(AiController* controller, bool free_engine);
+
+// Mark the beginning of a human move to capture 'before' snapshot accurately
+void ai_controller_mark_human_move_begin(AiController* controller);
 
 #endif // AI_CONTROLLER_H
