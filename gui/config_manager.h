@@ -99,4 +99,49 @@ void app_themes_delete_theme(const char* id);
 // Save all themes to disk
 void app_themes_save_all(void);
 
+// --- Match History (match_history.json) ---
+
+typedef struct {
+    bool is_ai;
+    int elo;
+    int depth;
+    int movetime;
+    int engine_type; // 0: Internal, 1: Custom
+    char engine_path[512];
+} MatchPlayerConfig;
+
+typedef struct {
+    char id[64];
+    long timestamp;
+    int game_mode;
+    MatchPlayerConfig white;
+    MatchPlayerConfig black;
+    char result[16];        // "1-0", "0-1", "1/2-1/2", "*"
+    char result_reason[64]; // "Checkmate", "Stalemate", "Reset", "Incomplete"
+    int move_count;
+    char* moves_san;        // Allocated string of moves "1. e4 e5 2. Nf3 ..."
+    char final_fen[256];
+} MatchHistoryEntry;
+
+// Initialize the match history system
+void match_history_init(void);
+
+// Load all matches from disk
+void match_history_load_all(void);
+
+// Add a match to history and save to disk
+void match_history_add(MatchHistoryEntry* entry);
+
+// Find a match by ID (returns pointer to internal list)
+MatchHistoryEntry* match_history_find_by_id(const char* id);
+
+// Delete a match by ID
+void match_history_delete(const char* id);
+
+// Free memory for a match entry (especially moves_san)
+void match_history_free_entry(MatchHistoryEntry* entry);
+
+// Get the list of historical matches
+MatchHistoryEntry* match_history_get_list(int* count);
+
 #endif // CONFIG_MANAGER_H

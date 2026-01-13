@@ -1157,3 +1157,49 @@ void gamelogic_get_move_san(GameLogic* logic, Move* move, char* san, size_t san_
         *ptr = '\0';
     }
 }
+
+void gamelogic_load_from_san_moves(GameLogic* logic, const char* moves_san) {
+    if (!logic || !moves_san) return;
+    
+    // 1. Reset logic to starting position
+    gamelogic_reset(logic);
+    
+    // 2. Tokenize SAN string (e.g., "e4 Nf3 O-O")
+    char* moves_copy = strdup(moves_san);
+    if (!moves_copy) return;
+    
+    char* token = strtok(moves_copy, " ");
+    while (token) {
+        // Find matching move for this SAN among all legal moves
+        int count = 0;
+        Move** legal_moves = gamelogic_get_all_legal_moves(logic, logic->turn, &count);
+        
+        Move* matched_move = NULL;
+        for (int i = 0; i < count; i++) {
+            char current_san[16];
+            gamelogic_get_move_san(logic, legal_moves[i], current_san, sizeof(current_san));
+            if (strcmp(current_san, token) == 0) {
+                matched_move = move_copy(legal_moves[i]);
+                break;
+            }
+        }
+        
+        // Cleanup all generated legal moves
+        for (int i = 0; i < count; i++) move_free(legal_moves[i]);
+        if (legal_moves) free(legal_moves);
+        
+        if (matched_move) {
+            // Apply the move to the board
+            gamelogic_perform_move(logic, matched_move);
+            move_free(matched_move);
+        } else {
+            fprintf(stderr, "[ERROR] Replay: Could not match SAN move '%s' at ply %d\n", 
+                    token, ((Stack*)logic->moveHistory) ? ((Stack*)logic->moveHistory)->size : 0);
+            break; 
+        }
+        
+        token = strtok(NULL, " ");
+    }
+    
+    free(moves_copy);
+}

@@ -51,6 +51,7 @@ void gamelogic_set_game_mode(GameLogic* logic, GameMode mode);
 // Move generation & validation (UI Decouplings)
 void gamelogic_generate_legal_moves(GameLogic* logic, Player player, void* moves_list);
 Move** gamelogic_get_valid_moves_for_piece(GameLogic* logic, int row, int col, int* count);
+Move** gamelogic_get_all_legal_moves(GameLogic* logic, Player player, int* count);
 bool gamelogic_is_move_valid(GameLogic* logic, int startRow, int startCol, int endRow, int endCol);
 void gamelogic_free_moves_array(Move** moves, int count);
 
@@ -108,6 +109,7 @@ void gamelogic_handle_game_end_learning(GameLogic* logic, Player winner);
 
 // SAN generation
 void gamelogic_get_move_san(GameLogic* logic, Move* move, char* san, size_t san_size);
+void gamelogic_load_from_san_moves(GameLogic* logic, const char* moves_san);
 
 #endif // GAMELOGIC_H
 

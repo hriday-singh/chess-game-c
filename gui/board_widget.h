@@ -60,8 +60,11 @@ typedef void (*BoardInvalidMoveCallback)(void* user_data);
 void board_widget_set_invalid_move_callback(GtkWidget* board_widget, BoardInvalidMoveCallback cb, void* data);
 
 // Pre-move callback (fired before a human move is committed)
-typedef void (*BoardPreMoveCallback)(void* user_data);
+typedef void (*BoardPreMoveCallback)(const char* move_uci, void* user_data);
 void board_widget_set_pre_move_callback(GtkWidget* board_widget, BoardPreMoveCallback cb, void* data);
+
+// Enable/Disable board interaction (D&D and clicks)
+void board_widget_set_interactive(GtkWidget* board_widget, bool interactive);
 
 #endif // BOARD_WIDGET_H
 

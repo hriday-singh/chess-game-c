@@ -337,29 +337,34 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     gtk_stack_add_named(GTK_STACK(dialog->stack), create_tutorial_page(dialog), "tutorial");
     
     // 2. AI Settings
-    // Use the shared AI Dialog from AppState
     if (app_state && app_state->gui.ai_dialog) {
         dialog->ai_dialog = app_state->gui.ai_dialog;
         ai_dialog_set_parent_window(dialog->ai_dialog, dialog->window);
         GtkWidget* ai_widget = ai_dialog_get_widget(dialog->ai_dialog);
         
-        // Ensure we own a reference so it survives stack removal
-        GtkWidget* parent = gtk_widget_get_parent(ai_widget);
-        if (parent) {
-             g_object_ref(ai_widget);
-             if (GTK_IS_BOX(parent)) gtk_box_remove(GTK_BOX(parent), ai_widget); 
-             else if (GTK_IS_WINDOW(parent)) gtk_window_set_child(GTK_WINDOW(parent), NULL);
+        // Ensure it's not already parented before adding to stack
+        if (ai_widget) {
+            GtkWidget* current_parent = gtk_widget_get_parent(ai_widget);
+            if (current_parent) {
+                g_object_ref(ai_widget);
+                if (GTK_IS_STACK(current_parent)) {
+                    gtk_stack_remove(GTK_STACK(current_parent), ai_widget);
+                } else {
+                    gtk_widget_unparent(ai_widget);
+                }
+                g_object_unref(ai_widget);
+            }
+            
+            gtk_widget_set_margin_start(ai_widget, 20);
+            gtk_widget_set_margin_end(ai_widget, 20);
+            gtk_stack_add_named(GTK_STACK(dialog->stack), ai_widget, "ai");
         }
-        
-        gtk_widget_set_margin_start(ai_widget, 20);
-        gtk_widget_set_margin_end(ai_widget, 20);
-        gtk_stack_add_named(GTK_STACK(dialog->stack), ai_widget, "ai");
     } else {
-         // Fallback (Should not happen)
+         // Fallback
          dialog->ai_dialog = ai_dialog_new_embedded();
          ai_dialog_set_parent_window(dialog->ai_dialog, dialog->window);
          GtkWidget* ai_widget = ai_dialog_get_widget(dialog->ai_dialog);
-         gtk_stack_add_named(GTK_STACK(dialog->stack), ai_widget, "ai");
+         if (ai_widget) gtk_stack_add_named(GTK_STACK(dialog->stack), ai_widget, "ai");
     }
     
     // 3. Board Theme
@@ -494,22 +499,17 @@ void settings_dialog_free(SettingsDialog* dialog) {
         
         if (dialog->ai_dialog) {
             if (dialog->app_state && dialog->ai_dialog == dialog->app_state->gui.ai_dialog) {
-                // Shared dialog: Prevent destruction handling by removing from stack if possible
-                if (debug_mode) printf("[Settings] Preserving shared ai_dialog\n");
+                // Shared dialog: Prevent destruction handling by removing from stack safely
                 GtkWidget* w = ai_dialog_get_widget(dialog->ai_dialog);
                 if (w) {
-                    // Check if widget is still attached to stack (and stack is valid)
-                    if (dialog->stack && GTK_IS_STACK(dialog->stack)) {
-                         GtkWidget* parent = gtk_widget_get_parent(w);
-                         if (parent == GTK_WIDGET(dialog->stack)) {
-                             g_object_ref(w); // Protect from destruction when removing
-                             gtk_stack_remove(GTK_STACK(dialog->stack), w); 
-                             g_object_unref(w);
-                         }
+                    GtkWidget* parent = gtk_widget_get_parent(w);
+                    if (parent && parent == GTK_WIDGET(dialog->stack)) {
+                         g_object_ref(w);
+                         gtk_stack_remove(GTK_STACK(parent), w); 
+                         g_object_unref(w);
                     }
                 }
             } else {
-                if (debug_mode) printf("[Settings] Freeing ai_dialog\n");
                 ai_dialog_free(dialog->ai_dialog);
             }
         }

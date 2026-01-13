@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <time.h>
 #include "theme_manager.h"
 #ifdef _WIN32
 #include <windows.h>
@@ -36,6 +37,7 @@ static int app_height = 960;
 static int app_width = 1575;
 
 // Globals
+#include "history_dialog.h"
 static AppState* g_app_state = NULL;
 
 // Forward declarations
@@ -44,6 +46,10 @@ static gboolean grab_board_focus_idle(gpointer user_data);
 static void request_ai_move(AppState* state);
 static void on_ai_move_ready(Move* move, gpointer user_data);
 static void sync_live_analysis(AppState* state);
+static void on_history_clicked(GSimpleAction* action, GVariant* parameter, gpointer user_data);
+static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, gpointer user_data);
+static void on_exit_replay(GSimpleAction* action, GVariant* parameter, gpointer user_data);
+static void record_match_history(AppState* state, const char* reason);
 
 // Rule 3: AI triggered from EXACTLY ONE place
 static gboolean check_trigger_ai_idle(gpointer user_data) {
@@ -180,6 +186,77 @@ static void on_right_panel_nav(const char* action, int ply_index, gpointer user_
     }
 }
 
+static void record_match_history(AppState* state, const char* reason) {
+    if (!state || !state->logic || state->match_saved) return;
+    int plies = gamelogic_get_move_count(state->logic);
+    // User requested: games that ended with some result OR matches that went over 5 pairs (10 plies)
+    bool is_result = (strcmp(reason, "Checkmate") == 0 || strcmp(reason, "Stalemate") == 0);
+    if (!is_result && plies < 10) return;
+
+    MatchHistoryEntry entry = {0};
+    snprintf(entry.id, sizeof(entry.id), "m_%ld", (long)time(NULL));
+    entry.timestamp = (long)time(NULL);
+    entry.game_mode = (int)state->logic->gameMode;
+    
+    AppConfig* cfg = config_get();
+    
+    // Players Metadata
+    entry.white.is_ai = gamelogic_is_computer(state->logic, PLAYER_WHITE);
+    if (entry.white.is_ai) {
+        bool custom = (state->logic->gameMode == GAME_MODE_CVC) ? true : cfg->analysis_use_custom; // Approximation
+        entry.white.elo = cfg->int_elo; 
+        entry.white.depth = cfg->int_depth;
+        entry.white.movetime = cfg->int_movetime;
+        entry.white.engine_type = custom ? 1 : 0;
+        if (custom) {
+            strncpy(entry.white.engine_path, cfg->custom_engine_path, sizeof(entry.white.engine_path) - 1);
+            entry.white.engine_path[sizeof(entry.white.engine_path) - 1] = '\0';
+        }
+    }
+
+    entry.black.is_ai = gamelogic_is_computer(state->logic, PLAYER_BLACK);
+    if (entry.black.is_ai) {
+        bool custom = (state->logic->gameMode == GAME_MODE_CVC) ? true : cfg->analysis_use_custom;
+        entry.black.elo = cfg->custom_elo;
+        entry.black.depth = cfg->custom_depth;
+        entry.black.movetime = cfg->custom_movetime;
+        entry.black.engine_type = custom ? 1 : 0;
+        if (custom) {
+            strncpy(entry.black.engine_path, cfg->custom_engine_path, sizeof(entry.black.engine_path) - 1);
+            entry.black.engine_path[sizeof(entry.black.engine_path) - 1] = '\0';
+        }
+    }
+
+    // Result Logic
+    strncpy(entry.result_reason, reason, sizeof(entry.result_reason)-1);
+    if (strcmp(reason, "Checkmate") == 0) {
+        // Current turn is the one who just LOST (king is in checkmate)
+        strncpy(entry.result, (state->logic->turn == PLAYER_BLACK) ? "1-0" : "0-1", 15);
+    } else if (strcmp(reason, "Stalemate") == 0) {
+        strncpy(entry.result, "1/2-1/2", 15);
+    } else {
+        strncpy(entry.result, "*", 15);
+    }
+
+    // SAN Generation
+    GString* moves_str = g_string_new("");
+    for (int i = 0; i < plies; i++) {
+        if (i % 2 == 0) g_string_append_printf(moves_str, "%d. ", (i/2)+1);
+        Move* m = gamelogic_get_move_at(state->logic, i);
+        char san[32];
+        gamelogic_get_move_san(state->logic, m, san, sizeof(san));
+        g_string_append_printf(moves_str, "%s ", san);
+    }
+    entry.moves_san = moves_str->str;
+    entry.move_count = plies;
+    
+    gamelogic_generate_fen(state->logic, entry.final_fen, sizeof(entry.final_fen));
+
+    match_history_add(&entry);
+    g_string_free(moves_str, TRUE);
+    state->match_saved = true;
+}
+
 // CENTRAL DISPATCHER: Orchestrates UI updates and AI triggers
 static void update_ui_callback(void) {
     if (!g_app_state) return;
@@ -191,6 +268,15 @@ static void update_ui_callback(void) {
         if (state->ai_controller) ai_controller_stop(state->ai_controller);
         if (state->cvc_match_state == CVC_STATE_RUNNING) {
             state->cvc_match_state = CVC_STATE_STOPPED;
+        }
+
+        // AUTO-SAVE Match History on result
+        if (!state->match_saved && !state->tutorial.step && state->logic->gameMode != GAME_MODE_PUZZLE) {
+            bool mate = gamelogic_is_checkmate(state->logic, state->logic->turn);
+            bool stalemate = gamelogic_is_stalemate(state->logic, state->logic->turn);
+            if (mate) record_match_history(state, "Checkmate");
+            else if (stalemate) record_match_history(state, "Stalemate");
+            else record_match_history(state, "Game Over");
         }
     }
     
@@ -216,6 +302,7 @@ static void update_ui_callback(void) {
         if (count > state->last_move_count) {
             ai_controller_set_rating_pending(state->ai_controller, true);
             state->last_move_count = count;
+            state->match_saved = false; // New move made, any previous "saved" state for this match is potentially stale
         }
 
         bool is_live_match = !state->logic->isGameOver && !state->tutorial.step;
@@ -330,14 +417,17 @@ static void on_game_reset(gpointer user_data) {
         g_source_remove(state->ai_trigger_id);
         state->ai_trigger_id = 0;
     }
+    // Save history if significant plies
+    if (!state->match_saved && !state->tutorial.step && state->logic->gameMode != GAME_MODE_PUZZLE) {
+        record_match_history(state, "Reset");
+    }
 
     gamelogic_reset(state->logic);
-    if (state->gui.board) { // Added NULL check
-        // Sync flip with player side (fix for Play as Black/Random)
-        bool flip = (state->logic->playerSide == PLAYER_BLACK);
-        board_widget_set_flipped(state->gui.board, flip);
-        board_widget_refresh(state->gui.board);
-    }
+    state->match_saved = false;
+    // Sync flip with player side (fix for Play as Black/Random)
+    bool flip = (state->logic->playerSide == PLAYER_BLACK);
+    board_widget_set_flipped(state->gui.board, flip);
+    board_widget_refresh(state->gui.board);
     
     // Clear Analysis UI state
     if (state->gui.right_side_panel) {
@@ -549,6 +639,10 @@ static void on_app_shutdown(GApplication* app, gpointer user_data) {
             GtkWindow* w = settings_dialog_get_window(state->gui.settings_dialog);
             if (w) gtk_window_destroy(w);
         }
+        if (state->gui.history_dialog) {
+            GtkWindow* w = history_dialog_get_window(state->gui.history_dialog);
+            if (w) gtk_window_destroy(w);
+        }
 
         // Stop all timers explicitly
         if (state->settings_timer_id > 0) {
@@ -565,6 +659,12 @@ static void on_app_shutdown(GApplication* app, gpointer user_data) {
         }
 
         if (state->ai_controller) ai_controller_free(state->ai_controller);
+        
+        // Final background save attempt if window closed mid-game
+        if (!state->match_saved && !state->tutorial.step && state->logic->gameMode != GAME_MODE_PUZZLE) {
+            record_match_history(state, "App Shutdown");
+        }
+
         if (state->gui.right_side_panel) right_side_panel_free(state->gui.right_side_panel);
         
         if (state->gui.ai_dialog) ai_dialog_free(state->gui.ai_dialog);
@@ -640,6 +740,13 @@ static gboolean on_window_close_request(GtkWindow* window, gpointer user_data) {
         state->gui.settings_dialog = NULL; 
     }
 
+    // Destroy History Dialog if open
+    if (state->gui.history_dialog) {
+        GtkWindow* w = history_dialog_get_window(state->gui.history_dialog);
+        if (w) gtk_window_destroy(w);
+        state->gui.history_dialog = NULL;
+    }
+
     // Cancel AI Trigger
     if (state->ai_trigger_id > 0) {
         g_source_remove(state->ai_trigger_id);
@@ -655,12 +762,137 @@ static gboolean on_window_close_request(GtkWindow* window, gpointer user_data) {
 }
 
 // Callback from BoardWidget (before human move execution)
-static void on_board_before_move(void* user_data) {
+static void on_board_before_move(const char* move_uci, void* user_data) {
     AppState* state = (AppState*)user_data;
-    if (state && state->ai_controller) {
-        ai_controller_mark_human_move_begin(state->ai_controller);
+    if (state && state->ai_controller && state->logic) {
+        // Only mark if it's currently a human turn. 
+        // This prevents the AI move execution from triggering a "human move" snapshot.
+        if (!gamelogic_is_computer(state->logic, state->logic->turn)) {
+            ai_controller_mark_human_move_begin(state->ai_controller, move_uci);
+        }
     }
 }
+
+// --- History Dialog Callbacks ---
+static void on_history_dialog_destroyed(GtkWidget *w, gpointer data) {
+    (void)w;
+    AppState* app = (AppState*)data;
+    app->gui.history_dialog = NULL;
+}
+
+static void on_history_clicked(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
+    (void)action; (void)parameter;
+    AppState* state = (AppState*)user_data;
+
+    if (!state->gui.history_dialog) {
+        state->gui.history_dialog = history_dialog_new(state->gui.window);
+        GtkWindow* w = history_dialog_get_window(state->gui.history_dialog);
+        if (w) {
+            g_signal_connect(w, "destroy", G_CALLBACK(on_history_dialog_destroyed), state);
+            history_dialog_set_replay_callback(state->gui.history_dialog, G_CALLBACK(on_start_replay_action), state);
+        }
+    }
+    history_dialog_show(state->gui.history_dialog);
+}
+
+static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
+    (void)action;
+    AppState* state = (AppState*)user_data;
+    if (!state || !state->logic || !parameter) return;
+
+    // Get the match ID from the parameter
+    const char* match_id = g_variant_get_string(parameter, NULL);
+    if (!match_id) return;
+
+    MatchHistoryEntry* entry = match_history_find_by_id(match_id);
+    if (!entry) {
+        g_warning("Match with ID %s not found for replay.", match_id);
+        return;
+    }
+
+    // 1. Reset current game state
+    on_game_reset(state); // This also saves current game if applicable
+
+    // 2. Load the match for replay
+    gamelogic_load_from_san_moves(state->logic, entry->moves_san);
+    state->is_replaying = true;
+    state->replay_match_id = g_strdup(match_id); // Store ID for current replay
+
+    // 3. Update UI for replay mode
+    // Hiding live analysis UI during replay
+    if (state->gui.right_side_panel) {
+        right_side_panel_clear_history(state->gui.right_side_panel);
+        // Manual move loading into panel
+        char* moves_copy = g_strdup(entry->moves_san);
+        char* token = strtok(moves_copy, " ");
+        int move_num = 1;
+        Player turn = PLAYER_WHITE;
+        while (token) {
+            right_side_panel_add_san_move(state->gui.right_side_panel, token, move_num, turn);
+            if (turn == PLAYER_BLACK) move_num++;
+            turn = (turn == PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
+            token = strtok(NULL, " ");
+        }
+        g_free(moves_copy);
+        
+        right_side_panel_set_nav_visible(state->gui.right_side_panel, TRUE);
+        right_side_panel_set_analysis_visible(state->gui.right_side_panel, FALSE);
+    }
+
+    // Disable board interaction
+    board_widget_set_interactive(state->gui.board, FALSE);
+
+    // Header bar transitions
+    gtk_widget_set_visible(state->gui.exit_replay_btn, TRUE);
+    gtk_widget_set_visible(state->gui.history_btn, FALSE);
+    gtk_widget_set_visible(state->gui.dark_mode_btn, FALSE);
+    gtk_widget_set_visible(state->gui.settings_btn, FALSE);
+
+    // Close history dialog
+    if (state->gui.history_dialog) {
+        gtk_window_destroy(history_dialog_get_window(state->gui.history_dialog));
+    }
+    
+    if (debug_mode) printf("Started replay for match ID: %s\n", match_id);
+}
+
+static void on_exit_replay(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
+    (void)action; (void)parameter;
+    AppState* state = (AppState*)user_data;
+    if (!state) return;
+
+    state->is_replaying = false;
+    g_free(state->replay_match_id);
+    state->replay_match_id = NULL;
+
+    // Reset game to initial state
+    on_game_reset(state);
+
+    // Restore UI to normal mode
+    board_widget_set_interactive(state->gui.board, TRUE); // Re-enable board interaction
+    
+    if (state->gui.exit_replay_btn) {
+        gtk_widget_set_visible(state->gui.exit_replay_btn, FALSE);
+    }
+    if (state->gui.history_btn) {
+        gtk_widget_set_visible(state->gui.history_btn, TRUE);
+    }
+    if (state->gui.settings_btn) {
+        gtk_widget_set_visible(state->gui.settings_btn, TRUE);
+    }
+    if (state->gui.dark_mode_btn) {
+        gtk_widget_set_visible(state->gui.dark_mode_btn, TRUE);
+    }
+
+    if (state->gui.right_side_panel) {
+        right_side_panel_set_nav_visible(state->gui.right_side_panel, FALSE);
+        right_side_panel_set_analysis_visible(state->gui.right_side_panel, TRUE);
+        right_side_panel_clear_history(state->gui.right_side_panel);
+    }
+    
+    if (debug_mode) printf("Exited replay mode.\n");
+}
+
 
 static void on_app_activate(GtkApplication* app, gpointer user_data) {
     AppState* state = (AppState*)user_data;
@@ -673,6 +905,10 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     
     // Apply saved config to Theme Manager
     AppConfig* cfg = config_get();
+    
+    // Init match history
+    match_history_init();
+
     if (cfg) {
         theme_manager_set_dark(cfg->is_dark_mode);
         if (cfg->theme[0] != '\0' && strcmp(cfg->theme, "default") != 0) {
@@ -699,6 +935,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* settings_btn = gtk_button_new_from_icon_name("open-menu-symbolic");
     gtk_widget_add_css_class(settings_btn, "header-button");
     gtk_widget_set_tooltip_text(settings_btn, "Settings");
+    state->gui.settings_btn = settings_btn; // Store reference
     
     // Register "open-settings" action with string parameter (optional page name)
     // Note: We use G_VARIANT_TYPE_STRING so we can pass specific pages like "piece" from tutorial
@@ -714,10 +951,26 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* dark_mode_btn = dark_mode_button_new();
     gtk_widget_set_valign(dark_mode_btn, GTK_ALIGN_CENTER);
     gtk_widget_set_focusable(dark_mode_btn, FALSE);
+    state->gui.dark_mode_btn = dark_mode_btn; // Store reference
 
-    // Pack buttons: [Dark Mode] [Settings]
+    // History Button
+    GtkWidget* history_btn = gtk_button_new_from_icon_name("document-open-recent-symbolic");
+    gtk_widget_set_valign(history_btn, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(history_btn, "Game History");
+    state->gui.history_btn = history_btn;
+
+    // Exit Replay Button (Initially Hidden)
+    GtkWidget* exit_replay_btn = gtk_button_new_with_label("Exit Replay");
+    gtk_widget_add_css_class(exit_replay_btn, "destructive-action");
+    gtk_widget_set_valign(exit_replay_btn, GTK_ALIGN_CENTER);
+    gtk_widget_set_visible(exit_replay_btn, FALSE);
+    state->gui.exit_replay_btn = exit_replay_btn;
+
+    // Pack buttons: [Exit Replay] [History] [Dark Mode] [Settings]
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), settings_btn);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), dark_mode_btn);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), history_btn);
+    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), exit_replay_btn);
     
     gtk_window_set_titlebar(state->gui.window, header);
 
@@ -745,6 +998,16 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     g_signal_connect(act_puzzles, "activate", G_CALLBACK(on_puzzles_action), state);
     g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_puzzles));
     
+    GSimpleAction* act_history = g_simple_action_new("open-history", NULL);
+    g_signal_connect(act_history, "activate", G_CALLBACK(on_history_clicked), state);
+    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_history));
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(history_btn), "app.open-history");
+
+    GSimpleAction* act_exit_replay = g_simple_action_new("exit-replay", NULL);
+    g_signal_connect(act_exit_replay, "activate", G_CALLBACK(on_exit_replay), state);
+    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_exit_replay));
+    gtk_actionable_set_action_name(GTK_ACTIONABLE(exit_replay_btn), "app.exit-replay");
+
     GSimpleAction* act_start_puzzle = g_simple_action_new("start-puzzle", G_VARIANT_TYPE_INT32);
     g_signal_connect(act_start_puzzle, "activate", G_CALLBACK(on_start_puzzle_action), state);
     g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_start_puzzle));
@@ -801,15 +1064,15 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         gtk_popover_set_has_arrow(popover, FALSE);
         gtk_widget_set_parent(GTK_WIDGET(popover), GTK_WIDGET(header));
         
-        GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-        gtk_widget_set_margin_top(box, 12);
-        gtk_widget_set_margin_bottom(box, 12);
-        gtk_widget_set_margin_start(box, 12);
-        gtk_widget_set_margin_end(box, 12);
+        GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+        gtk_widget_set_margin_top(main_vbox, 16);
+        gtk_widget_set_margin_bottom(main_vbox, 16);
+        gtk_widget_set_margin_start(main_vbox, 16);
+        gtk_widget_set_margin_end(main_vbox, 16);
         
         GtkWidget* lbl = gtk_label_new("New to chess?\nTry the tutorial!");
         gtk_label_set_justify(GTK_LABEL(lbl), GTK_JUSTIFY_CENTER);
-        gtk_box_append(GTK_BOX(box), lbl);
+        gtk_box_append(GTK_BOX(main_vbox), lbl);
         
         // Start Button
         GtkWidget* btn_start = gtk_button_new_with_label("Start Tutorial");
@@ -821,15 +1084,15 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         // Store button reference for focus grabbing on startup
         g_object_set_data(G_OBJECT(state->gui.window), "tutorial-start-btn", btn_start);
         
-        gtk_box_append(GTK_BOX(box), btn_start);
+        gtk_box_append(GTK_BOX(main_vbox), btn_start);
         
         // Close Button
         GtkWidget* btn_close = gtk_button_new_with_label("Close");
         g_signal_connect(btn_close, "clicked", G_CALLBACK(on_dismiss_onboarding), state);
         g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_widget_grab_focus), state->gui.board);
-        gtk_box_append(GTK_BOX(box), btn_close);
+        gtk_box_append(GTK_BOX(main_vbox), btn_close);
         
-        gtk_popover_set_child(popover, box);
+        gtk_popover_set_child(popover, main_vbox);
         gtk_popover_set_position(popover, GTK_POS_BOTTOM);
         gtk_popover_set_autohide(popover, TRUE);
         

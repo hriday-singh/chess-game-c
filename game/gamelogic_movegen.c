@@ -409,3 +409,16 @@ void gamelogic_free_moves_array(Move** moves, int count) {
     free(moves);
 }
 
+Move** gamelogic_get_all_legal_moves(GameLogic* logic, Player player, int* count) {
+    if (!logic) {
+        if (count) *count = 0;
+        return NULL;
+    }
+    
+    MoveList* legal = movelist_create();
+    gamelogic_generate_legal_moves(logic, player, legal);
+    
+    Move** arr = move_array_clone(legal, count);
+    movelist_free(legal);
+    return arr;
+}

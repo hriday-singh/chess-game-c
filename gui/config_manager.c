@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <direct.h>
@@ -15,23 +16,25 @@
 #define MKDIR(path) mkdir(path, 0755)
 #endif
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 // Global configuration instance
 static AppConfig g_config;
 static char g_config_path[2048] = {0};
+static char g_base_dir[2048] = {0};
 static char g_app_name[64] = "HAL Chess";
 
 void config_set_app_param(const char* app_name) {
     if (app_name && strlen(app_name) > 0) {
         strncpy(g_app_name, app_name, sizeof(g_app_name) - 1);
-        // Clear config path ensuring it's recalculated
+        // Clear paths ensuring they are recalculated
         g_config_path[0] = '\0';
+        g_base_dir[0] = '\0';
     }
 }
 
-static void determine_config_path(void) {
-    if (g_config_path[0] != '\0') return;
+static void determine_base_dir(void) {
+    if (g_base_dir[0] != '\0') return;
 
     const char* home = NULL;
 #ifdef _WIN32
@@ -43,21 +46,23 @@ static void determine_config_path(void) {
 #endif
 
     if (!home) {
-        strncpy(g_config_path, "config.json", sizeof(g_config_path) - 1);
-        return;
-    }
-
-    char dir[1024];
+        strcpy(g_base_dir, ".");
+    } else {
 #ifdef _WIN32
-    snprintf(dir, sizeof(dir), "%s/%s", home, g_app_name);
+        snprintf(g_base_dir, sizeof(g_base_dir), "%s/%s", home, g_app_name);
 #else
-    snprintf(dir, sizeof(dir), "%s/.config/%s", home, g_app_name);
+        snprintf(g_base_dir, sizeof(g_base_dir), "%s/.config/%s", home, g_app_name);
 #endif
-
-    // Create directory, ignore error (might exist)
-    MKDIR(dir);
+    }
     
-    snprintf(g_config_path, sizeof(g_config_path), "%s/config.json", dir);
+    // Create directory, ignore error (might exist)
+    MKDIR(g_base_dir);
+}
+
+static void determine_config_path(void) {
+    if (g_config_path[0] != '\0') return;
+    determine_base_dir();
+    snprintf(g_config_path, sizeof(g_config_path), "%.1024s/config.json", g_base_dir);
 }
 
 // Helper to set defaults
@@ -224,7 +229,6 @@ bool config_load(void) {
     }
     
     fclose(f);
-    fclose(f);
     if (debug_mode) {
         printf("Config loaded from %s\n", g_config_path);
         printf("--- [DEBUG] Config Summary ---\n");
@@ -236,6 +240,11 @@ bool config_load(void) {
         printf("  Hints: %s\n", g_config.hints_dots ? "Dots" : "Squares");
         printf("  Animations: %s\n", g_config.enable_animations ? "ON" : "OFF");
         printf("  SFX: %s\n", g_config.enable_sfx ? "ON" : "OFF");
+        printf("  Live Analysis: %s\n", g_config.enable_live_analysis ? "ON" : "OFF");
+        printf("  Advantage Bar: %s\n", g_config.show_advantage_bar ? "ON" : "OFF");
+        printf("  Mate Warning: %s\n", g_config.show_mate_warning ? "ON" : "OFF");
+        printf("  Hanging Pieces: %s\n", g_config.show_hanging_pieces ? "ON" : "OFF");
+        printf("  Move Rating: %s\n", g_config.show_move_rating ? "ON" : "OFF");
         printf("  Internal AI: ELO=%d, Depth=%d, MoveTime=%d\n", g_config.int_elo, g_config.int_depth, g_config.int_movetime);
         printf("  NNUE: %s (Path: %s)\n", g_config.nnue_enabled ? "ON" : "OFF", g_config.nnue_path);
         printf("  Custom Engine: %s (ELO=%d)\n", g_config.custom_engine_path, g_config.custom_elo);
@@ -299,7 +308,27 @@ bool config_save(void) {
     fprintf(f, "}\n");
     
     fclose(f);
-    if (debug_mode) printf("[DEBUG] Config saved to %s\n", g_config_path);
+    if (debug_mode) {
+        printf("Config saved to %s\n", g_config_path);
+        printf("--- [DEBUG] Config Summary ---\n");
+        printf("  Theme: %s\n", g_config.theme);
+        printf("  Dark Mode: %s\n", g_config.is_dark_mode ? "true" : "false");
+        printf("  Tutorial: %s\n", g_config.show_tutorial_dialog ? "true" : "false");
+        printf("  Game Mode: %d\n", g_config.game_mode);
+        printf("  Play As: %d\n", g_config.play_as);
+        printf("  Hints: %s\n", g_config.hints_dots ? "Dots" : "Squares");
+        printf("  Animations: %s\n", g_config.enable_animations ? "ON" : "OFF");
+        printf("  SFX: %s\n", g_config.enable_sfx ? "ON" : "OFF");
+        printf("  Live Analysis: %s\n", g_config.enable_live_analysis ? "ON" : "OFF");
+        printf("  Advantage Bar: %s\n", g_config.show_advantage_bar ? "ON" : "OFF");
+        printf("  Mate Warning: %s\n", g_config.show_mate_warning ? "ON" : "OFF");
+        printf("  Hanging Pieces: %s\n", g_config.show_hanging_pieces ? "ON" : "OFF");
+        printf("  Move Rating: %s\n", g_config.show_move_rating ? "ON" : "OFF");
+        printf("  Internal AI: ELO=%d, Depth=%d, MoveTime=%d\n", g_config.int_elo, g_config.int_depth, g_config.int_movetime);
+        printf("  NNUE: %s (Path: %s)\n", g_config.nnue_enabled ? "ON" : "OFF", g_config.nnue_path);
+        printf("  Custom Engine: %s (ELO=%d)\n", g_config.custom_engine_path, g_config.custom_elo);
+        printf("------------------------------\n");
+    }
     return true;
 }
 
@@ -319,29 +348,17 @@ const char* config_get_path(void) {
 
 // --- App Themes Implementation ---
 
+#include <limits.h>
+
 #define MAX_CUSTOM_THEMES 50
 static AppTheme g_custom_themes[MAX_CUSTOM_THEMES];
 static int g_custom_theme_count = 0;
-static char g_themes_path[2048] = {0}; // Increased to match config_path
+static char g_themes_path[4096] = {0};
 
 static void determine_themes_path(void) {
     if (g_themes_path[0] != '\0') return;
-    determine_config_path(); // Ensure base path exists
-    
-    // Replace config.json with app_themes.json
-    // g_config_path is like ".../config.json"
-    snprintf(g_themes_path, sizeof(g_themes_path), "%s", g_config_path);
-    char* last_slash = strrchr(g_themes_path, '/');
-    #ifdef _WIN32
-    if (!last_slash) last_slash = strrchr(g_themes_path, '\\');
-    #endif
-    
-    if (last_slash) {
-        strcpy(last_slash + 1, "app_themes.json");
-    } else {
-        // Should not happen if config path is full path
-        strcpy(g_themes_path, "app_themes.json");
-    }
+    determine_base_dir();
+    snprintf(g_themes_path, sizeof(g_themes_path), "%s/app_themes.json", g_base_dir);
 }
 
 // Minimal manual JSON parser for this specific structure
@@ -536,4 +553,205 @@ void app_themes_save_all(void) {
     fprintf(f, "]\n");
     fclose(f);
     if (debug_mode) printf("[DEBUG] Themes saved to %s\n", g_themes_path);
+}
+
+// --- Match History Implementation ---
+
+static MatchHistoryEntry* g_history_list = NULL;
+static int g_history_count = 0;
+static int g_history_capacity = 0;
+
+void match_history_free_entry(MatchHistoryEntry* entry) {
+    if (entry && entry->moves_san) {
+        free(entry->moves_san);
+        entry->moves_san = NULL;
+    }
+}
+
+static void save_single_match(MatchHistoryEntry* m) {
+    determine_base_dir();
+    char matches_dir[4096]; // Increased to avoid truncation warnings
+    snprintf(matches_dir, sizeof(matches_dir), "%s/matches", g_base_dir);
+    MKDIR(matches_dir);
+
+    char match_path[4096]; // Increased to avoid truncation warnings
+    snprintf(match_path, sizeof(match_path), "%.2048s/%.256s.json", matches_dir, m->id);
+    
+    FILE* f = fopen(match_path, "w");
+    if (!f) {
+        printf("[ERROR] Failed to save match history file: %s\n", match_path);
+        return;
+    }
+
+    fprintf(f, "{\n");
+    fprintf(f, "  \"id\": \"%s\",\n", m->id);
+    fprintf(f, "  \"timestamp\": %ld,\n", m->timestamp);
+    fprintf(f, "  \"game_mode\": %d,\n", m->game_mode);
+    
+    fprintf(f, "  \"white\": {\n");
+    fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+            m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.movetime, m->white.engine_type, m->white.engine_path);
+    fprintf(f, "  },\n");
+    
+    fprintf(f, "  \"black\": {\n");
+    fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+            m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.movetime, m->black.engine_type, m->black.engine_path);
+    fprintf(f, "  },\n");
+    
+    fprintf(f, "  \"result\": \"%s\",\n", m->result);
+    fprintf(f, "  \"result_reason\": \"%s\",\n", m->result_reason);
+    fprintf(f, "  \"move_count\": %d,\n", m->move_count);
+    fprintf(f, "  \"moves_san\": \"%s\",\n", m->moves_san ? m->moves_san : "");
+    fprintf(f, "  \"final_fen\": \"%s\"\n", m->final_fen);
+    fprintf(f, "}\n");
+    
+    fclose(f);
+    printf("[DEBUG] Match History saved to: %s\n", match_path);
+}
+
+void match_history_init(void) {
+    g_history_count = 0;
+    g_history_capacity = 20;
+    g_history_list = calloc(g_history_capacity, sizeof(MatchHistoryEntry));
+    match_history_load_all();
+}
+
+static void parse_match_file(const char* path) {
+    FILE* f = fopen(path, "r");
+    if (!f) return;
+
+    if (g_history_count >= g_history_capacity) {
+        g_history_capacity *= 2;
+        g_history_list = realloc(g_history_list, g_history_capacity * sizeof(MatchHistoryEntry));
+    }
+
+    MatchHistoryEntry* m = &g_history_list[g_history_count++];
+    memset(m, 0, sizeof(MatchHistoryEntry));
+
+    char line[4096];
+    while (fgets(line, sizeof(line), f)) {
+        if (strstr(line, "\"id\"")) extract_json_str(line, "id", m->id, sizeof(m->id));
+        else if (strstr(line, "\"timestamp\"")) {
+            char* p = strchr(line, ':');
+            if (p) m->timestamp = atol(p + 1);
+        }
+        else if (strstr(line, "\"game_mode\"")) {
+            char* p = strchr(line, ':');
+            if (p) m->game_mode = atoi(p + 1);
+        }
+        else if (strstr(line, "\"result\"")) {
+            if (strstr(line, "\"result_reason\"")) extract_json_str(line, "result_reason", m->result_reason, sizeof(m->result_reason));
+            else extract_json_str(line, "result", m->result, sizeof(m->result));
+        }
+        else if (strstr(line, "\"move_count\"")) {
+            char* p = strchr(line, ':');
+            if (p) m->move_count = atoi(p + 1);
+        }
+        else if (strstr(line, "\"moves_san\"")) {
+            char val[4096];
+            extract_json_str(line, "moves_san", val, sizeof(val));
+            m->moves_san = strdup(val);
+        }
+        else if (strstr(line, "\"final_fen\"")) extract_json_str(line, "final_fen", m->final_fen, sizeof(m->final_fen));
+        
+        // Note: Simple parser only gets top level for now. Detailed white/black config can be added if needed for UI.
+    }
+    fclose(f);
+}
+
+void match_history_load_all(void) {
+    determine_base_dir();
+    char matches_dir[4096];
+    snprintf(matches_dir, sizeof(matches_dir), "%s/matches", g_base_dir);
+    
+    // Clear current list
+    for (int i = 0; i < g_history_count; i++) match_history_free_entry(&g_history_list[i]);
+    g_history_count = 0;
+
+#ifdef _WIN32
+    char search_path[4096];
+    snprintf(search_path, sizeof(search_path), "%.2048s/*.json", matches_dir);
+    WIN32_FIND_DATAA fd;
+    HANDLE hFind = FindFirstFileA(search_path, &fd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            char full_path[4096];
+            snprintf(full_path, sizeof(full_path), "%.2048s/%.1024s", matches_dir, fd.cFileName);
+            parse_match_file(full_path);
+        } while (FindNextFileA(hFind, &fd));
+        FindClose(hFind);
+    }
+#else
+    DIR* d = opendir(matches_dir);
+    if (d) {
+        struct dirent* dir;
+        while ((dir = readdir(d)) != NULL) {
+            if (strstr(dir->d_name, ".json")) {
+                char full_path[4096];
+                snprintf(full_path, sizeof(full_path), "%s/%s", matches_dir, dir->d_name);
+                parse_match_file(full_path);
+            }
+        }
+        closedir(d);
+    }
+#endif
+    printf("[DEBUG] Loaded %d matches from %s\n", g_history_count, matches_dir);
+}
+
+void match_history_delete(const char* id) {
+    if (!id) return;
+    determine_base_dir();
+    char path[4096];
+    snprintf(path, sizeof(path), "%s/matches/%s.json", g_base_dir, id);
+    
+#ifdef _WIN32
+    DeleteFileA(path);
+#else
+    remove(path);
+#endif
+
+    // Remove from memory
+    int idx = -1;
+    for (int i = 0; i< g_history_count; i++) {
+        if (strcmp(g_history_list[i].id, id) == 0) {
+            idx = i;
+            break;
+        }
+    }
+    
+    if (idx != -1) {
+        match_history_free_entry(&g_history_list[idx]);
+        for (int i = idx; i < g_history_count - 1; i++) {
+            g_history_list[i] = g_history_list[i+1];
+        }
+        g_history_count--;
+    }
+    printf("[DEBUG] Deleted match: %s\n", path);
+}
+
+void match_history_add(MatchHistoryEntry* entry) {
+    if (!entry) return;
+    if (g_history_count >= g_history_capacity) {
+        g_history_capacity *= 2;
+        g_history_list = realloc(g_history_list, g_history_capacity * sizeof(MatchHistoryEntry));
+    }
+    
+    MatchHistoryEntry* dest = &g_history_list[g_history_count++];
+    *dest = *entry;
+    if (entry->moves_san) dest->moves_san = strdup(entry->moves_san);
+    
+    save_single_match(dest);
+}
+
+MatchHistoryEntry* match_history_find_by_id(const char* id) {
+    if (!id) return NULL;
+    for (int i = 0; i < g_history_count; i++) {
+        if (strcmp(g_history_list[i].id, id) == 0) return &g_history_list[i];
+    }
+    return NULL;
+}
+
+MatchHistoryEntry* match_history_get_list(int* count) {
+    if (count) *count = g_history_count;
+    return g_history_list;
 }

@@ -13,17 +13,24 @@ typedef void (*AiMoveReadyCallback)(Move* move, gpointer user_data);
 
 // Analysis/Evaluation Statistics to broadcast
 typedef struct {
-    int score;           // White perspective centipawns
-    bool is_mate;        // White perspective
+    int score;            // White perspective centipawns. Mate mapped to +/-30000 internally.
+    bool is_mate;         // White perspective
     int mate_distance;    // Positive = White mates, Negative = Black mates
     const char* best_move;
-    
+
+    // NEW: Win/Draw/Loss predictor for eval bar (for chosen analysis side)
+    Player analysis_side; // PLAYER_WHITE or PLAYER_BLACK
+    double win_prob;      // 0..1
+    double draw_prob;     // 0..1
+    double loss_prob;     // 0..1
+
     // Rating / Toast Info (NULL if no rating update)
-    const char* rating_label; 
+    const char* rating_label;   // Best/Excellent/Good/Inaccuracy/Mistake/Blunder
     const char* rating_reason;
+
     int move_number;
-    char* fen;           // FEN this analysis belongs to
-    
+    char* fen;            // FEN this analysis belongs to
+
     // Hanging Pieces Count
     int white_hanging;
     int black_hanging;
@@ -32,17 +39,17 @@ typedef struct {
 // Callback for evaluation updates
 typedef void (*AiEvalUpdateCallback)(const AiStats* stats, gpointer user_data);
 
-// Constructor no longer requires RightSidePanel, but needs game logic and settings
+// Constructor
 AiController* ai_controller_new(GameLogic* logic, AiDialog* ai_dialog);
 void ai_controller_free(AiController* controller);
 
 // Request an AI move for the current position
-void ai_controller_request_move(AiController* controller, 
-                               bool use_custom, 
-                               AiDifficultyParams params,
-                               const char* custom_path,
-                               AiMoveReadyCallback callback, 
-                               gpointer user_data);
+void ai_controller_request_move(AiController* controller,
+                                bool use_custom,
+                                AiDifficultyParams params,
+                                const char* custom_path,
+                                AiMoveReadyCallback callback,
+                                gpointer user_data);
 
 // Stop any ongoing thinking
 void ai_controller_stop(AiController* controller);
@@ -62,14 +69,19 @@ void ai_controller_set_eval_callback(AiController* controller, AiEvalUpdateCallb
 // Enable/disable NNUE
 void ai_controller_set_nnue(AiController* controller, bool enabled, const char* path);
 
-// Marks that the next evaluation should count towards a rating (move just made)
+/* OPTIONAL:
+   If you used this externally, keep it. But the new rating flow does not need it.
+   Recommended: remove all external uses and delete this API. */
 void ai_controller_set_rating_pending(AiController* controller, bool pending);
 
 // Analysis Control
 bool ai_controller_start_analysis(AiController* controller, bool use_custom, const char* custom_path);
 void ai_controller_stop_analysis(AiController* controller, bool free_engine);
 
-// Mark the beginning of a human move to capture 'before' snapshot accurately
-void ai_controller_mark_human_move_begin(AiController* controller);
+// NEW: Choose which side your eval bar is predicting for (WDL is relative to this side)
+void ai_controller_set_analysis_side(AiController* controller, Player side);
+
+// UPDATED: Mark beginning of a human move + pass the played move in UCI (e2e4, e7e8q, etc.)
+void ai_controller_mark_human_move_begin(AiController* controller, const char* played_move_uci);
 
 #endif // AI_CONTROLLER_H

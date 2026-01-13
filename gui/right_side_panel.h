@@ -77,6 +77,7 @@ void right_side_panel_sync_config(RightSidePanel* panel, const void* config); //
 void right_side_panel_set_flipped(RightSidePanel* panel, bool flipped); // New
 
 void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_number, Player turn);
+void right_side_panel_add_san_move(RightSidePanel* panel, const char* san, int move_number, Player turn);
 void right_side_panel_clear_history(RightSidePanel* panel);
 void right_side_panel_set_current_move(RightSidePanel* panel, int move_index);
 void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index);

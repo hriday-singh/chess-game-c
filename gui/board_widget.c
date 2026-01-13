@@ -72,6 +72,7 @@ typedef struct {
     // Callback before human move execution (for state capture)
     BoardPreMoveCallback preMoveCb;
     void* preMoveData;
+    bool isInteractive;
 } BoardWidget;
 
 // Safe lookup key
@@ -217,13 +218,23 @@ static bool is_last_move_square(BoardWidget* board, int r, int c) {
             (r == lastMove->endRow && c == lastMove->endCol));
 }
 
+// Helper to render move to UCI string (e.g. "e2e4")
+static void render_move_uci(Move* m, char* buf, size_t size) {
+    if (!m || !buf || size < 5) return;
+    snprintf(buf, size, "%c%d%c%d", 
+             'a' + m->startCol, 8 - m->startRow,
+             'a' + m->endCol, 8 - m->endRow);
+}
+
 // Centralized move execution helper
 static void execute_move_with_updates(BoardWidget* board, Move* move) {
     if (!board || !move) return;
     
     // 1. Trigger Pre-Move Callback (for AI rating snapshots etc)
     if (board->preMoveCb) {
-        board->preMoveCb(board->preMoveData);
+        char uci[32];
+        render_move_uci(move, uci, sizeof(uci));
+        board->preMoveCb(uci, board->preMoveData);
     }
 
     // 2. Update Game Logic
@@ -723,11 +734,15 @@ static void on_drag_press(GtkGestureClick* gesture, int n_press, double x, doubl
     (void)gesture; (void)n_press;
     BoardWidget* board = (BoardWidget*)user_data;
     
-    // Disable interaction in CvC mode
-    if (board->logic->gameMode == GAME_MODE_CVC) {
+    // Disable interaction in CvC mode or if set as non-interactive (e.g. replay)
+    if (board->logic->gameMode == GAME_MODE_CVC || !board->isInteractive) {
         return;
     }
 
+    // Only allow interaction if it's the human's turn in PvC
+    if (board->logic->gameMode == GAME_MODE_PVC && gamelogic_is_computer(board->logic, board->logic->turn)) {
+        return;
+    }
     // Skip if game is over (checkmate/stalemate)
     if (board->logic->isGameOver) {
         return;
@@ -754,8 +769,7 @@ static void on_drag_press(GtkGestureClick* gesture, int n_press, double x, doubl
     Piece* piece = board->logic->board[r][c];
     
     // Prepare drag if piece belongs to current player
-    // Note: gamelogic_get_valid_moves_for_piece now enforces turn checks.
-    if (piece) {
+    if (piece && piece->owner == board->logic->turn) {
         board->dragPrepared = true;  // Mark as prepared, but NOT dragging yet
         board->isDragging = false;   // Not dragging until mouse moves
         board->dragSourceRow = r;  // Store logical coordinates
@@ -788,9 +802,13 @@ static void on_drag_press(GtkGestureClick* gesture, int n_press, double x, doubl
 static void on_grid_motion(GtkEventControllerMotion* motion, double x, double y, gpointer user_data) {
     (void)motion;
     BoardWidget* board = (BoardWidget*)user_data;
+    if (board->logic->gameMode == GAME_MODE_CVC || !board->isInteractive) return;
     
-    if (board->logic->gameMode == GAME_MODE_CVC) return;
-    
+    // Only allow interaction if it's the human's turn in PvC
+    if (board->logic->gameMode == GAME_MODE_PVC && gamelogic_is_computer(board->logic, board->logic->turn)) {
+        return;
+    }
+
     // If we have a prepared drag but haven't started dragging yet, check if mouse moved
     if (board->dragPrepared && !board->isDragging) {
         // Calculate distance from initial press position
@@ -840,6 +858,7 @@ static void on_grid_motion(GtkEventControllerMotion* motion, double x, double y,
 static void on_release(GtkGestureClick* gesture, int n_press, double x, double y, gpointer user_data) {
     (void)gesture; (void)n_press; (void)x; (void)y;
     BoardWidget* board = (BoardWidget*)user_data;
+    if (!board || !board->isInteractive) return;
     if (board->logic->gameMode == GAME_MODE_CVC) return;
         
     // If we were dragging, check if we dropped on a valid square
@@ -964,9 +983,14 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
     (void)gesture; (void)n_press; (void)x; (void)y;
     BoardWidget* board = (BoardWidget*)user_data;
     
-    // Disable interaction in CvC mode
-    if (board->logic->gameMode == GAME_MODE_CVC) return;
+    // Disable interaction in CvC mode or if set as non-interactive
+    if (board->logic->gameMode == GAME_MODE_CVC || !board->isInteractive) return;
     
+    // Only allow interaction if it's the human's turn in PvC
+    if (board->logic->gameMode == GAME_MODE_PVC && gamelogic_is_computer(board->logic, board->logic->turn)) {
+        return;
+    }
+
     // Skip if game is over (checkmate/stalemate)
     if (board->logic->isGameOver) {
         return;
@@ -977,7 +1001,7 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
         return;
     }
     
-    // Skip if in drag mode (drag will be handled by on_drag_press)
+    // Skip if in drag mode
     if (board->dragMode) {
         return;
     }
@@ -1334,6 +1358,7 @@ GtkWidget* board_widget_new(GameLogic* logic) {
     board->allowedStartCol = -1;
     board->allowedEndRow = -1;
     board->allowedEndCol = -1;
+    board->isInteractive = true;
     
     // Create a frame to add border around the board
     GtkWidget* frame = gtk_frame_new(NULL);
@@ -1579,4 +1604,14 @@ void board_widget_set_pre_move_callback(GtkWidget* board_widget, BoardPreMoveCal
     if (!board) return;
     board->preMoveCb = cb;
     board->preMoveData = data;
+}
+
+void board_widget_set_interactive(GtkWidget* board_widget, bool interactive) {
+    BoardWidget* board = find_board_data(board_widget);
+    if (board) {
+        board->isInteractive = interactive;
+        if (!interactive) {
+            board_widget_reset_selection(board_widget);
+        }
+    }
 }

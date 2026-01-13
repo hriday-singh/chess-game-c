@@ -6,6 +6,7 @@
 #include "board_theme_dialog.h"
 #include "piece_theme_dialog.h"
 #include "ai_dialog.h"
+#include "config_manager.h"
 
 // Tutorial Enums
 enum {
@@ -32,6 +33,10 @@ typedef struct GuiState {
     GtkWidget* tutorial_exit_btn;
     GtkWidget* onboarding_popover;
     GtkWidget* header_right_panel_btn;
+    GtkWidget* history_btn;
+    GtkWidget* exit_replay_btn;
+    GtkWidget* settings_btn;
+    GtkWidget* dark_mode_btn;
 
     // Dialogs & Panels
     BoardThemeDialog* theme_dialog;
@@ -39,6 +44,7 @@ typedef struct GuiState {
     AiDialog* ai_dialog;
     struct _SettingsDialog* settings_dialog;
     struct _RightSidePanel* right_side_panel;
+    struct _HistoryDialog* history_dialog;
 } GuiState;
 
 typedef struct TutorialState {
@@ -55,6 +61,21 @@ typedef struct PuzzleState {
     gboolean wait; // Waiting for opponent response
 } PuzzleState;
 
+// Add a match to history and save to disk
+void match_history_add(MatchHistoryEntry* entry);
+
+// Find a match by ID (returns pointer to internal list)
+MatchHistoryEntry* match_history_find_by_id(const char* id);
+
+// Delete a match by ID
+void match_history_delete(const char* id);
+
+typedef struct ReplayState {
+    bool active;
+    int current_ply;
+    MatchHistoryEntry current_match;
+} ReplayState;
+
 typedef struct AppState {
     // Core Logic & Data
     GameLogic* logic;
@@ -65,6 +86,7 @@ typedef struct AppState {
     GuiState gui;
     TutorialState tutorial;
     PuzzleState puzzle;
+    ReplayState replay;
 
     // Session State
     CvCMatchState cvc_match_state;
@@ -72,6 +94,11 @@ typedef struct AppState {
     
     // Analysis/Rating State
     int last_move_count;
+
+    // Match Persistence
+    bool match_saved;
+    bool is_replaying;
+    char* replay_match_id;
 
     // Timers
     guint settings_timer_id;

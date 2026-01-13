@@ -607,6 +607,70 @@ void right_side_panel_set_nav_visible(RightSidePanel* panel, bool visible) {
         gtk_widget_set_visible(panel->nav_box, visible);
 }
 
+void right_side_panel_add_san_move(RightSidePanel* panel, const char* san, int move_number, Player turn) {
+    if (!panel) return;
+    
+    int ply_index = (move_number - 1) * 2 + (turn == PLAYER_WHITE ? 0 : 1);
+    
+    // Determine piece type from SAN
+    PieceType p_type = PIECE_PAWN;
+    if (san[0] == 'N') p_type = PIECE_KNIGHT;
+    else if (san[0] == 'B') p_type = PIECE_BISHOP;
+    else if (san[0] == 'R') p_type = PIECE_ROOK;
+    else if (san[0] == 'Q') p_type = PIECE_QUEEN;
+    else if (san[0] == 'K') p_type = PIECE_KING;
+    else if (san[0] == 'O') p_type = PIECE_KING; // Castling
+    
+    panel->total_plies = ply_index + 1;
+    panel->viewed_ply = ply_index;
+    
+    if (turn == PLAYER_WHITE) {
+        GtkWidget* row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_widget_add_css_class(row_box, "move-history-row-v2");
+        
+        char num_buf[16];
+        snprintf(num_buf, sizeof(num_buf), "%d.", move_number);
+        GtkWidget* num_lbl = gtk_label_new(num_buf);
+        gtk_widget_add_css_class(num_lbl, "move-number-v2");
+        gtk_label_set_xalign(GTK_LABEL(num_lbl), 1.0);
+        gtk_box_append(GTK_BOX(row_box), num_lbl);
+        
+        GtkWidget* w_cell = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_widget_add_css_class(w_cell, "move-cell-v2");
+        gtk_widget_set_hexpand(w_cell, TRUE);
+        
+        GtkWidget* w_contents = create_move_cell_contents(panel, p_type, PLAYER_WHITE, san, ply_index);
+        gtk_widget_set_hexpand(w_contents, TRUE);
+        gtk_widget_set_halign(w_contents, GTK_ALIGN_FILL);
+        gtk_box_append(GTK_BOX(w_cell), w_contents);
+        gtk_box_append(GTK_BOX(row_box), w_cell);
+        
+        GtkWidget* b_cell = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_widget_add_css_class(b_cell, "move-cell-v2");
+        gtk_widget_set_hexpand(b_cell, TRUE);
+        gtk_box_append(GTK_BOX(row_box), b_cell);
+        
+        gtk_list_box_append(GTK_LIST_BOX(panel->history_list), row_box);
+    } else {
+        GtkWidget* last_row = gtk_widget_get_last_child(panel->history_list);
+        if (last_row) {
+            GtkWidget* row_box = gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(last_row));
+            GtkWidget* b_cell = gtk_widget_get_last_child(row_box);
+            if (b_cell) {
+                GtkWidget* b_contents = create_move_cell_contents(panel, p_type, PLAYER_BLACK, san, ply_index);
+                gtk_widget_set_hexpand(b_contents, TRUE);
+                gtk_widget_set_halign(b_contents, GTK_ALIGN_FILL);
+                gtk_box_append(GTK_BOX(b_cell), b_contents);
+            }
+        }
+    }
+    
+    right_side_panel_highlight_ply(panel, ply_index);
+    
+    GtkAdjustment* adj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(panel->history_scrolled));
+    gtk_adjustment_set_value(adj, gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj));
+}
+
 void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_number, Player turn) {
     if (!panel) return;
     

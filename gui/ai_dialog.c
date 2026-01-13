@@ -5,6 +5,7 @@
 #include <math.h>
 #include <stdio.h>
 #include "gui_utils.h"
+#include "config_manager.h"
 
 struct _AiDialog {
     GtkWindow* parent_window;
@@ -59,6 +60,9 @@ struct _AiDialog {
     
     AiSettingsChangedCallback change_cb;
     void* change_cb_data;
+    
+    // Flag to prevent saving while loading
+    bool is_loading;
 };
 
 // --- Forward Declarations ---
@@ -71,12 +75,28 @@ static void sync_analysis_tab_sensitivity(AiDialog* dialog);
 static void on_int_elo_changed(GtkAdjustment* adj, gpointer data) {
     AiDialog* dialog = (AiDialog*)data;
     dialog->int_elo = (int)gtk_adjustment_get_value(adj);
+    
+    // Immediate Update
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    
     if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void on_custom_elo_changed(GtkAdjustment* adj, gpointer data) {
     AiDialog* dialog = (AiDialog*)data;
     dialog->custom_elo = (int)gtk_adjustment_get_value(adj);
+    
+    // Immediate Update
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    
     if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
@@ -140,12 +160,26 @@ static void on_int_depth_changed(GtkSpinButton* spin, gpointer user_data) {
         int depth = gtk_spin_button_get_value_as_int(spin);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_time_spin), calculate_movetime(depth));
     }
+    
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void on_int_time_changed(GtkSpinButton* spin, gpointer user_data) {
     (void)spin;
     AiDialog* dialog = (AiDialog*)user_data;
     dialog->int_manual_movetime = true;
+    
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void on_int_advanced_toggled(GtkCheckButton* btn, gpointer user_data) {
@@ -155,6 +189,13 @@ static void on_int_advanced_toggled(GtkCheckButton* btn, gpointer user_data) {
     // Disable ELO controls when advanced is on
     gtk_widget_set_sensitive(dialog->elo_slider, !active);
     gtk_widget_set_sensitive(dialog->elo_spin, !active);
+    
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void on_int_reset_adv_clicked(GtkButton* btn, gpointer user_data) {
@@ -163,6 +204,13 @@ static void on_int_reset_adv_clicked(GtkButton* btn, gpointer user_data) {
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_depth_spin), 10);
     dialog->int_manual_movetime = false;
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_time_spin), 500);
+    
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void on_custom_depth_changed(GtkSpinButton* spin, gpointer user_data) {
@@ -171,12 +219,26 @@ static void on_custom_depth_changed(GtkSpinButton* spin, gpointer user_data) {
         int depth = gtk_spin_button_get_value_as_int(spin);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_time_spin), calculate_movetime(depth));
     }
+    
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void on_custom_time_changed(GtkSpinButton* spin, gpointer user_data) {
     (void)spin;
     AiDialog* dialog = (AiDialog*)user_data;
     dialog->custom_manual_movetime = true;
+    
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void update_custom_controls_state(AiDialog* dialog) {
@@ -200,6 +262,13 @@ static void on_custom_advanced_toggled(GtkCheckButton* btn, gpointer user_data) 
     bool active = gtk_check_button_get_active(btn);
     gtk_widget_set_visible(dialog->custom_adv_vbox, active);
     update_custom_controls_state(dialog);
+    
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void on_custom_reset_adv_clicked(GtkButton* btn, gpointer user_data) {
@@ -208,6 +277,13 @@ static void on_custom_reset_adv_clicked(GtkButton* btn, gpointer user_data) {
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_depth_spin), 10);
     dialog->custom_manual_movetime = false;
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_time_spin), 500);
+    
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void on_clear_path_clicked(GtkButton* btn, gpointer user_data) {
@@ -218,6 +294,13 @@ static void on_clear_path_clicked(GtkButton* btn, gpointer user_data) {
     }
     gtk_editable_set_text(GTK_EDITABLE(dialog->custom_path_entry), "");
     sync_analysis_tab_sensitivity(dialog);
+
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void on_custom_path_changed(GtkEditable* editable, gpointer user_data) {
@@ -241,6 +324,14 @@ static void on_custom_path_changed(GtkEditable* editable, gpointer user_data) {
     }
     update_custom_controls_state(dialog);
     sync_analysis_tab_sensitivity(dialog);
+    
+    // Immediate Update
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 static void on_browse_finished(GObject* src, GAsyncResult* r, gpointer d) {
@@ -393,9 +484,9 @@ static void sync_analysis_tab_sensitivity(AiDialog* dialog) {
     // 1. Child Toggles
     gtk_widget_set_sensitive(dialog->advantage_bar_toggle, main_on);
     gtk_widget_set_sensitive(dialog->mate_warning_toggle, main_on);
-    gtk_widget_set_sensitive(dialog->hanging_pieces_toggle, main_on);
-    gtk_widget_set_sensitive(dialog->move_rating_toggle, main_on);
+    gtk_widget_set_sensitive(dialog->hanging_pieces_toggle, main_on);   
     gtk_widget_set_sensitive(dialog->analysis_engine_internal, main_on);
+    gtk_widget_set_sensitive(dialog->move_rating_toggle, main_on);
     
     // 2. Custom Engine Gating
     const char* custom_path = gtk_editable_get_text(GTK_EDITABLE(dialog->custom_path_entry));
@@ -428,7 +519,44 @@ static void sync_analysis_tab_sensitivity(AiDialog* dialog) {
 
 static void on_analysis_toggle_toggled(GtkCheckButton* btn, gpointer user_data) {
     (void)btn;
-    sync_analysis_tab_sensitivity((AiDialog*)user_data);
+    AiDialog* dialog = (AiDialog*)user_data;
+    sync_analysis_tab_sensitivity(dialog);
+    
+    // Immediate Update
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
+}
+
+static void on_nnue_setting_toggled(GtkCheckButton* btn, gpointer user_data) {
+    (void)btn;
+    AiDialog* dialog = (AiDialog*)user_data;
+    
+    // Immediate Update
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+        // config_save();
+    }
+    
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
+}
+
+static void on_analysis_setting_toggled(GtkCheckButton* btn, gpointer user_data) {
+    (void)btn;
+    AiDialog* dialog = (AiDialog*)user_data;
+    
+    // Immediate Update
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_save_config(dialog, cfg);
+    }
+    
+    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
 
@@ -594,6 +722,7 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     
     dialog->nnue_toggle = gtk_check_button_new_with_label("Enable NNUE");
     gtk_widget_set_visible(dialog->nnue_toggle, FALSE);
+    g_signal_connect(dialog->nnue_toggle, "toggled", G_CALLBACK(on_nnue_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(int_tab), dialog->nnue_toggle);
 
     // Wrap Internal Tab in Scroller
@@ -742,22 +871,26 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_widget_set_halign(anal_header, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(analysis_tab), anal_header);
 
-    dialog->analysis_toggle = gtk_check_button_new_with_label("Enable Live Analysis");
+    dialog->analysis_toggle = gtk_check_button_new_with_label("Real-time Evaluation");
     g_signal_connect(dialog->analysis_toggle, "toggled", G_CALLBACK(on_analysis_toggle_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->analysis_toggle);
 
     gtk_box_append(GTK_BOX(analysis_tab), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 
-    dialog->advantage_bar_toggle = gtk_check_button_new_with_label("Show Vertical Advantage Bar");
+    dialog->advantage_bar_toggle = gtk_check_button_new_with_label("Evaluation Bar");
+    g_signal_connect(dialog->advantage_bar_toggle, "toggled", G_CALLBACK(on_analysis_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->advantage_bar_toggle);
 
-    dialog->mate_warning_toggle = gtk_check_button_new_with_label("Show Mate-in-X Warning Chip");
+    dialog->mate_warning_toggle = gtk_check_button_new_with_label("Checkmate Alerts");
+    g_signal_connect(dialog->mate_warning_toggle, "toggled", G_CALLBACK(on_analysis_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->mate_warning_toggle);
 
-    dialog->hanging_pieces_toggle = gtk_check_button_new_with_label("Show Hanging Pieces Counter");
+    dialog->hanging_pieces_toggle = gtk_check_button_new_with_label("Hanging Pieces Indicator");
+    g_signal_connect(dialog->hanging_pieces_toggle, "toggled", G_CALLBACK(on_analysis_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->hanging_pieces_toggle);
 
-    dialog->move_rating_toggle = gtk_check_button_new_with_label("Show After-Move Rating Toast");
+    dialog->move_rating_toggle = gtk_check_button_new_with_label("Move Quality Feedback");
+    g_signal_connect(dialog->move_rating_toggle, "toggled", G_CALLBACK(on_analysis_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->move_rating_toggle);
 
     GtkWidget* anal_instr = gtk_label_new("When enabled, the engine will analyze the current position in the background during your turn.");
@@ -773,10 +906,12 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_box_append(GTK_BOX(analysis_tab), engine_header);
 
     dialog->analysis_engine_internal = gtk_check_button_new_with_label("Internal Engine (Stockfish 17.1)");
+    g_signal_connect(dialog->analysis_engine_internal, "toggled", G_CALLBACK(on_analysis_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->analysis_engine_internal);
 
     dialog->analysis_engine_custom = gtk_check_button_new_with_label("Custom UCI Engine");
     gtk_check_button_set_group(GTK_CHECK_BUTTON(dialog->analysis_engine_custom), GTK_CHECK_BUTTON(dialog->analysis_engine_internal));
+    g_signal_connect(dialog->analysis_engine_custom, "toggled", G_CALLBACK(on_analysis_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->analysis_engine_custom);
     
     // Help label for custom
@@ -814,6 +949,7 @@ AiDialog* ai_dialog_new_embedded(void) {
     dialog->custom_elo = 1500;
     dialog->int_manual_movetime = false;
     dialog->custom_manual_movetime = false;
+    dialog->is_loading = false;
     
     ai_dialog_build_ui(dialog);
     // Only construct content, no window
@@ -821,6 +957,12 @@ AiDialog* ai_dialog_new_embedded(void) {
     // Take ownership of the content box to prevent destruction when removed from parents
     if (dialog->content_box) {
         g_object_ref_sink(dialog->content_box);
+    }
+    
+    // Initialize with saved config
+    AppConfig* cfg = config_get();
+    if (cfg) {
+        ai_dialog_load_config(dialog, cfg);
     }
     
     return dialog;
@@ -969,10 +1111,12 @@ void ai_dialog_set_settings_changed_callback(AiDialog* dialog, AiSettingsChanged
     }
 }
 
-#include "config_manager.h"
-
 void ai_dialog_load_config(AiDialog* dialog, void* config_struct) {
     if (!dialog || !config_struct) return;
+    
+    // Set loading flag to prevent callbacks from triggering saves
+    dialog->is_loading = true;
+    
     AppConfig* cfg = (AppConfig*)config_struct;
     
     // Internal Engine
@@ -1018,10 +1162,17 @@ void ai_dialog_load_config(AiDialog* dialog, void* config_struct) {
     }
 
     sync_analysis_tab_sensitivity(dialog);
+    
+    // Loading complete
+    dialog->is_loading = false;
 }
 
 void ai_dialog_save_config(AiDialog* dialog, void* config_struct) {
     if (!dialog || !config_struct) return;
+    
+    // Prevent saving if we are in the middle of loading config
+    if (dialog->is_loading) return;
+
     AppConfig* cfg = (AppConfig*)config_struct;
     
     // Internal
