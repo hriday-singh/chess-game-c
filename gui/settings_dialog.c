@@ -7,6 +7,7 @@
 #include "board_theme_dialog.h"
 #include "piece_theme_dialog.h"
 #include "app_theme_dialog.h"
+#include "right_side_panel.h"
 #include "tutorial.h"
 #include "gui_utils.h"
 #include <ctype.h>
@@ -34,6 +35,9 @@ static void on_theme_update(void* user_data) {
     // Refresh graveyard (captured pieces) as they use theme assets
     if (app && app->gui.info_panel) {
         info_panel_refresh_graveyard(app->gui.info_panel);
+    }
+    if (app && app->gui.right_side_panel) {
+        right_side_panel_refresh(app->gui.right_side_panel);
     }
 }
 

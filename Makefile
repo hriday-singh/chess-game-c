@@ -22,9 +22,8 @@ GAME_SOURCES = $(wildcard $(SRCDIR)/*.c)
 GAME_OBJECTS = $(GAME_SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
 
 GUI_SOURCES = $(wildcard $(GUIDIR)/*.c)
-# Exclude icon_test.c, and test_svg_loader.c from main GUI build
-# test_svg_loader.c is a standalone test program
-GUI_SOURCES := $(filter-out $(GUIDIR)/icon_test.c $(GUIDIR)/test_svg_loader.c $(GUIDIR)/test_focus_chain.c, $(GUI_SOURCES))
+# Exclude icon_test.c, test_svg_loader.c, and standalone test programs from main GUI build
+GUI_SOURCES := $(filter-out $(GUIDIR)/icon_test.c $(GUIDIR)/test_svg_loader.c $(GUIDIR)/test_focus_chain.c $(GUIDIR)/test_right_panel.c, $(GUI_SOURCES))
 GUI_OBJECTS = $(GUI_SOURCES:$(GUIDIR)/%.c=$(OBJDIR)/gui_%.o)
 
 # Stockfish sources (exclude main.cpp)
@@ -58,9 +57,6 @@ GUI_TARGET = $(BUILDDIR)/chessgame_gui.exe
 
 # SVG loader test
 SVG_TEST_TARGET = $(BUILDDIR)/test_svg_loader.exe
-
-# GdkPixbuf is included with GTK4, no extra flags needed for SVG test
-# (SVG support requires librsvg to be installed, but GdkPixbuf will use it if available)
 
 # Default target - build GUI executable (MUST be first target in Makefile)
 all: $(GUI_TARGET)
@@ -208,6 +204,7 @@ $(FOCUS_TEST_TARGET): $(GUIDIR)/test_focus_chain.c $(GUIDIR)/gui_utils.c | $(BUI
 test-focus: $(FOCUS_TEST_TARGET)
 	@echo "Running Focus Chain Test..."
 	./$(FOCUS_TEST_TARGET)
+
 
 # Phony targets
 .PHONY: all all-tests clean test test-suite gui test-svg test-focus

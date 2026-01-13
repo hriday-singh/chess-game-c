@@ -31,9 +31,9 @@
 #include "right_side_panel.h"
 #include "puzzle_controller.h"
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 static int app_height = 960;
-static int app_width = 1485;
+static int app_width = 1575;
 
 // Globals
 static AppState* g_app_state = NULL;
@@ -269,21 +269,6 @@ static void on_ai_settings_changed(void* user_data) {
     AppState* state = (AppState*)user_data;
     if (debug_mode) printf("[DEBUG] AI Settings Changed callback fired.\n");
     
-    // DECISION: Do NOT reset the game automatically. 
-    // This was causing games to restart unexpectedly (pieces disappearing) if this callback fired
-    // due to UI events (e.g. initial sync, or slight adjustments).
-    // If the user wants a new game with the new settings, they can press Reset manually.
-    
-    /* 
-    if (state->tutorial.step == TUT_OFF) {
-        if (state->logic->gameMode == GAME_MODE_PVC || state->logic->gameMode == GAME_MODE_CVC) {
-             gamelogic_reset(state->logic);
-             if (state->gui.board) board_widget_refresh(state->gui.board);
-             if (state->gui.info_panel) info_panel_rebuild_layout(state->gui.info_panel);
-        }
-    }
-    */
-
     // Force immediate sync to panel
     sync_live_analysis(state);
     sync_ai_settings_to_panel(state);
@@ -383,32 +368,6 @@ static void on_game_reset(gpointer user_data) {
     
     // Note: AI is now triggered centrally via the logic update callback (update_ui_callback)
     // which is called inside gamelogic_reset.
-}
-
-static void on_toggle_panel_clicked(GtkButton* btn, gpointer user_data) {
-    (void)btn;
-    AppState* state = (AppState*)user_data;
-    if (!state || !state->gui.right_side_panel) return;
-    
-    GtkWidget* panel_widget = right_side_panel_get_widget(state->gui.right_side_panel);
-    bool visible = gtk_widget_get_visible(panel_widget);
-    bool target = !visible;
-    
-    // UI update for button state
-    if (state->gui.header_right_panel_btn) {
-        if (target) {
-            gtk_widget_add_css_class(state->gui.header_right_panel_btn, "active");
-            gtk_widget_set_tooltip_text(state->gui.header_right_panel_btn, "Hide History");
-        } else {
-            gtk_widget_remove_css_class(state->gui.header_right_panel_btn, "active");
-            gtk_widget_set_tooltip_text(state->gui.header_right_panel_btn, "Show History");
-        }
-    }
-    
-    // Safe toggle: Only call set_visible if necessary
-    if (gtk_widget_get_visible(panel_widget) != target) {
-        gtk_widget_set_visible(panel_widget, target);
-    }
 }
 
 static void on_edit_board_theme(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
@@ -748,17 +707,9 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gtk_widget_set_valign(dark_mode_btn, GTK_ALIGN_CENTER);
     gtk_widget_set_focusable(dark_mode_btn, FALSE);
 
-    // Create Panel Toggle Button
-    state->gui.header_right_panel_btn = gtk_button_new_from_icon_name("view-list-symbolic");
-    gtk_widget_add_css_class(state->gui.header_right_panel_btn, "header-button");
-    gtk_widget_add_css_class(state->gui.header_right_panel_btn, "active"); // Default visible
-    gtk_widget_set_tooltip_text(state->gui.header_right_panel_btn, "Hide History");
-    g_signal_connect(state->gui.header_right_panel_btn, "clicked", G_CALLBACK(on_toggle_panel_clicked), state);
-    
-    // Pack buttons: [History] [Dark Mode] [Settings]
+    // Pack buttons: [Dark Mode] [Settings]
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), settings_btn);
     gtk_header_bar_pack_end(GTK_HEADER_BAR(header), dark_mode_btn);
-    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), state->gui.header_right_panel_btn);
     
     gtk_window_set_titlebar(state->gui.window, header);
 
@@ -812,7 +763,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     info_panel_set_undo_callback(state->gui.info_panel, on_undo_move, state);
     
     puzzle_controller_refresh_list(state);
-    gtk_widget_set_size_request(state->gui.info_panel, 240, -1);
+    gtk_widget_set_size_request(state->gui.info_panel, 280, -1);
     gtk_widget_set_hexpand(state->gui.info_panel, FALSE);
     gtk_box_append(GTK_BOX(main_box), state->gui.info_panel);
     
@@ -883,6 +834,9 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     
     // Initial analysis sync
     sync_live_analysis(state);
+    
+    // Initial side/state sync (Fix for "Play as Black" on startup)
+    on_game_reset(state);
     
     // Connect close-request signal to cleanup BEFORE destruction
     g_signal_connect(state->gui.window, "close-request", G_CALLBACK(on_window_close_request), state);

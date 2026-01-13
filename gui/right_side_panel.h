@@ -14,17 +14,17 @@ struct _RightSidePanel {
     GameLogic* logic;
     ThemeData* theme;
     
-    // 1. Advantage Rail (Left side, full height)
+    // Layout hierarchy
+    GtkWidget* toggle_btn;  // The arrow button
+    GtkWidget* content_side; // Box holding rail + main_col
     GtkWidget* adv_rail;    // Drawing area
-    
-    // 2. Main Content Column (Right side, vertical stack)
+    GtkWidget* rail_box;
     GtkWidget* main_col;
-    
-    // Analysis Summary (Top of column)
     GtkWidget* pos_info;
     GtkWidget* eval_lbl;
     GtkWidget* mate_lbl;    // MATE IN X notice
     GtkWidget* hanging_lbl;
+    GtkWidget* analysis_side_lbl; // New: Analysis for [Side]
     
     // Feedback Zone (Middle of column)
     GtkWidget* feedback_zone;
@@ -43,6 +43,9 @@ struct _RightSidePanel {
     GtkWidget* btn_next;
     GtkWidget* btn_end;
     
+    GtkWidget* w_lbl; // Rail label W
+    GtkWidget* b_lbl; // Rail label B
+    
     // State
     double current_eval;
     bool is_mate;
@@ -50,6 +53,7 @@ struct _RightSidePanel {
     int total_plies;
     bool interactive;
     int last_feedback_ply; 
+    bool flipped; // New member
     
     RightSidePanelNavCallback nav_cb;
     gpointer nav_cb_data;
@@ -70,11 +74,13 @@ void right_side_panel_set_interactive(RightSidePanel* panel, bool interactive);
 void right_side_panel_set_nav_visible(RightSidePanel* panel, bool visible);
 void right_side_panel_set_analysis_visible(RightSidePanel* panel, bool visible);
 void right_side_panel_sync_config(RightSidePanel* panel, const void* config); // Using void* to avoid circular dependency, cast in .c
+void right_side_panel_set_flipped(RightSidePanel* panel, bool flipped); // New
 
 void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_number, Player turn);
 void right_side_panel_clear_history(RightSidePanel* panel);
 void right_side_panel_set_current_move(RightSidePanel* panel, int move_index);
 void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index);
+void right_side_panel_refresh(RightSidePanel* panel);
 
 void right_side_panel_set_nav_callback(RightSidePanel* panel, RightSidePanelNavCallback callback, gpointer user_data);
 

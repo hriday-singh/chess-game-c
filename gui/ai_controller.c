@@ -5,7 +5,7 @@
 #include "move.h"
 #include <stdbool.h>
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 struct _AiController {
     GameLogic* logic;
@@ -645,6 +645,7 @@ bool ai_controller_start_analysis(AiController* controller, bool use_custom, con
 }
 
 void ai_controller_stop_analysis(AiController* controller, bool free_engine) {
+    if(debug_mode) printf("[AI Controller] Stopping Analysis.\n");
     if (!controller) return;
     
     // Logical Stop

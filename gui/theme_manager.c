@@ -590,28 +590,38 @@ static const char *CSS_STRUCTURAL =
 
     // --- HAL Chess Console (Right Panel) ---
     // --- Right Side Panel v4 (HAL Console Rail Layout) ---
-    " .right-side-panel-v4 { border-left: 1px solid @border_color; background: @panel_bg; }"
-    " .adv-rail-box { background: alpha(@bg_color, 0.5); padding: 8px 0; border-radius: 50px; margin-left: 8px; }"
-    " .rail-side-label { font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 800; color: @dim_label; margin: 4px 0; }"
+    " .right-side-panel-v4 { border-left: 1px solid @border_color; background: @panel_bg; }\n"
+    " .adv-rail-box { background: alpha(@bg_color, 0.5); padding: 8px 0; border-radius: 50px; margin-left: 8px; }\n"
+    " .rail-side-label { font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 800; color: @dim_label; margin: 4px 0; }\n"
     
-    " .pos-info-v4 { padding: 16px; }"
-    " .eval-text-v4 { font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 800; color: @fg_color; }"
-    " .mate-notice-v4 { background: alpha(@base_destructive_bg, 0.15); color: @base_destructive_bg; font-weight: 900; font-size: 11px; padding: 4px 8px; border-radius: 6px; margin-left: 12px; }"
-    " .hanging-text-v4 { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: @dim_label; font-weight: 600; }"
+    " .pos-info-v4 { padding: 16px; }\n"
+    " .eval-text-v4 { font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: 800; color: @fg_color; }\n"
+    " .mate-notice-v4 { background: alpha(@base_destructive_bg, 0.15); color: @base_destructive_bg; font-weight: 900; font-size: 14px; padding: 6px 12px; border-radius: 8px; margin-left: 12px; }\n"
+    " .hanging-text-v4 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.2px; color: @dim_label; font-weight: 700; line-height: 1.6; }\n"
+    " .analysis-side-lbl-v4 { font-size: 12px; font-weight: 800; color: @accent_color; text-transform: uppercase; letter-spacing: 0.8px; opacity: 0.9; margin-top: 6px; }\n"
     
-    " .feedback-zone-v4 { padding: 12px; margin: 12px; border-radius: 12px; border: 1px solid alpha(@border_color, 0.5); }"
-    " .feedback-rating-v4 { font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }"
-    " .feedback-desc-v4 { font-size: 13px; color: @fg_color; opacity: 0.9; }"
+    " .feedback-zone-v4 { padding: 16px; margin: 12px; border-radius: 14px; border: 1.5px solid alpha(@border_color, 0.6); }\n"
+    " .feedback-rating-v4 { font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 4px; }\n"
+    " .feedback-desc-v4 { font-size: 16px; color: @fg_color; opacity: 1.0; line-height: 1.4; }\n"
     
-    " .feedback-best { background: alpha(@base_success_bg, 0.12); color: @base_success_bg; }"
-    " .feedback-blunder { background: alpha(@base_destructive_bg, 0.12); color: @base_destructive_bg; }"
-    " .feedback-mistake { background: rgba(230, 126, 34, 0.1); color: #e67e22; }" // Keeping mistake orange as it's often not in base themes
+    " .panel-toggle-btn { border: none; background: transparent; padding: 4px; border-radius: 6px; color: @accent_color; opacity: 1.0; transition: all 0.2s; min-width: 32px; min-height: 32px; }\n"
+    " .panel-toggle-btn:hover { background: alpha(@fg_color, 0.05); }\n"
     
-    " .history-header-v4 { padding: 8px 16px; font-size: 10px; font-weight: 800; text-transform: uppercase; color: @dim_label; letter-spacing: 1px; background: alpha(@fg_color, 0.02); border-top: 1px solid @border_color; }"
-    " .move-history-list-v4 { background: transparent; }"
-    " .nav-footer-v4 { padding: 10px; border-top: 1px solid @border_color; }"
-    " .nav-btn-v4 { border: none; background: transparent; opacity: 0.5; color: @fg_color; transition: opacity 0.2s; }"
-    " .nav-btn-v4:hover { opacity: 1; background: alpha(@fg_color, 0.05); }"
+    " .feedback-best { background: alpha(@base_success_bg, 0.12); color: @base_success_bg; }\n"
+    " .feedback-blunder { background: alpha(@base_destructive_bg, 0.12); color: @base_destructive_bg; }\n"
+    " .feedback-mistake { background: rgba(230, 126, 34, 0.1); color: #e67e22; }\n"
+    
+    " .history-header-v4 { padding: 12px 20px; font-size: 13px; font-weight: 800; text-transform: uppercase; color: @dim_label; letter-spacing: 2px; background: alpha(@fg_color, 0.02); border-top: 1px solid alpha(@border_color, 0.4); border-bottom: 1px solid alpha(@border_color, 0.2); }\n"
+    " .move-history-list-v4 { background: transparent; }\n"
+    " .move-number-v2 { min-width: 44px; padding: 10px 10px; color: @dim_label; font-size: 13px; font-weight: 700; opacity: 0.8; background: alpha(@bg_color, 0.08); border-right: 1px solid alpha(@border_color, 0.1); }\n"
+    " .move-cell-v2 { padding: 4px; min-width: 110px; transition: background 0.15s; border-right: 1px solid alpha(@border_color, 0.05); }\n"
+    " .move-text-btn { border: 1px solid alpha(@border_color, 0.2); background: alpha(@fg_color, 0.02); border-radius: 20px; padding: 2px 8px; margin: 4px; color: @fg_color; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 14px; transition: all 0.25s; min-height: 32px; }\n"
+    " .move-text-btn:hover { background: alpha(@accent_color, 0.15); color: @accent_color; transform: translateY(-1px); border-color: alpha(@accent_color, 0.3); }\n"
+    " .move-text-btn.active { background: @accent_color; color: @bg_color; font-weight: 800; box-shadow: 0 4px 12px alpha(@accent_color, 0.4); border-color: @accent_color; }\n"
+    
+    " .nav-footer-v4 { padding: 10px; border-top: 1px solid @border_color; background: alpha(@bg_color, 0.1); }\n"
+    " .nav-btn-v4 { border: none; background: transparent; opacity: 0.5; color: @fg_color; transition: opacity 0.2s; border-radius: 6px; }\n"
+    " .nav-btn-v4:hover { opacity: 1; background: alpha(@fg_color, 0.05); color: @accent_color; }\n"
     
     // --- HAL Chess Console (Right Panel) ---
     ".main-col-v4 { background: @panel_bg; }\n"

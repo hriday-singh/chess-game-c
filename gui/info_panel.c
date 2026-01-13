@@ -944,7 +944,7 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     // Don't propagate natural width - keep fixed width regardless of content
     gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(scrolled), FALSE);
     // Set maximum width to prevent expansion
-    gtk_widget_set_size_request(scrolled, 250, -1);
+    gtk_widget_set_size_request(scrolled, 280, -1);
     
     // Scroll content (Main Wrapper)
     panel->scroll_content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0); // No spacing on wrapper
@@ -1300,10 +1300,18 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     // Apply Play As from Config
     if (cfg->play_as >= 0 && cfg->play_as <= 2) {
         gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->play_as_dropdown), cfg->play_as);
-        // Logic side will be set by reset_game(), but we can pre-set it roughly here if needed
-        // reset_game() handles it properly.
+        
+        // Apply to logic immediately on startup
+        if (cfg->play_as == 0) panel->logic->playerSide = PLAYER_WHITE;
+        else if (cfg->play_as == 1) panel->logic->playerSide = PLAYER_BLACK;
+        else if (cfg->play_as == 2) {
+            // Randomly pick White (0) or Black (1)
+            int rand_side = (g_random_int() % 2);
+            panel->logic->playerSide = (rand_side == 1) ? PLAYER_BLACK : PLAYER_WHITE;
+        }
     } else {
         gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->play_as_dropdown), 0);
+        panel->logic->playerSide = PLAYER_WHITE; // Default
     }
 
     gtk_widget_set_hexpand(panel->play_as_dropdown, FALSE);

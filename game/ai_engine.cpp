@@ -14,11 +14,24 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <psapi.h>
 #include <io.h>
 #include <fcntl.h>
 #endif
 
+static bool debug_mode = true;
+
 using namespace Stockfish;
+
+static void log_ram_usage(const char* context) {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS_EX pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS*)&pmc, sizeof(pmc))) {
+        double mb = (double)pmc.WorkingSetSize / (1024 * 1024);
+        if (debug_mode) fprintf(stderr, "[RAM] %-20s: %.2f MB\n", context, mb);
+    }
+#endif
+}
 
 struct EngineHandle {
     bool is_internal;
@@ -98,7 +111,7 @@ static void internal_engine_main(EngineHandle* handle) {
         Position::init();
     });
 
-    fprintf(stderr, "[Engine Internal] Starting internal engine loop...\n");
+    if (debug_mode) fprintf(stderr, "[Engine Internal] Starting internal engine loop...\n");
 
     EngineInputBuf input_buf(handle);
     EngineOutputBuf output_buf(handle);
@@ -152,16 +165,19 @@ static void external_reader_thread(EngineHandle* handle) {
 extern "C" {
 
 EngineHandle* ai_engine_init_internal(void) {
-    fprintf(stderr, "[Engine] init_internal called.\n");
+    log_ram_usage("Internal: Before Init");
+    if (debug_mode) fprintf(stderr, "[Engine] init_internal called.\n");
     EngineHandle* h = new EngineHandle();
     h->is_internal = true;
     h->running = true;
     h->internal_thread = std::thread(internal_engine_main, h);
+    log_ram_usage("Internal: After Init");
     return h;
 }
 
 EngineHandle* ai_engine_init_external(const char* binary_path) {
-    fprintf(stderr, "[Engine] init_external called: %s\n", binary_path ? binary_path : "NULL");
+    log_ram_usage("External: Before Init");
+    if (debug_mode) fprintf(stderr, "[Engine] init_external called: %s\n", binary_path ? binary_path : "NULL");
     if (!binary_path) return nullptr;
 
     EngineHandle* h = new EngineHandle();
@@ -173,7 +189,7 @@ EngineHandle* ai_engine_init_external(const char* binary_path) {
     if (!g_spawn_async_with_pipes(NULL, argv, NULL, (GSpawnFlags)(G_SPAWN_DO_NOT_REAP_CHILD | G_SPAWN_SEARCH_PATH), 
                                  NULL, NULL, &h->pid, &h->stdin_pipe, &h->stdout_pipe, NULL, &error)) {
         if (error) {
-            fprintf(stderr, "Failed to spawn engine: %s\n", error->message);
+            if (debug_mode) fprintf(stderr, "Failed to spawn engine: %s\n", error->message);
             g_error_free(error);
         }
         delete h;
@@ -188,13 +204,17 @@ EngineHandle* ai_engine_init_external(const char* binary_path) {
     h->reader_thread = std::thread(external_reader_thread, h);
     // h->writer_thread = std::thread(external_writer_thread, h); // We can write directly in send_command for simple pipes
     
+    log_ram_usage("External: After Init");
     return h;
 }
 
 void ai_engine_cleanup(EngineHandle* handle) {
     if (!handle) return;
     
-    fprintf(stderr, "[Engine] cleanup called (Internal=%d)\n", handle->is_internal);
+    const char* label = handle->is_internal ? "Internal: Before Cleanup" : "External: Before Cleanup";
+    log_ram_usage(label);
+
+    if (debug_mode) fprintf(stderr, "[Engine] cleanup called (Internal=%d)\n", handle->is_internal);
 
     ai_engine_send_command(handle, "quit");
     handle->running = false;
@@ -219,6 +239,8 @@ void ai_engine_cleanup(EngineHandle* handle) {
         #endif
     }
 
+    const char* after_label = handle->is_internal ? "Internal: After Cleanup" : "External: After Cleanup";
+    log_ram_usage(after_label);
     delete handle;
 }
 

@@ -15,7 +15,9 @@ static void on_nav_btn_clicked(GtkButton* btn, gpointer user_data); // Forward d
 
 static GtkWidget* create_move_label(RightSidePanel* panel, const char* text, int ply_index) {
     GtkWidget* btn = gtk_button_new_with_label(text);
-    gtk_widget_add_css_class(btn, "move-text");
+    gtk_widget_add_css_class(btn, "move-text-btn");
+    gtk_button_set_has_frame(GTK_BUTTON(btn), FALSE); // Remove standard GTK frame
+    gtk_widget_set_can_focus(btn, FALSE);
     g_object_set_data(G_OBJECT(btn), "ply-index", GINT_TO_POINTER(ply_index));
     g_object_set_data(G_OBJECT(btn), "action", (gpointer)"goto_ply");
     g_signal_connect(btn, "clicked", G_CALLBACK(on_nav_btn_clicked), panel);
@@ -57,7 +59,7 @@ static GtkWidget* create_move_cell_contents(RightSidePanel* panel, PieceType typ
     // if (type != PIECE_NONE && type != PIECE_PAWN) {
     if (type !=PIECE_NONE) {
         GtkWidget* icon = gtk_drawing_area_new();
-        gtk_widget_set_size_request(icon, 20, 20); // Slightly smaller to fit nicely
+        gtk_widget_set_size_request(icon, 32, 32); // Even larger icons for better visibility
         gtk_widget_set_valign(icon, GTK_ALIGN_CENTER);
         
         PieceIconData* data = g_new0(PieceIconData, 1);
@@ -131,7 +133,6 @@ static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int
     cairo_close_path(cr);
     cairo_fill(cr);
     
-    // White Side Fill (Starts from top)
     double white_ratio = 0.5;
     if (panel->is_mate) {
         white_ratio = (panel->current_eval > 0) ? 1.0 : 0.0;
@@ -142,7 +143,18 @@ static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int
         white_ratio = 0.5 + (val / 10.0);
     }
     
-    double white_h = height * white_ratio;
+    // flipped=true means Black is at bottom, W at top.
+    // In draw_advantage_bar, height=0 is top, height=H is bottom.
+    // If white_ratio is 1.0 (Full white), White should fill the side it belongs to.
+    
+    double white_h;
+    bool w_at_top = panel->flipped; // True if Black at bottom (B at bottom implies W at top)
+    
+    if (w_at_top) {
+        white_h = height * white_ratio;
+    } else {
+        white_h = height * (1.0 - white_ratio);
+    }
     
     // Clip to the rounded track for the fill
     cairo_save(cr);
@@ -152,39 +164,28 @@ static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int
     cairo_arc(cr, radius, height - radius, radius, G_PI/2, G_PI);
     cairo_arc(cr, radius, radius, radius, G_PI, 3*G_PI/2);
     cairo_close_path(cr);
-    cairo_clip(cr);
+    cairo_fill(cr);
     
     // Fill with theme foreground (White/Light)
     cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.95);
-    
-    // Draw rounded rect top portion (clipped by Pill Shape)
-    // We draw a "pill" for the fill part too, to ensure rounded separation
-    // But since the top is clipped, we just need to ensure the bottom edge is rounded at 'white_h'
-    
+    cairo_save(cr);
     cairo_new_sub_path(cr);
-    // Start at top-left
-    cairo_arc(cr, width - radius, radius, radius, -G_PI/2, 0); // Top-Right Corner
-    
-    // Check if white_h is large enough to warrant a full rounded bottom
-    // If white_h is very small (near top), we just draw what we can
-    
-    double bottom_y = white_h;
-    if (bottom_y < radius) bottom_y = radius; // Clamp for safety if very high
-    
-    // Bottom-Right Corner of the FILL
-    // We want the fill to end at 'white_h' with a rounded edge
-    cairo_line_to(cr, width, white_h - radius);
-    cairo_arc(cr, width - radius, white_h - radius, radius, 0, G_PI/2);
-    
-    // Bottom-Left Corner of the FILL
-    cairo_arc(cr, radius, white_h - radius, radius, G_PI/2, G_PI);
-    
-    // Top-Left Corner
-    cairo_line_to(cr, 0, radius);
+    cairo_arc(cr, width - radius, radius, radius, -G_PI/2, 0);
+    cairo_arc(cr, width - radius, height - radius, radius, 0, G_PI/2);
+    cairo_arc(cr, radius, height - radius, radius, G_PI/2, G_PI);
     cairo_arc(cr, radius, radius, radius, G_PI, 3*G_PI/2);
-    
     cairo_close_path(cr);
+    cairo_clip(cr);
+    
+    if (w_at_top) {
+        // Draw from TOP
+        cairo_rectangle(cr, 0, 0, width, white_h);
+    } else {
+        // Draw from BOTTOM
+        cairo_rectangle(cr, 0, white_h, width, height - white_h);
+    }
     cairo_fill(cr);
+    cairo_restore(cr);
     cairo_restore(cr);
     
     // Zero Reference Line (Red, exact middle)
@@ -194,6 +195,31 @@ static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int
     cairo_move_to(cr, 0, height / 2.0);
     cairo_line_to(cr, width, height / 2.0);
     cairo_stroke(cr);
+}
+
+static void on_toggle_clicked(GtkButton* btn, gpointer user_data) {
+    RightSidePanel* panel = (RightSidePanel*)user_data;
+    if (!panel || !panel->content_side) return;
+    
+    bool is_visible = gtk_widget_get_visible(panel->content_side);
+    bool target = !is_visible;
+    
+    gtk_widget_set_visible(panel->content_side, target);
+    
+    // Update arrow icon: Points left (start) when expanded, Points right (end) when collapsed
+    // Note: GTK standard "pan-start" usually points left in LTR.
+    const char* icon_name = target ? "pan-start-symbolic" : "pan-end-symbolic";
+    gtk_button_set_icon_name(btn, icon_name);
+    
+    // Dynamic Tooltip
+    gtk_widget_set_tooltip_text(GTK_WIDGET(btn), target ? "Hide Move History" : "Show Move History");
+    
+    // Adjust panel container width to match collapsed vs expanded
+    if (target) {
+        gtk_widget_set_size_request(panel->container, 380, -1);
+    } else {
+        gtk_widget_set_size_request(panel->container, 40, -1); // Narrow when collapsed
+    }
 }
 
 RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
@@ -206,63 +232,89 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     panel->interactive = true;
     panel->last_feedback_ply = -1; // Initialize new member
 
-    // --- Root Horizontal Container [Rail | Content Column] ---
+    // --- Root Horizontal Container [Toggle | Content Side] ---
     panel->container = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_add_css_class(panel->container, "right-side-panel-v4");
-    gtk_widget_set_size_request(panel->container, 300, -1);
-    gtk_widget_set_hexpand(panel->container, FALSE); // STRICT: Do not grow
-    gtk_widget_set_vexpand(panel->container, TRUE);  // Force vertical expansion
+    gtk_widget_set_size_request(panel->container, 380, -1); 
+    gtk_widget_set_hexpand(panel->container, FALSE); 
+    gtk_widget_set_vexpand(panel->container, TRUE);
     gtk_widget_set_valign(panel->container, GTK_ALIGN_FILL);
+    gtk_widget_set_halign(panel->container, GTK_ALIGN_CENTER);
+
+    // --- 0. Toggle Button (Always Visible) ---
+    panel->toggle_btn = gtk_button_new_from_icon_name("pan-start-symbolic");
+    gtk_widget_add_css_class(panel->toggle_btn, "panel-toggle-btn");
+    gtk_widget_set_valign(panel->toggle_btn, GTK_ALIGN_CENTER); // Centered vertically
+    gtk_widget_set_tooltip_text(panel->toggle_btn, "Hide Move History");
+    g_signal_connect(panel->toggle_btn, "clicked", G_CALLBACK(on_toggle_clicked), panel);
+    gtk_box_append(GTK_BOX(panel->container), panel->toggle_btn);
+
+    // --- Wrap Content in a Side Box ---
+    panel->content_side = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_hexpand(panel->content_side, TRUE);
+    gtk_box_append(GTK_BOX(panel->container), panel->content_side);
     
     // --- 1. Side Rail (Full Height) ---
-    GtkWidget* rail_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
-    gtk_widget_add_css_class(rail_box, "adv-rail-box");
-    gtk_widget_set_size_request(rail_box, 28, -1);
+    panel->rail_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_add_css_class(panel->rail_box, "adv-rail-box");
+    gtk_widget_set_size_request(panel->rail_box, 28, -1);
     
-    GtkWidget* w_lbl = gtk_label_new("W");
-    gtk_widget_add_css_class(w_lbl, "rail-side-label");
-    gtk_box_append(GTK_BOX(rail_box), w_lbl);
+    panel->w_lbl = gtk_label_new("W");
+    gtk_widget_add_css_class(panel->w_lbl, "rail-side-label");
+    
+    panel->b_lbl = gtk_label_new("B");
+    gtk_widget_add_css_class(panel->b_lbl, "rail-side-label");
     
     panel->adv_rail = gtk_drawing_area_new();
     gtk_widget_set_vexpand(panel->adv_rail, TRUE);
-    // Use a special class to pull the theme's accent color into 'color' property
     gtk_widget_add_css_class(panel->adv_rail, "accent-color-proxy"); 
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(panel->adv_rail), draw_advantage_bar, panel, NULL);
-    gtk_box_append(GTK_BOX(rail_box), panel->adv_rail);
     
-    GtkWidget* b_lbl = gtk_label_new("B");
-    gtk_widget_add_css_class(b_lbl, "rail-side-label");
-    gtk_box_append(GTK_BOX(rail_box), b_lbl);
+    // Initial orientation: White at bottom (B at top, W at bottom)
+    gtk_box_append(GTK_BOX(panel->rail_box), panel->b_lbl);
+    gtk_box_append(GTK_BOX(panel->rail_box), panel->adv_rail);
+    gtk_box_append(GTK_BOX(panel->rail_box), panel->w_lbl);
     
-    gtk_box_append(GTK_BOX(panel->container), rail_box);
+    gtk_box_append(GTK_BOX(panel->content_side), panel->rail_box);
     
     // --- 2. Main Content Column ---
     panel->main_col = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_widget_set_hexpand(panel->main_col, FALSE); // STRICT: Do not grow
-    gtk_box_append(GTK_BOX(panel->container), panel->main_col);
+    gtk_widget_set_hexpand(panel->main_col, TRUE); 
+    gtk_widget_set_halign(panel->main_col, GTK_ALIGN_FILL);
+    // Add internal padding so separators and text don't touch edges
+    gtk_widget_set_margin_start(panel->main_col, 12);
+    gtk_widget_set_margin_end(panel->main_col, 12);
+    gtk_box_append(GTK_BOX(panel->content_side), panel->main_col);
     
     // --- 2a. Position Info (Top) ---
     panel->pos_info = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
     gtk_widget_add_css_class(panel->pos_info, "pos-info-v4");
     
     GtkWidget* eval_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_halign(eval_row, GTK_ALIGN_START); // Revert to START
     panel->eval_lbl = gtk_label_new("+0.0");
     gtk_widget_add_css_class(panel->eval_lbl, "eval-text-v4");
     gtk_box_append(GTK_BOX(eval_row), panel->eval_lbl);
     
     panel->mate_lbl = gtk_label_new("");
     gtk_widget_add_css_class(panel->mate_lbl, "mate-notice-v4");
+    gtk_label_set_wrap(GTK_LABEL(panel->mate_lbl), TRUE);
     gtk_widget_set_visible(panel->mate_lbl, FALSE);
     gtk_box_append(GTK_BOX(eval_row), panel->mate_lbl);
     
     gtk_box_append(GTK_BOX(panel->pos_info), eval_row);
     
-    panel->hanging_lbl = gtk_label_new("HANGING\nWhite: 0   Black: 0");
+    panel->hanging_lbl = gtk_label_new("HANGING | WHITE: 0  BLACK: 0"); 
     gtk_widget_add_css_class(panel->hanging_lbl, "hanging-text-v4");
     gtk_label_set_justify(GTK_LABEL(panel->hanging_lbl), GTK_JUSTIFY_LEFT);
     gtk_label_set_wrap(GTK_LABEL(panel->hanging_lbl), FALSE);
     gtk_widget_set_halign(panel->hanging_lbl, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(panel->pos_info), panel->hanging_lbl);
+    
+    panel->analysis_side_lbl = gtk_label_new("Analysis for White");
+    gtk_widget_add_css_class(panel->analysis_side_lbl, "analysis-side-lbl-v4");
+    gtk_widget_set_halign(panel->analysis_side_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(panel->pos_info), panel->analysis_side_lbl);
     
     gtk_box_append(GTK_BOX(panel->main_col), panel->pos_info);
     gtk_box_append(GTK_BOX(panel->main_col), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
@@ -278,6 +330,8 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     panel->feedback_desc_lbl = gtk_label_new("Analyzing position...");
     gtk_widget_add_css_class(panel->feedback_desc_lbl, "feedback-desc-v4");
     gtk_widget_set_halign(panel->feedback_desc_lbl, GTK_ALIGN_START);
+    gtk_label_set_justify(GTK_LABEL(panel->feedback_desc_lbl), GTK_JUSTIFY_LEFT);
+    gtk_label_set_wrap(GTK_LABEL(panel->feedback_desc_lbl), TRUE);
     
     gtk_box_append(GTK_BOX(panel->feedback_zone), panel->feedback_rating_lbl);
     gtk_box_append(GTK_BOX(panel->feedback_zone), panel->feedback_desc_lbl);
@@ -371,7 +425,7 @@ void right_side_panel_set_mate_warning(RightSidePanel* panel, int moves) {
 void right_side_panel_set_hanging_pieces(RightSidePanel* panel, int white_count, int black_count) {
     if (!panel || !panel->hanging_lbl || !GTK_IS_LABEL(panel->hanging_lbl)) return;
     char buf[64];
-    snprintf(buf, sizeof(buf), "HANGING\nWhite: %d   Black: %d", white_count, black_count);
+    snprintf(buf, sizeof(buf), "HANGING | White: %d  Black: %d", white_count, black_count);
     gtk_label_set_text(GTK_LABEL(panel->hanging_lbl), buf);
 }
 
@@ -517,6 +571,10 @@ void right_side_panel_sync_config(RightSidePanel* panel, const void* config) {
     if (!panel || !config) return;
     AppConfig* cfg = (AppConfig*)config;
     
+    // 0. Update Orientation (Dynamic swap of W/B)
+    bool flipped = (panel->logic->playerSide == PLAYER_BLACK);
+    right_side_panel_set_flipped(panel, flipped);
+    
     bool master_on = cfg->enable_live_analysis;
     
     // 1. Advantage Rail
@@ -587,6 +645,8 @@ void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_numbe
         }
         
         GtkWidget* w_contents = create_move_cell_contents(panel, p_type, PLAYER_WHITE, san, ply_index);
+        gtk_widget_set_hexpand(w_contents, TRUE);
+        gtk_widget_set_halign(w_contents, GTK_ALIGN_FILL);
         gtk_box_append(GTK_BOX(w_cell), w_contents);
         gtk_box_append(GTK_BOX(row_box), w_cell);
         
@@ -608,6 +668,8 @@ void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_numbe
                     p_type = panel->logic->board[move->endRow][move->endCol]->type;
                 }
                 GtkWidget* b_contents = create_move_cell_contents(panel, p_type, PLAYER_BLACK, san, ply_index);
+                gtk_widget_set_hexpand(b_contents, TRUE);
+                gtk_widget_set_halign(b_contents, GTK_ALIGN_FILL);
                 gtk_box_append(GTK_BOX(b_cell), b_contents);
             }
         }
@@ -669,4 +731,59 @@ void right_side_panel_set_nav_callback(RightSidePanel* panel, RightSidePanelNavC
 void right_side_panel_set_current_move(RightSidePanel* panel, int move_index) {
     // move_index here usually means ply_index in our redesigned context
     right_side_panel_highlight_ply(panel, move_index);
+}
+
+void right_side_panel_set_flipped(RightSidePanel* panel, bool flipped) {
+    if (!panel || panel->flipped == flipped) return;
+    panel->flipped = flipped;
+    
+    // Update Rail Labels
+    // Remove all and re-append in correct order
+    g_object_ref(panel->w_lbl);
+    g_object_ref(panel->b_lbl);
+    g_object_ref(panel->adv_rail);
+    
+    gtk_box_remove(GTK_BOX(panel->rail_box), panel->w_lbl);
+    gtk_box_remove(GTK_BOX(panel->rail_box), panel->b_lbl);
+    gtk_box_remove(GTK_BOX(panel->rail_box), panel->adv_rail);
+    
+    if (flipped) {
+        // Black at bottom, W at top
+        gtk_box_append(GTK_BOX(panel->rail_box), panel->w_lbl);
+        gtk_box_append(GTK_BOX(panel->rail_box), panel->adv_rail);
+        gtk_box_append(GTK_BOX(panel->rail_box), panel->b_lbl);
+        gtk_label_set_text(GTK_LABEL(panel->analysis_side_lbl), "Analysis for Black");
+    } else {
+        // White at bottom, B at top
+        gtk_box_append(GTK_BOX(panel->rail_box), panel->b_lbl);
+        gtk_box_append(GTK_BOX(panel->rail_box), panel->adv_rail);
+        gtk_box_append(GTK_BOX(panel->rail_box), panel->w_lbl);
+        gtk_label_set_text(GTK_LABEL(panel->analysis_side_lbl), "Analysis for White");
+    }
+    
+    g_object_unref(panel->w_lbl);
+    g_object_unref(panel->b_lbl);
+    g_object_unref(panel->adv_rail);
+    
+    gtk_widget_queue_draw(panel->adv_rail);
+}
+
+static void refresh_history_icons_recursive(GtkWidget* widget) {
+    if (!widget) return;
+    if (GTK_IS_DRAWING_AREA(widget)) {
+        gtk_widget_queue_draw(widget);
+    }
+    for (GtkWidget* child = gtk_widget_get_first_child(widget);
+         child != NULL;
+         child = gtk_widget_get_next_sibling(child)) {
+        refresh_history_icons_recursive(child);
+    }
+}
+
+void right_side_panel_refresh(RightSidePanel* panel) {
+    if (!panel) return;
+    if (panel->adv_rail) gtk_widget_queue_draw(panel->adv_rail);
+    if (panel->history_list) {
+        refresh_history_icons_recursive(panel->history_list);
+    }
 }
