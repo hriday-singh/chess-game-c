@@ -8,52 +8,77 @@ struct _HistoryDialog {
     GSimpleAction* replay_action;
 };
 
+static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* dialog);
+static void on_replay_clicked(GtkButton* btn, gpointer user_data);
+static void on_delete_clicked(GtkButton* btn, gpointer user_data);
+
 static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* dialog) {
+    // Styling: Use a Frame for better visual separation
+    GtkWidget* frame = gtk_frame_new(NULL);
+    gtk_widget_add_css_class(frame, "match-row"); // Apply theme style
+    gtk_widget_set_margin_start(frame, 5);
+    gtk_widget_set_margin_end(frame, 5);
+    gtk_widget_set_margin_top(frame, 2);
+    gtk_widget_set_margin_bottom(frame, 2);
+
     GtkWidget* row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    gtk_widget_set_margin_top(row_box, 8);
-    gtk_widget_set_margin_bottom(row_box, 8);
+    gtk_widget_set_margin_top(row_box, 10);
+    gtk_widget_set_margin_bottom(row_box, 10);
     gtk_widget_set_margin_start(row_box, 12);
     gtk_widget_set_margin_end(row_box, 12);
+    
+    gtk_frame_set_child(GTK_FRAME(frame), row_box);
 
-    // Date/Time
-    struct tm* tm_info = localtime((const time_t*)&m->timestamp);
+    // Mode & Result (Left Side)
+    // Remove brackets, clean format: "PvP | White Checkmate"
+    char summary[256];
+    const char* mode_str = (m->game_mode == 0) ? "PvP" : (m->game_mode == 1) ? "PvC" : "CvC";
+    
+    // Clean up result string slightly if needed
+    // Use alpha for separator to ensure it respects theme text color (light/dark)
+    snprintf(summary, sizeof(summary), "<b>%s</b>  <span alpha='45%%'>|</span>  %s (%s)", 
+             mode_str, m->result, m->result_reason);
+    
+    GtkWidget* summary_lbl = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(summary_lbl), summary);
+    gtk_widget_set_hexpand(summary_lbl, TRUE);
+    gtk_widget_set_halign(summary_lbl, GTK_ALIGN_START);
+    gtk_label_set_ellipsize(GTK_LABEL(summary_lbl), PANGO_ELLIPSIZE_END);
+    gtk_box_append(GTK_BOX(row_box), summary_lbl);
+
+    // Date/Time (Right Side)
+    struct tm tm_info;
+    // MSVC localtime_s: errno_t localtime_s(struct tm* _tm, const time_t *time);
+    localtime_s(&tm_info, (const time_t*)&m->timestamp);
+    
     char time_str[64];
-    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M", tm_info);
+    // 12-hour format: "Feb 20, 3:17 PM"
+    strftime(time_str, sizeof(time_str), "%b %d, %I:%M %p", &tm_info);
     
     GtkWidget* time_lbl = gtk_label_new(time_str);
     gtk_widget_add_css_class(time_lbl, "dim-label");
+    gtk_widget_add_css_class(time_lbl, "numeric"); 
+    gtk_widget_set_margin_end(time_lbl, 8); // Spacing before buttons
     gtk_box_append(GTK_BOX(row_box), time_lbl);
-
-    // Mode & Result
-    char summary[128];
-    const char* mode_str = (m->game_mode == 0) ? "PvP" : (m->game_mode == 1) ? "PvC" : "CvC";
-    snprintf(summary, sizeof(summary), "[%s] %s (%s)", mode_str, m->result, m->result_reason);
-    
-    GtkWidget* summary_lbl = gtk_label_new(summary);
-    gtk_widget_set_hexpand(summary_lbl, TRUE);
-    gtk_widget_set_halign(summary_lbl, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(row_box), summary_lbl);
 
     // Buttons
     GtkWidget* btn_replay = gtk_button_new_with_label("Replay");
     gtk_widget_add_css_class(btn_replay, "suggested-action");
+    gtk_widget_set_tooltip_text(btn_replay, "Replay this match");
     g_object_set_data_full(G_OBJECT(btn_replay), "match-id", g_strdup(m->id), g_free);
-    // Connect to replay logic in main.c (via AppState action)
-    g_signal_connect_swapped(btn_replay, "clicked", G_CALLBACK(gtk_window_destroy), dialog->window);
-    
-    // Custom action signal or similar could be used. For now, let's just use a simple callback pattern
-    // or trigger a global action.
+    g_signal_connect(btn_replay, "clicked", G_CALLBACK(on_replay_clicked), dialog);
     
     gtk_box_append(GTK_BOX(row_box), btn_replay);
 
     GtkWidget* btn_del = gtk_button_new_from_icon_name("user-trash-symbolic");
     gtk_widget_add_css_class(btn_del, "destructive-action");
+    gtk_widget_set_tooltip_text(btn_del, "Delete match record");
     g_object_set_data_full(G_OBJECT(btn_del), "match-id", g_strdup(m->id), g_free);
-    // g_signal_connect...
+    g_signal_connect(btn_del, "clicked", G_CALLBACK(on_delete_clicked), dialog);
     
     gtk_box_append(GTK_BOX(row_box), btn_del);
 
-    return row_box;
+    return frame; // Return frame instead of box
 }
 
 static void on_delete_clicked(GtkButton* btn, gpointer user_data) {
@@ -70,9 +95,14 @@ static void on_replay_clicked(GtkButton* btn, gpointer user_data) {
     HistoryDialog* dialog = (HistoryDialog*)user_data;
     const char* id = (const char*)g_object_get_data(G_OBJECT(btn), "match-id");
     if (id) {
+        // Activate the action in main window
         GApplication* app = g_application_get_default();
-        g_action_group_activate_action(G_ACTION_GROUP(app), "app.start-replay", g_variant_new_string(id));
-        gtk_window_destroy(dialog->window);
+        g_action_group_activate_action(G_ACTION_GROUP(app), "start-replay", g_variant_new_string(id));
+        
+        // Close the dialog after starting replay
+        if (dialog->window) {
+            gtk_window_destroy(dialog->window);
+        }
     }
 }
 
@@ -81,30 +111,36 @@ HistoryDialog* history_dialog_new(GtkWindow* parent) {
     
     dialog->window = GTK_WINDOW(gtk_window_new());
     gtk_window_set_title(dialog->window, "Game History");
-    gtk_window_set_default_size(dialog->window, 600, 450);
+    gtk_window_set_default_size(dialog->window, 700, 500); // Slightly larger
     gtk_window_set_modal(dialog->window, TRUE);
+    gtk_widget_add_css_class(GTK_WIDGET(dialog->window), "window"); // Ensure theme background
     gtk_window_set_transient_for(dialog->window, parent);
 
     GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-    gtk_widget_set_margin_top(main_vbox, 16);
-    gtk_widget_set_margin_bottom(main_vbox, 16);
-    gtk_widget_set_margin_start(main_vbox, 16);
-    gtk_widget_set_margin_end(main_vbox, 16);
+    gtk_widget_set_margin_top(main_vbox, 20);
+    gtk_widget_set_margin_bottom(main_vbox, 20);
+    gtk_widget_set_margin_start(main_vbox, 20); // More margin
+    gtk_widget_set_margin_end(main_vbox, 20);
     gtk_window_set_child(dialog->window, main_vbox);
 
-    GtkWidget* header = gtk_label_new("Past Matches");
+    GtkWidget* header = gtk_label_new("Match History");
     gtk_widget_add_css_class(header, "title-2");
     gtk_widget_set_halign(header, GTK_ALIGN_START);
+    gtk_widget_set_margin_bottom(header, 10);
     gtk_box_append(GTK_BOX(main_vbox), header);
 
     GtkWidget* scrolled = gtk_scrolled_window_new();
     gtk_widget_set_vexpand(scrolled, TRUE);
-    gtk_box_append(GTK_BOX(main_vbox), scrolled);
-
+    // Add frame around list for depth
+    GtkWidget* list_frame = gtk_frame_new(NULL);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), list_frame);
+    
     dialog->list_box = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(dialog->list_box), GTK_SELECTION_NONE);
-    gtk_widget_add_css_class(dialog->list_box, "boxed-list");
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), dialog->list_box);
+    gtk_widget_add_css_class(dialog->list_box, "history-list"); // Changed class
+    gtk_frame_set_child(GTK_FRAME(list_frame), dialog->list_box);
+    
+    gtk_box_append(GTK_BOX(main_vbox), scrolled);
 
     g_signal_connect_swapped(dialog->window, "destroy", G_CALLBACK(history_dialog_free), dialog);
 
@@ -122,18 +158,18 @@ void history_dialog_show(HistoryDialog* dialog) {
 
     int count = 0;
     MatchHistoryEntry* matches = match_history_get_list(&count);
-    for (int i = count - 1; i >= 0; i--) {
-        GtkWidget* row = create_match_row(&matches[i], dialog);
-        // Find buttons and connect
-        GtkWidget* box = row;
-        GtkWidget* btn_replay = gtk_widget_get_last_child(box); // This is trash icon? No, trash is last.
-        GtkWidget* btn_trash = btn_replay;
-        btn_replay = gtk_widget_get_prev_sibling(btn_trash);
-        
-        g_signal_connect(btn_replay, "clicked", G_CALLBACK(on_replay_clicked), dialog);
-        g_signal_connect(btn_trash, "clicked", G_CALLBACK(on_delete_clicked), dialog);
-
-        gtk_list_box_append(GTK_LIST_BOX(dialog->list_box), row);
+    
+    if (count == 0) {
+        GtkWidget* empty_lbl = gtk_label_new("No matches played yet.");
+        gtk_widget_add_css_class(empty_lbl, "dim-label");
+        gtk_widget_set_margin_top(empty_lbl, 20);
+        gtk_widget_set_margin_bottom(empty_lbl, 20);
+        gtk_list_box_append(GTK_LIST_BOX(dialog->list_box), empty_lbl);
+    } else {
+        for (int i = count - 1; i >= 0; i--) {
+            GtkWidget* row = create_match_row(&matches[i], dialog);
+            gtk_list_box_append(GTK_LIST_BOX(dialog->list_box), row);
+        }
     }
 
     gtk_widget_set_visible(GTK_WIDGET(dialog->window), TRUE);

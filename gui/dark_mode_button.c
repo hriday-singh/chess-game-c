@@ -8,6 +8,8 @@
 #include <gdk/win32/gdkwin32.h>
 #endif
 
+static bool debug_mode = false;
+
 // --- Configuration Constants ---
 
 // Shape
@@ -52,10 +54,6 @@
 #define BUTTON_MARGIN 6
 #define OVERLAY_PADDING 200
 #define MAX_CONCURRENT_BURSTS 3
-
-// Debug
-#define DEBUG_DARKBTN_ANIM TRUE
-
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -460,7 +458,7 @@ static void draw_overlay_particles(GtkDrawingArea* area, cairo_t* cr, int width,
 
     cairo_save(cr);
     cairo_translate(cr, ox, oy);
-        // if (DEBUG_DARKBTN_ANIM) printf("Draw Overlay: %d hover, %d bursts\n", priv->hover_particles->len, g_list_length(priv->active_bursts));
+        if (debug_mode) printf("[DarkModeButton] Draw Overlay: %d hover, %d bursts\n", priv->hover_particles->len, g_list_length(priv->active_bursts));
 
         draw_particles_array(cr, priv->hover_particles, now);
         
@@ -814,8 +812,8 @@ static gboolean on_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer 
     // 6. Check if we should stop
     stop_tick_if_idle(priv);
     
-    if (DEBUG_DARKBTN_ANIM && ((int)now % 5 == 0)) {
-       // printf("Tick Running. Bursts: %d\n", g_list_length(priv->active_bursts));
+    if (debug_mode && ((int)now % 5 == 0)) {
+       printf("[DarkModeButton] Tick Running. Bursts: %d\n", g_list_length(priv->active_bursts));
     }
 
     return G_SOURCE_CONTINUE;

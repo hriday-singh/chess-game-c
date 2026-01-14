@@ -1,5 +1,7 @@
 #include "info_panel.h"
 #include "config_manager.h"
+#include "replay_controller.h"
+#include "app_state.h"
 #include "board_widget.h"
 #include "sound_engine.h"
 #include "gamelogic.h"
@@ -131,7 +133,39 @@ typedef struct {
     // Undo callback to refresh analysis
     UndoCallback undo_callback;
     gpointer undo_callback_data;
+    // Replay Mode UI
+    struct {
+        GtkWidget* box;
+        GtkWidget* play_pause_btn;
+        GtkWidget* stop_btn;
+        GtkWidget* prev_btn;
+        GtkWidget* next_btn;
+        GtkWidget* start_btn;
+        GtkWidget* end_btn;
+        GtkWidget* exit_btn;
+        GtkWidget* speed_scale;
+        GtkWidget* start_here_btn;
+        GtkWidget* status_label;
+        GtkWidget* speed_label;
+        GtkWidget* anim_check;
+        GtkWidget* sfx_check;
+    } replay_ui;
+    
+    GCallback replay_exit_callback;
+    gpointer replay_exit_data;
+
 } InfoPanel;
+
+// Replay UI Callbacks
+static void on_replay_play_pause_clicked(GtkButton* btn, gpointer user_data);
+static void on_replay_stop_clicked(GtkButton* btn, gpointer user_data);
+static void on_replay_speed_changed(GtkRange* range, gpointer user_data);
+static void on_replay_start_here_clicked(GtkButton* btn, gpointer user_data);
+static void on_replay_prev_clicked(GtkButton* btn, gpointer user_data);
+static void on_replay_next_clicked(GtkButton* btn, gpointer user_data);
+static void on_replay_start_clicked(GtkButton* btn, gpointer user_data);
+static void on_replay_end_clicked(GtkButton* btn, gpointer user_data);
+static void on_replay_exit_clicked(GtkButton* btn, gpointer user_data);
 
 // Forward declarations
 static GtkWidget* create_piece_widget(InfoPanel* panel, PieceType type, Player owner);
@@ -156,6 +190,8 @@ static void on_open_ai_settings_clicked(GtkButton* btn, gpointer user_data);
 static void on_cvc_start_clicked(GtkButton* btn, gpointer user_data);
 static void on_cvc_pause_clicked(GtkButton* btn, gpointer user_data);
 static void on_cvc_stop_clicked(GtkButton* btn, gpointer user_data);
+
+static void info_panel_create_replay_ui(InfoPanel* panel);
 
 static void reset_game(InfoPanel* panel);
 static void update_ai_settings_visibility(InfoPanel* panel);
@@ -825,7 +861,7 @@ static void on_game_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_
             if (app && G_IS_ACTION_GROUP(app)) {
                 g_action_group_activate_action(G_ACTION_GROUP(app), "puzzles", NULL);
             } else {
-                printf("ERROR: Application not valid for launching puzzles!\n");
+                printf("[InfoPanel] ERROR: Application not valid for launching puzzles!\n");
             }
             gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->game_mode_dropdown), GAME_MODE_PVC);
         }
@@ -1804,6 +1840,14 @@ void info_panel_set_undo_callback(GtkWidget* info_panel, UndoCallback callback, 
         panel->undo_callback_data = user_data;
     }
 }
+
+void info_panel_set_replay_exit_callback(GtkWidget* info_panel, GCallback callback, gpointer user_data) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (panel) {
+        panel->replay_exit_callback = callback;
+        panel->replay_exit_data = user_data;
+    }
+}
 // Puzzle List Management
 
 // Public wrapper to refresh graveyard (for theme updates)
@@ -1813,3 +1857,332 @@ void info_panel_refresh_graveyard(GtkWidget* info_panel) {
         update_captured_pieces(panel);
     }
 }
+
+// Replay UI Implementation
+
+static void on_replay_play_pause_clicked(GtkButton* btn, gpointer user_data) {
+    (void)user_data;
+    
+    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
+    if (!root) return;
+    
+    AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
+    // InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(root), "info-panel-data");
+    
+    if (state && state->replay_controller) {
+        bool is_playing = replay_controller_is_playing(state->replay_controller);
+        if (is_playing) {
+             replay_controller_pause(state->replay_controller);
+             // Icon updates are handled in update_replay_status or here
+             gtk_button_set_icon_name(btn, "media-playback-start-symbolic");
+             gtk_widget_remove_css_class(GTK_WIDGET(btn), "destructive-action");
+             gtk_widget_add_css_class(GTK_WIDGET(btn), "suggested-action");
+        } else {
+             replay_controller_play(state->replay_controller);
+             gtk_button_set_icon_name(btn, "media-playback-pause-symbolic");
+             gtk_widget_remove_css_class(GTK_WIDGET(btn), "suggested-action"); // Remove green
+             gtk_widget_add_css_class(GTK_WIDGET(btn), "destructive-action"); // Make it red/orange for "stop/pause" feel? Or just keep standard.
+             // Usually Stop is red. Pause can be neutral or same as play.
+             // Let's stick to standard or just remove suggested-action to make it neutral.
+             gtk_widget_remove_css_class(GTK_WIDGET(btn), "destructive-action"); 
+             // Neutral when playing (pause)
+        }
+    }
+}
+
+static void on_replay_stop_clicked(GtkButton* btn, gpointer user_data) {
+    (void)user_data; (void)btn;
+    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
+    if (!root) return;
+    
+    AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
+    // Stop = Pause + Reset to Start (or just Pause?)
+    // User requested "Stop". In replay context, usually means Stop & Reset or just hard stop.
+    // Let's do Pause.
+    if (state && state->replay_controller) {
+        replay_controller_pause(state->replay_controller);
+        // Reset visuals of Play button if needed
+        // But we need reference to play button.
+        InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(root), "info-panel-data");
+        if (panel && panel->replay_ui.play_pause_btn) {
+            gtk_button_set_icon_name(GTK_BUTTON(panel->replay_ui.play_pause_btn), "media-playback-start-symbolic");
+            gtk_widget_add_css_class(panel->replay_ui.play_pause_btn, "suggested-action");
+        }
+    }
+}
+
+static void on_replay_prev_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn; (void)user_data;
+    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
+    if (!root) return;
+    AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
+    if (state && state->replay_controller) replay_controller_prev(state->replay_controller);
+}
+
+static void on_replay_next_clicked(GtkButton* btn, gpointer user_data) {
+     (void)btn; (void)user_data;
+    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
+    if (!root) return;
+    AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
+    if (state && state->replay_controller) replay_controller_next(state->replay_controller);
+}
+
+static void on_replay_start_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn; (void)user_data;
+    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
+    if (!root) return;
+    AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
+    if (state && state->replay_controller) replay_controller_seek(state->replay_controller, 0);
+}
+
+static void on_replay_end_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn; (void)user_data;
+    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
+    if (!root) return;
+    AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
+    // Seek to MAX_INT will clamp to end
+    if (state && state->replay_controller) replay_controller_seek(state->replay_controller, 999999);
+}
+
+static void on_replay_exit_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn; (void)user_data;
+    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
+    if (!root) return;
+    
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(root), "info-panel-data");
+    if (panel && panel->replay_exit_callback) {
+        // Cast to appropriate type if needed, or just call as GCallback (void (*)(void))
+        // Usually GCallback is generic, lets declare the signature of our callback as void(*)(gpointer)
+        void (*cb)(gpointer) = (void(*)(gpointer))panel->replay_exit_callback;
+        cb(panel->replay_exit_data);
+    }
+}
+
+static void on_replay_speed_changed(GtkRange* range, gpointer user_data) {
+    (void)user_data;
+    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(range), GTK_TYPE_SCROLLED_WINDOW);
+    if (!root) return;
+    
+    AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
+    if (state && state->replay_controller) {
+        double val = gtk_range_get_value(range);
+        int speed = (int)val;
+        if (speed < 1) speed = 1;
+        int delay = 2000 / speed;
+        replay_controller_set_speed(state->replay_controller, delay);
+        
+        // Update label
+        InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(root), "info-panel-data");
+        if (panel && panel->replay_ui.speed_label) {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "Playback Speed: %.1fx", speed / 2.0);
+            gtk_label_set_text(GTK_LABEL(panel->replay_ui.speed_label), buf);
+        }
+    }
+}
+
+static void on_replay_start_here_clicked(GtkButton* btn, gpointer user_data) {
+    (void)user_data;
+    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
+    if (!root) return;
+    
+    AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
+    if (state && state->replay_controller) {
+        Player turn = gamelogic_get_turn(state->logic);
+        replay_controller_start_from_here(state->replay_controller, GAME_MODE_PVC, turn);
+    }
+}
+
+static void info_panel_create_replay_ui(InfoPanel* panel) {
+    if (!panel) return;
+    
+    panel->replay_ui.box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_top(panel->replay_ui.box, 15);
+    gtk_widget_set_margin_bottom(panel->replay_ui.box, 15);
+    gtk_widget_set_margin_start(panel->replay_ui.box, 15);
+    gtk_widget_set_margin_end(panel->replay_ui.box, 15);
+    gtk_widget_set_visible(panel->replay_ui.box, FALSE); // Hidden by default
+    
+    // Header
+    GtkWidget* title = gtk_label_new("REPLAY MODE");
+    PangoAttrList* attrs = pango_attr_list_new();
+    pango_attr_list_insert(attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
+    pango_attr_list_insert(attrs, pango_attr_size_new(16 * PANGO_SCALE));
+    gtk_label_set_attributes(GTK_LABEL(title), attrs);
+    pango_attr_list_unref(attrs);
+    gtk_widget_set_halign(title, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), title);
+    
+    // Status (Move Count)
+    // Style: Monospace, large, centered
+    panel->replay_ui.status_label = gtk_label_new("Move: 0 / 0");
+    gtk_widget_add_css_class(panel->replay_ui.status_label, "info-label-value");
+    gtk_widget_set_margin_bottom(panel->replay_ui.status_label, 5);
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), panel->replay_ui.status_label);
+    
+    // Game Status Label (White's Turn, Checkmate, etc.)
+    GtkWidget* game_status_label = gtk_label_new("");
+    gtk_widget_add_css_class(game_status_label, "dim-label");
+    gtk_widget_set_margin_bottom(game_status_label, 10);
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), game_status_label);
+    g_object_set_data(G_OBJECT(panel->replay_ui.box), "game-status-label", game_status_label);
+    
+    // Media Control Row
+    GtkWidget* media_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_halign(media_box, GTK_ALIGN_CENTER);
+    
+    // Start |<<
+    panel->replay_ui.start_btn = gtk_button_new_from_icon_name("media-skip-backward-symbolic");
+    gtk_widget_add_css_class(panel->replay_ui.start_btn, "media-button");
+    gtk_widget_set_tooltip_text(panel->replay_ui.start_btn, "Go to Start");
+    g_signal_connect(panel->replay_ui.start_btn, "clicked", G_CALLBACK(on_replay_start_clicked), panel);
+    gtk_box_append(GTK_BOX(media_box), panel->replay_ui.start_btn);
+    
+    // Prev <<
+    panel->replay_ui.prev_btn = gtk_button_new_from_icon_name("media-seek-backward-symbolic");
+    gtk_widget_add_css_class(panel->replay_ui.prev_btn, "media-button");
+    gtk_widget_set_tooltip_text(panel->replay_ui.prev_btn, "Previous Move");
+    g_signal_connect(panel->replay_ui.prev_btn, "clicked", G_CALLBACK(on_replay_prev_clicked), panel);
+    gtk_box_append(GTK_BOX(media_box), panel->replay_ui.prev_btn);
+
+    // Stop [] (Rewind/Reset)
+    panel->replay_ui.stop_btn = gtk_button_new_from_icon_name("media-playback-stop-symbolic");
+    gtk_widget_add_css_class(panel->replay_ui.stop_btn, "media-button");
+    gtk_widget_set_tooltip_text(panel->replay_ui.stop_btn, "Stop Playback");
+    g_signal_connect(panel->replay_ui.stop_btn, "clicked", G_CALLBACK(on_replay_stop_clicked), panel);
+    gtk_box_append(GTK_BOX(media_box), panel->replay_ui.stop_btn);
+    
+    // Play/Pause > / ||
+    panel->replay_ui.play_pause_btn = gtk_button_new_from_icon_name("media-playback-start-symbolic");
+    gtk_widget_add_css_class(panel->replay_ui.play_pause_btn, "media-button");
+    gtk_widget_add_css_class(panel->replay_ui.play_pause_btn, "suggested-action"); // Highlight play
+    gtk_widget_set_tooltip_text(panel->replay_ui.play_pause_btn, "Play / Pause");
+    g_signal_connect(panel->replay_ui.play_pause_btn, "clicked", G_CALLBACK(on_replay_play_pause_clicked), panel);
+    gtk_box_append(GTK_BOX(media_box), panel->replay_ui.play_pause_btn);
+    
+    // Next >>
+    panel->replay_ui.next_btn = gtk_button_new_from_icon_name("media-seek-forward-symbolic");
+    gtk_widget_add_css_class(panel->replay_ui.next_btn, "media-button");
+    gtk_widget_set_tooltip_text(panel->replay_ui.next_btn, "Next Move");
+    g_signal_connect(panel->replay_ui.next_btn, "clicked", G_CALLBACK(on_replay_next_clicked), panel);
+    gtk_box_append(GTK_BOX(media_box), panel->replay_ui.next_btn);
+    
+    // End >>|
+    panel->replay_ui.end_btn = gtk_button_new_from_icon_name("media-skip-forward-symbolic");
+    gtk_widget_add_css_class(panel->replay_ui.end_btn, "media-button");
+    gtk_widget_set_tooltip_text(panel->replay_ui.end_btn, "Go to End");
+    g_signal_connect(panel->replay_ui.end_btn, "clicked", G_CALLBACK(on_replay_end_clicked), panel);
+    gtk_box_append(GTK_BOX(media_box), panel->replay_ui.end_btn);
+    
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), media_box);
+    
+    // Speed Slider
+    GtkWidget* speed_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_halign(speed_box, GTK_ALIGN_FILL);
+    
+    panel->replay_ui.speed_label = gtk_label_new("Playback Speed: 1.0x");
+    gtk_widget_add_css_class(panel->replay_ui.speed_label, "dim-label");
+    gtk_widget_set_halign(panel->replay_ui.speed_label, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(speed_box), panel->replay_ui.speed_label);
+    
+    panel->replay_ui.speed_scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 1, 10, 1);
+    gtk_range_set_value(GTK_RANGE(panel->replay_ui.speed_scale), 2); // Default 2 (~1s)
+    g_signal_connect(panel->replay_ui.speed_scale, "value-changed", G_CALLBACK(on_replay_speed_changed), panel);
+    gtk_box_append(GTK_BOX(speed_box), panel->replay_ui.speed_scale);
+    
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), speed_box);
+    
+    // Visual Toggles
+    GtkWidget* toggles_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    
+    panel->replay_ui.anim_check = gtk_check_button_new_with_label("Enable Animations");
+    // Sync initial state from standard toggle
+    if (panel->enable_animations_check) {
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(panel->replay_ui.anim_check), 
+                                    gtk_check_button_get_active(GTK_CHECK_BUTTON(panel->enable_animations_check)));
+    }
+    // We can reuse the same callback as "on_animations_toggled" as it uses user_data=panel
+    g_signal_connect(panel->replay_ui.anim_check, "toggled", G_CALLBACK(on_animations_toggled), panel);
+    gtk_box_append(GTK_BOX(toggles_box), panel->replay_ui.anim_check);
+    
+    panel->replay_ui.sfx_check = gtk_check_button_new_with_label("Enable SFX");
+    if (panel->enable_sfx_check) {
+        gtk_check_button_set_active(GTK_CHECK_BUTTON(panel->replay_ui.sfx_check), 
+                                    gtk_check_button_get_active(GTK_CHECK_BUTTON(panel->enable_sfx_check)));
+    }
+    g_signal_connect(panel->replay_ui.sfx_check, "toggled", G_CALLBACK(on_sfx_toggled), panel);
+    gtk_box_append(GTK_BOX(toggles_box), panel->replay_ui.sfx_check);
+    
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), toggles_box);
+    
+    // Actions Separator
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    
+    // Action Buttons
+    panel->replay_ui.start_here_btn = gtk_button_new_with_label("Play From Here");
+    gtk_widget_add_css_class(panel->replay_ui.start_here_btn, "suggested-action");
+    gtk_widget_set_tooltip_text(panel->replay_ui.start_here_btn, "Resume game from this position");
+    g_signal_connect(panel->replay_ui.start_here_btn, "clicked", G_CALLBACK(on_replay_start_here_clicked), panel);
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), panel->replay_ui.start_here_btn);
+
+    panel->replay_ui.exit_btn = gtk_button_new_with_label("Exit Replay");
+    gtk_widget_add_css_class(panel->replay_ui.exit_btn, "destructive-action");
+    g_signal_connect(panel->replay_ui.exit_btn, "clicked", G_CALLBACK(on_replay_exit_clicked), panel);
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), panel->replay_ui.exit_btn);
+    
+    // Add to scroll content
+    gtk_box_append(GTK_BOX(panel->scroll_content), panel->replay_ui.box);
+}
+
+void info_panel_update_replay_status(GtkWidget* info_panel, int current_ply, int total_plies) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (!panel || !panel->replay_ui.status_label) return;
+    
+    int move_num = (current_ply + 1) / 2;
+    int total_moves = (total_plies + 1) / 2;
+    char buf[64];
+    snprintf(buf, sizeof(buf), "Move: %d / %d", move_num, total_moves);
+    gtk_label_set_text(GTK_LABEL(panel->replay_ui.status_label), buf);
+    
+    // Also update buttons sensitivity/icon states if needed provided we have references
+    // E.g. disable Back if current_ply == 0
+    if (panel->replay_ui.prev_btn) gtk_widget_set_sensitive(panel->replay_ui.prev_btn, current_ply > 0);
+    if (panel->replay_ui.start_btn) gtk_widget_set_sensitive(panel->replay_ui.start_btn, current_ply > 0);
+    
+    if (panel->replay_ui.next_btn) gtk_widget_set_sensitive(panel->replay_ui.next_btn, current_ply < total_plies);
+    if (panel->replay_ui.end_btn) gtk_widget_set_sensitive(panel->replay_ui.end_btn, current_ply < total_plies);
+}
+
+void info_panel_show_replay_controls(GtkWidget* info_panel, gboolean visible) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (!panel) return;
+    
+    // Lazy init
+    if (!panel->replay_ui.box) {
+        info_panel_create_replay_ui(panel);
+    }
+    
+    gtk_widget_set_visible(panel->standard_controls_box, !visible);
+    gtk_widget_set_visible(panel->replay_ui.box, visible);
+    
+    // Hide other specific modes if any
+    gtk_widget_set_visible(panel->puzzle_ui.box, FALSE);
+    gtk_widget_set_visible(panel->tutorial_ui.box, FALSE);
+    
+    if (visible && panel->replay_ui.play_pause_btn) {
+         // Reset state visuals if needed (assuming start is paused)
+         AppState* state = (AppState*)g_object_get_data(G_OBJECT(info_panel), "app_state");
+         bool is_playing = (state && state->replay_controller && replay_controller_is_playing(state->replay_controller));
+         
+         if (is_playing) {
+             gtk_button_set_icon_name(GTK_BUTTON(panel->replay_ui.play_pause_btn), "media-playback-pause-symbolic");
+             gtk_widget_remove_css_class(panel->replay_ui.play_pause_btn, "suggested-action"); 
+             // gtk_widget_add_css_class(panel->replay_ui.play_pause_btn, "destructive-action");
+         } else {
+             gtk_button_set_icon_name(GTK_BUTTON(panel->replay_ui.play_pause_btn), "media-playback-start-symbolic");
+             gtk_widget_add_css_class(panel->replay_ui.play_pause_btn, "suggested-action");
+             // gtk_widget_remove_css_class(panel->replay_ui.play_pause_btn, "destructive-action");
+         }
+    }
+}
+

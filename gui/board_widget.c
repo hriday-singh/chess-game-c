@@ -19,7 +19,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 // Board widget state
 typedef struct {
@@ -128,10 +128,10 @@ static void play_move_sound(BoardWidget* board, Move* move) {
         Player winner = gamelogic_is_checkmate(board->logic, PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
         if (winner == board->logic->playerSide) {
             sound_engine_play(SOUND_WIN);
-            if (debug_mode) printf("[DEBUG] Playing win sound\n");
+            if (debug_mode) printf("[BoardWidget] Playing win sound\n");
         } else {
             sound_engine_play(SOUND_DEFEAT);
-            if (debug_mode) printf("[DEBUG] Playing defeat sound\n");
+            if (debug_mode) printf("[BoardWidget] Playing defeat sound\n");
         }
         return;
     }
@@ -139,26 +139,26 @@ static void play_move_sound(BoardWidget* board, Move* move) {
     if (gamelogic_is_stalemate(board->logic, PLAYER_WHITE) || 
         gamelogic_is_stalemate(board->logic, PLAYER_BLACK)) {
         sound_engine_play(SOUND_DRAW);
-        if (debug_mode) printf("[DEBUG] Playing draw sound\n");
+        if (debug_mode) printf("[BoardWidget] Playing draw sound\n");
         return;
     }
     
     if (gamelogic_is_in_check(board->logic, PLAYER_WHITE) || gamelogic_is_in_check(board->logic, PLAYER_BLACK)) {
         sound_engine_play(SOUND_CHECK);
-        if (debug_mode) printf("[DEBUG] Playing check sound\n");
+        if (debug_mode) printf("[BoardWidget] Playing check sound\n");
         return;
     }
     
     // Check move type
     if (move->isCastling) {
         sound_engine_play(SOUND_CASTLES);
-        if (debug_mode) printf("[DEBUG] Playing castling sound\n");
+        if (debug_mode) printf("[BoardWidget] Playing castling sound\n");
     } else if (move->promotionPiece != NO_PROMOTION) {
         sound_engine_play(SOUND_PROMOTION);
-        if (debug_mode) printf("[DEBUG] Playing promotion sound\n");
-    } else if (move->capturedPiece != NULL || move->isEnPassant) {
+        if (debug_mode) printf("[BoardWidget] Playing promotion sound\n");
+    } else if (move->capturedPieceType != NO_PIECE || move->isEnPassant) {
         sound_engine_play(SOUND_CAPTURE);
-        if (debug_mode) printf("[DEBUG] Playing capture sound\n");
+        if (debug_mode) printf("[BoardWidget] Playing capture sound\n");
     } else {
         // Regular move - play immediately (unless skipped because it was already played delayed)
         // In Puzzle Mode, the main logic handles sounds (Success/Failure), so don't play default move sound
@@ -171,10 +171,10 @@ static void play_move_sound(BoardWidget* board, Move* move) {
              // Check if the mover is a computer
              if (gamelogic_is_computer(board->logic, mover)) {
                  sound_engine_play(SOUND_MOVE_OPPONENT);
-                 if (debug_mode) printf("[DEBUG] Playing move sound for opponent\n");
+                 if (debug_mode) printf("[BoardWidget] Playing move sound for opponent\n");
              } else {
                  sound_engine_play(SOUND_MOVE);
-                 if (debug_mode) printf("[DEBUG] Playing move sound for player\n");
+                 if (debug_mode) printf("[BoardWidget] Playing move sound for player\n");
              }
         }
     }
@@ -214,16 +214,20 @@ static bool is_square_in_check(BoardWidget* board, int r, int c) {
 static bool is_last_move_square(BoardWidget* board, int r, int c) {
     Move* lastMove = gamelogic_get_last_move(board->logic);
     if (!lastMove) return false;
-    return ((r == lastMove->startRow && c == lastMove->startCol) ||
-            (r == lastMove->endRow && c == lastMove->endCol));
+    int startRow = lastMove->from_sq / 8, startCol = lastMove->from_sq % 8;
+    int endRow = lastMove->to_sq / 8, endCol = lastMove->to_sq % 8;
+    return ((r == startRow && c == startCol) ||
+            (r == endRow && c == endCol));
 }
 
 // Helper to render move to UCI string (e.g. "e2e4")
 static void render_move_uci(Move* m, char* buf, size_t size) {
     if (!m || !buf || size < 5) return;
+    int r1 = m->from_sq / 8, c1 = m->from_sq % 8;
+    int r2 = m->to_sq / 8, c2 = m->to_sq % 8;
     snprintf(buf, size, "%c%d%c%d", 
-             'a' + m->startCol, 8 - m->startRow,
-             'a' + m->endCol, 8 - m->endRow);
+             'a' + c1, 8 - r1,
+             'a' + c2, 8 - r2);
 }
 
 // Centralized move execution helper
@@ -384,12 +388,14 @@ static void draw_animated_piece(GtkDrawingArea* overlay, cairo_t* cr, int width,
     if (board->isAnimating && board->animatingMove) {
         Move* move = board->animatingMove;
         // Look up piece FRESH from board at start position (before move executes)
-        Piece* piece = board->logic->board[move->startRow][move->startCol];
+        int startRow = move->from_sq / 8, startCol = move->from_sq % 8;
+        int endRow = move->to_sq / 8, endCol = move->to_sq % 8;
+        Piece* piece = board->logic->board[startRow][startCol];
         
         if (piece) {
             int visualStartR, visualStartC, visualEndR, visualEndC;
-            logical_to_visual(board, move->startRow, move->startCol, &visualStartR, &visualStartC);
-            logical_to_visual(board, move->endRow, move->endCol, &visualEndR, &visualEndC);
+            logical_to_visual(board, startRow, startCol, &visualStartR, &visualStartC);
+            logical_to_visual(board, endRow, endCol, &visualEndR, &visualEndC);
             
             double startX = (visualStartC + 0.5) * (width / 8.0);
             double startY = (visualStartR + 0.5) * (height / 8.0);
@@ -405,17 +411,43 @@ static void draw_animated_piece(GtkDrawingArea* overlay, cairo_t* cr, int width,
             
             double pieceSize = (width / 8.0);
             draw_piece_graphic(cr, board, piece->type, piece->owner, x, y, pieceSize * 0.85, 1.0);
+        } else {
+             // Fallback: Check destination if start is empty (Logic Updated case)
+             piece = board->logic->board[endRow][endCol];
+             if (piece) {
+                int visualStartR, visualStartC, visualEndR, visualEndC;
+                logical_to_visual(board, startRow, startCol, &visualStartR, &visualStartC);
+                logical_to_visual(board, endRow, endCol, &visualEndR, &visualEndC);
+                
+                double startX = (visualStartC + 0.5) * (width / 8.0);
+                double startY = (visualStartR + 0.5) * (height / 8.0);
+                double endX = (visualEndC + 0.5) * (width / 8.0);
+                double endY = (visualEndR + 0.5) * (height / 8.0);
+                
+                double t = board->animProgress;
+                if (t < 0.0) t = 0.0; else if (t > 1.0) t = 1.0;
+                double eased = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
+                
+                double x = startX + (endX - startX) * eased;
+                double y = startY + (endY - startY) * eased;
+                
+                double pieceSize = (width / 8.0);
+                draw_piece_graphic(cr, board, piece->type, piece->owner, x, y, pieceSize * 0.85, 1.0);
+             }
         }
         
         // Draw SECOND animated piece (Rook during castling)
         if (board->animCastlingRookMove) {
             Move* rookMove = board->animCastlingRookMove;
-            Piece* piece = board->logic->board[rookMove->startRow][rookMove->startCol];
+            int rRook = rookMove->from_sq / 8, cRook = rookMove->from_sq % 8;
+            int rRookEnd = rookMove->to_sq / 8, cRookEnd = rookMove->to_sq % 8;
+            Piece* piece = board->logic->board[rRook][cRook];
+            if (!piece) piece = board->logic->board[rRookEnd][cRookEnd]; // Fallback
             
             if (piece) {
                 int visualStartR, visualStartC, visualEndR, visualEndC;
-                logical_to_visual(board, rookMove->startRow, rookMove->startCol, &visualStartR, &visualStartC);
-                logical_to_visual(board, rookMove->endRow, rookMove->endCol, &visualEndR, &visualEndC);
+                logical_to_visual(board, rRook, cRook, &visualStartR, &visualStartC);
+                logical_to_visual(board, rRookEnd, cRookEnd, &visualEndR, &visualEndC);
                 
                 double startX = (visualStartC + 0.5) * (width / 8.0);
                 double startY = (visualStartR + 0.5) * (height / 8.0);
@@ -475,13 +507,13 @@ static void draw_square(GtkDrawingArea* area, cairo_t* cr, int width, int height
         Move* move = board->animatingMove;
         // Only hide the piece at the START position (the one moving)
         // Ensure destination remains visible (e.g. for captures) until animation finishes/board updates
-        if (r == move->startRow && c == move->startCol) {
+        if (r == (int)(move->from_sq / 8) && c == (int)(move->from_sq % 8)) {
             hidePiece = true;
         }
         // Also hide the Rook if castling
         if (board->animCastlingRookMove) {
-            if (r == board->animCastlingRookMove->startRow && 
-                c == board->animCastlingRookMove->startCol) {
+            if (r == (int)(board->animCastlingRookMove->from_sq / 8) && 
+                c == (int)(board->animCastlingRookMove->from_sq % 8)) {
                 hidePiece = true;
             }
         }
@@ -529,10 +561,10 @@ static void draw_square(GtkDrawingArea* area, cairo_t* cr, int width, int height
     if (sourceRow >= 0 && sourceCol >= 0) {
         for (int i = 0; i < board->validMovesCount; i++) {
             if (board->validMoves[i] && 
-                board->validMoves[i]->startRow == sourceRow &&
-                board->validMoves[i]->startCol == sourceCol &&
-                board->validMoves[i]->endRow == r && 
-                board->validMoves[i]->endCol == c) {
+                (board->validMoves[i]->from_sq / 8) == sourceRow &&
+                (board->validMoves[i]->from_sq % 8) == sourceCol &&
+                (board->validMoves[i]->to_sq / 8) == r && 
+                (board->validMoves[i]->to_sq % 8) == c) {
                 isValidDest = true;
                 if (piece != NULL) isCapture = true;
                 break;
@@ -860,7 +892,7 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
     BoardWidget* board = (BoardWidget*)user_data;
     if (!board || !board->isInteractive) return;
     if (board->logic->gameMode == GAME_MODE_CVC) return;
-        
+    
     // If we were dragging, check if we dropped on a valid square
     if (board->isDragging && board->dragSourceRow >= 0) {
         // Use the current drag position (which is in grid coordinates) to find the drop square
@@ -900,8 +932,8 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
             
             for (int i = 0; i < board->validMovesCount; i++) {
                 if (board->validMoves[i] && 
-                    board->validMoves[i]->endRow == dropRow && 
-                    board->validMoves[i]->endCol == dropCol) {
+                    (int)(board->validMoves[i]->to_sq / 8) == dropRow && 
+                    (int)(board->validMoves[i]->to_sq % 8) == dropCol) {
                     isValid = true;
                     moveToMake = move_copy(board->validMoves[i]);
                     break;
@@ -911,10 +943,12 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
             if (isValid && moveToMake) {
                 // Tutorial Restriction Check on Execution
                 if (board->restrictMoves) {
-                    if (moveToMake->startRow != board->allowedStartRow ||
-                        moveToMake->startCol != board->allowedStartCol ||
-                        moveToMake->endRow != board->allowedEndRow ||
-                        moveToMake->endCol != board->allowedEndCol) {
+                    int r1 = moveToMake->from_sq / 8, c1 = moveToMake->from_sq % 8;
+                    int r2 = moveToMake->to_sq / 8, c2 = moveToMake->to_sq % 8;
+                    if (r1 != board->allowedStartRow ||
+                        c1 != board->allowedStartCol ||
+                        r2 != board->allowedEndRow ||
+                        c2 != board->allowedEndCol) {
                         
                         // Trigger callback
                         if (board->invalidMoveCb) {
@@ -930,9 +964,11 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
 
             if (isValid && moveToMake) {               
                 // Check if this is a promotion move (pawn reaching last rank)
-                Piece* movingPiece = board->logic->board[moveToMake->startRow][moveToMake->startCol];
+                int r1 = moveToMake->from_sq / 8, c1 = moveToMake->from_sq % 8;
+                int r2 = moveToMake->to_sq / 8;
+                Piece* movingPiece = board->logic->board[r1][c1];
                 if (movingPiece && movingPiece->type == PIECE_PAWN && 
-                    (moveToMake->endRow == 0 || moveToMake->endRow == 7)) {
+                    (r2 == 0 || r2 == 7)) {
                     // Show promotion dialog
                     GtkWidget* window = gtk_widget_get_ancestor(GTK_WIDGET(board->grid), GTK_TYPE_WINDOW);
                     PieceType selected = promotion_dialog_show(GTK_WINDOW(window), board->theme, movingPiece->owner);
@@ -1040,8 +1076,8 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
         
         for (int i = 0; i < board->validMovesCount; i++) {
             if (board->validMoves[i] && 
-                board->validMoves[i]->endRow == logicalR && 
-                board->validMoves[i]->endCol == logicalC) {
+                (int)(board->validMoves[i]->to_sq / 8) == logicalR && 
+                (int)(board->validMoves[i]->to_sq % 8) == logicalC) {
                 isValid = true;
                 moveToMake = move_copy(board->validMoves[i]);
                 break;
@@ -1051,10 +1087,12 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
         if (isValid && moveToMake) {
              // Tutorial Restriction Check on Execution
             if (board->restrictMoves) {
-                if (moveToMake->startRow != board->allowedStartRow ||
-                    moveToMake->startCol != board->allowedStartCol ||
-                    moveToMake->endRow != board->allowedEndRow ||
-                    moveToMake->endCol != board->allowedEndCol) {
+                int r1 = moveToMake->from_sq / 8, c1 = moveToMake->from_sq % 8;
+                int r2 = moveToMake->to_sq / 8, c2 = moveToMake->to_sq % 8;
+                if (r1 != board->allowedStartRow ||
+                    c1 != board->allowedStartCol ||
+                    r2 != board->allowedEndRow ||
+                    c2 != board->allowedEndCol) {
                     if (board->invalidMoveCb) {
                         board->invalidMoveCb(board->invalidMoveData);
                     }
@@ -1168,14 +1206,16 @@ static void animate_move(BoardWidget* board, Move* move, void (*on_finished)(voi
     (void)on_finished; // Callback for future use
     
     // Check if this is a promotion move (pawn reaching last rank)
-    Piece* movingPiece = board->logic->board[move->startRow][move->startCol];
+    int startRow = move->from_sq / 8, startCol = move->from_sq % 8;
+    int endRow = move->to_sq / 8;
+    Piece* movingPiece = board->logic->board[startRow][startCol];
     // CRITICAL: Store now - animation will look up piece AFTER it's moved!
     if (movingPiece) move->mover = movingPiece->owner;
     
     // Only show dialog if promotion piece is NOT set (User move)
     // AI moves will already have promotionPiece set
     if (movingPiece && movingPiece->type == PIECE_PAWN && 
-        (move->endRow == 0 || move->endRow == 7)) {
+        (endRow == 0 || endRow == 7)) {
         
         if (move->promotionPiece == NO_PROMOTION) {
             // Show promotion dialog
@@ -1213,36 +1253,29 @@ static void animate_move(BoardWidget* board, Move* move, void (*on_finished)(voi
     // Detect Castling and setup Rook animation
     if (move->isCastling) {
         // Determine Rook's move based on King's move
-        int r = move->startRow;
-        int c = move->startCol; // King start col (e-file, index 4)
-        int destC = move->endCol;
+        int r = move->from_sq / 8;
+        int c = move->from_sq % 8; // King start col (e-file, index 4)
+        int destC = move->to_sq % 8;
         
         // Ensure we handle both 0-7 and 7-0 row indexing consistently
         // (Move coords satisfy logic directly)
         
-        Move* rookMove = (Move*)calloc(1, sizeof(Move));
-        rookMove->startRow = r;
-        rookMove->endRow = r;
-        rookMove->isCastling = 0; // The rook itself is just moving, not "castling" recursively
-        rookMove->mover = move->mover;
+        int rRook = r;
+        int cRookStart, cRookEnd;
         
         // Determine side based on target column
-        // King start is usually 4.
-        // Kingside: destC > c (6 or 7)
-        // Queenside: destC < c (2 or 0)
-        
-        // Note: Logic allows castling end col to be 6 (g-file) or 2 (c-file) for King
         if (destC > c) {
             // Kingside
-            rookMove->startCol = 7; // h-file
-            rookMove->endCol = 5;   // f-file
+            cRookStart = 7; // h-file
+            cRookEnd = 5;   // f-file
         } else {
             // Queenside
-            rookMove->startCol = 0; // a-file
-            rookMove->endCol = 3;   // d-file
+            cRookStart = 0; // a-file
+            cRookEnd = 3;   // d-file
         }
         
-        board->animCastlingRookMove = rookMove;
+        board->animCastlingRookMove = move_create((uint8_t)(rRook * 8 + cRookStart), (uint8_t)(rRook * 8 + cRookEnd));
+        board->animCastlingRookMove->mover = move->mover;
     } else {
         board->animCastlingRookMove = NULL;
     }

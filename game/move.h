@@ -4,7 +4,7 @@
 #include "types.h"
 
 // Create a new move
-Move* move_create(int r1, int c1, int r2, int c2);
+Move* move_create(uint8_t from, uint8_t to);
 
 // Copy a move (deep copy, including captured piece if any)
 Move* move_copy(Move* src);

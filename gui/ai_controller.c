@@ -521,13 +521,20 @@ static gboolean dispatch_eval_update(gpointer user_data) {
                     printf("[AI Rating] waiting for depth >= %d (now %d)\n", min_depth, data->depth);
                 }
             } else {
-                bool white_moved = fen_white_to_move(ctrl->before_move_snapshot.fen);
 
-                /* Only rate human moves */
-                bool should_rate = true;
+
+            if (cfg->show_move_rating) {
+                bool white_moved = fen_white_to_move(ctrl->before_move_snapshot.fen);
+                Player mover = white_moved ? PLAYER_WHITE : PLAYER_BLACK;
+
+                /* Only rate moves for the side we are analyzing */
+                bool should_rate = (mover == ctrl->analysis_side);
+
                 if (ctrl->logic) {
                     if (ctrl->logic->gameMode == GAME_MODE_PVC) {
-                        Player mover = white_moved ? PLAYER_WHITE : PLAYER_BLACK;
+                        /* In PvC, usually we only care about the player's moves, 
+                           but if analysis_side is properly set to playerSide, 
+                           the above check covers it. We explicitly enforce playerSide too just in case. */
                         if (ctrl->logic->playerSide != mover) should_rate = false;
                     } else if (ctrl->logic->gameMode == GAME_MODE_CVC) {
                         should_rate = false;
@@ -650,11 +657,13 @@ static gboolean dispatch_eval_update(gpointer user_data) {
                 }
 
                 /* Rating done once */
-                ctrl->rating_pending = false;
                 ctrl->pending_played_move_uci[0] = '\0';
-            }
-        }
-    }
+            } // end if (cfg->show_move_rating)
+            
+            ctrl->rating_pending = false;
+        } // end else (depth >= min_depth)
+    } // end else (fen mismatch check)
+    } // end if (rating_pending)
 
     /* Sticky rating apply */
     if (!stats.rating_label && g_get_monotonic_time() < ctrl->rating_expiry_time) {
@@ -748,7 +757,7 @@ static gboolean apply_ai_move_idle(gpointer user_data) {
             int c2 = move_ptr[2] - 'a';
             int r2 = 8 - (move_ptr[3] - '0');
 
-            Move* m = move_create(r1, c1, r2, c2);
+            Move* m = move_create((uint8_t)(r1 * 8 + c1), (uint8_t)(r2 * 8 + c2));
             if (strlen(move_ptr) >= 5) {
                 switch (move_ptr[4]) {
                     case 'q': m->promotionPiece = PIECE_QUEEN; break;
@@ -902,7 +911,9 @@ static void update_rating_snapshot_from_multipv(AiController* controller) {
 
     snap.valid = true;
 
+    g_mutex_lock(&controller->fen_mutex);
     controller->latest_unthrottled_snapshot = snap;
+    g_mutex_unlock(&controller->fen_mutex);
 }
 
 static void parse_info_line(AiController* controller, char* line) {
@@ -1077,6 +1088,9 @@ void ai_controller_request_move(AiController* controller,
         g_free(fen);
         return;
     }
+
+    /* Ensure listener is running for this engine */
+    ensure_listener(controller, engine, use_custom);
 
     controller->ai_thinking = true;
     controller->think_gen++;
@@ -1289,6 +1303,7 @@ void ai_controller_mark_human_move_begin(AiController* controller, const char* p
     if (!controller) return;
 
     /* Prefer unthrottled snapshot; fallback to current snapshot */
+    g_mutex_lock(&controller->fen_mutex);
     if (controller->latest_unthrottled_snapshot.valid) {
         controller->before_move_snapshot = controller->latest_unthrottled_snapshot;
     } else if (controller->current_snapshot.valid) {
@@ -1296,6 +1311,7 @@ void ai_controller_mark_human_move_begin(AiController* controller, const char* p
     } else {
         controller->before_move_snapshot.valid = false;
     }
+    g_mutex_unlock(&controller->fen_mutex);
 
     /* Save played move string */
     controller->pending_played_move_uci[0] = '\0';

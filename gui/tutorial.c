@@ -435,13 +435,13 @@ void tutorial_check_progress(AppState* state) {
     }
 
     if (state->tutorial.wait) {
-        if (debug_mode) printf("DEBUG: Tutorial waiting...\n");
+        if (debug_mode) printf("[Tutorial] Tutorial waiting...\n");
         return;
     }
 
     // Fix: Wait for animation to finish before checking progress
     if (board_widget_is_animating(state->gui.board)) {
-        if (debug_mode) printf("DEBUG: Board animating, skipping tutorial check\n");
+        if (debug_mode) printf("[Tutorial] Board animating, skipping tutorial check\n");
         return;
     }
     
@@ -452,11 +452,11 @@ void tutorial_check_progress(AppState* state) {
     if (state->tutorial.step == TUT_PAWN) {
         // d2->d4 (6,3 -> 4,3)
         Piece* p = state->logic->board[4][3];
-        if (debug_mode) printf("DEBUG: Checking PAWN success. Slot [4][3] = %p\n", (void*)p);
-        if (p) if (debug_mode) printf("DEBUG: Piece type=%d owner=%d\n", p->type, p->owner);
+        if (debug_mode) printf("[Tutorial] Checking PAWN success. Slot [4][3] = %p\n", (void*)p);
+        if (p) if (debug_mode) printf("[Tutorial] Piece type=%d owner=%d\n", p->type, p->owner);
         
         if (p && p->type == PIECE_PAWN && p->owner == PLAYER_WHITE) {
-            if (debug_mode) printf("DEBUG: PAWN Success! Locking board.\n");
+            if (debug_mode) printf("[Tutorial] PAWN Success! Locking board.\n");
             state->tutorial.wait = TRUE;
             board_widget_set_nav_restricted(state->gui.board, true, -1, -1, -1, -1);
             state->tutorial.next_step = TUT_ROOK;

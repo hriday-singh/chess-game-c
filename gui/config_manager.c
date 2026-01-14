@@ -16,7 +16,7 @@
 #define MKDIR(path) mkdir(path, 0755)
 #endif
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 // Global configuration instance
 static AppConfig g_config;
@@ -26,7 +26,7 @@ static char g_app_name[64] = "HAL Chess";
 
 void config_set_app_param(const char* app_name) {
     if (app_name && strlen(app_name) > 0) {
-        strncpy(g_app_name, app_name, sizeof(g_app_name) - 1);
+        snprintf(g_app_name, sizeof(g_app_name), "%s", app_name);
         // Clear paths ensuring they are recalculated
         g_config_path[0] = '\0';
         g_base_dir[0] = '\0';
@@ -46,7 +46,7 @@ static void determine_base_dir(void) {
 #endif
 
     if (!home) {
-        strcpy(g_base_dir, ".");
+        snprintf(g_base_dir, sizeof(g_base_dir), ".");
     } else {
 #ifdef _WIN32
         snprintf(g_base_dir, sizeof(g_base_dir), "%s/%s", home, g_app_name);
@@ -68,7 +68,7 @@ static void determine_config_path(void) {
 // Helper to set defaults
 static void set_defaults(void) {
     // General
-    strncpy(g_config.theme, DEFAULT_THEME, sizeof(g_config.theme) - 1);
+    snprintf(g_config.theme, sizeof(g_config.theme), "%s", DEFAULT_THEME);
     g_config.is_dark_mode = DEFAULT_DARK_MODE;
     g_config.show_tutorial_dialog = true;
 
@@ -103,12 +103,12 @@ static void set_defaults(void) {
     g_config.custom_is_advanced = false;
 
     // Board Theme
-    strncpy(g_config.board_theme_name, "Green & White", sizeof(g_config.board_theme_name) - 1);
+    snprintf(g_config.board_theme_name, sizeof(g_config.board_theme_name), "%s", "Green & White");
     g_config.light_square_color[0] = '\0';
     g_config.dark_square_color[0] = '\0';
 
     // Piece Theme
-    strncpy(g_config.piece_set, "caliente", sizeof(g_config.piece_set) - 1);
+    snprintf(g_config.piece_set, sizeof(g_config.piece_set), "%s", "caliente");
     g_config.white_piece_color[0] = '\0';
     g_config.white_stroke_color[0] = '\0';
     g_config.black_piece_color[0] = '\0';
@@ -231,7 +231,7 @@ bool config_load(void) {
     fclose(f);
     if (debug_mode) {
         printf("Config loaded from %s\n", g_config_path);
-        printf("--- [DEBUG] Config Summary ---\n");
+        printf("--- [ConfigManager] Config Summary ---\n");
         printf("  Theme: %s\n", g_config.theme);
         printf("  Dark Mode: %s\n", g_config.is_dark_mode ? "true" : "false");
         printf("  Tutorial: %s\n", g_config.show_tutorial_dialog ? "true" : "false");
@@ -310,7 +310,7 @@ bool config_save(void) {
     fclose(f);
     if (debug_mode) {
         printf("Config saved to %s\n", g_config_path);
-        printf("--- [DEBUG] Config Summary ---\n");
+        printf("--- [ConfigManager] Config Summary ---\n");
         printf("  Theme: %s\n", g_config.theme);
         printf("  Dark Mode: %s\n", g_config.is_dark_mode ? "true" : "false");
         printf("  Tutorial: %s\n", g_config.show_tutorial_dialog ? "true" : "false");
@@ -441,7 +441,7 @@ void app_themes_init(void) {
     }
     
     fclose(f);
-    if (debug_mode) printf("[DEBUG] Loaded %d custom themes from %s\n", g_custom_theme_count, g_themes_path);
+    if (debug_mode) printf("[ConfigManager] Loaded %d custom themes from %s\n", g_custom_theme_count, g_themes_path);
 }
 
 AppTheme* app_themes_get_list(int* count) {
@@ -457,7 +457,7 @@ void app_themes_save_theme(const AppTheme* theme) {
         if (strcmp(g_custom_themes[i].theme_id, theme->theme_id) == 0) {
            // Prevent overwriting system theme if somehow a collision happens, check global list
            if (theme_manager_is_system_theme(theme->theme_id)) {
-               if (debug_mode) printf("[Config] Cannot overwrite system theme %s\n", theme->theme_id);
+               if (debug_mode) printf("[ConfigManager] Cannot overwrite system theme %s\n", theme->theme_id);
                return; 
            }
 
@@ -552,7 +552,7 @@ void app_themes_save_all(void) {
     }
     fprintf(f, "]\n");
     fclose(f);
-    if (debug_mode) printf("[DEBUG] Themes saved to %s\n", g_themes_path);
+    if (debug_mode) printf("[ConfigManager] Themes saved to %s\n", g_themes_path);
 }
 
 // --- Match History Implementation ---
@@ -602,11 +602,12 @@ static void save_single_match(MatchHistoryEntry* m) {
     fprintf(f, "  \"result_reason\": \"%s\",\n", m->result_reason);
     fprintf(f, "  \"move_count\": %d,\n", m->move_count);
     fprintf(f, "  \"moves_san\": \"%s\",\n", m->moves_san ? m->moves_san : "");
+    fprintf(f, "  \"start_fen\": \"%s\",\n", m->start_fen);
     fprintf(f, "  \"final_fen\": \"%s\"\n", m->final_fen);
     fprintf(f, "}\n");
     
     fclose(f);
-    printf("[DEBUG] Match History saved to: %s\n", match_path);
+    printf("[ConfigManager] Match History saved to: %s\n", match_path);
 }
 
 void match_history_init(void) {
@@ -628,10 +629,29 @@ static void parse_match_file(const char* path) {
     MatchHistoryEntry* m = &g_history_list[g_history_count++];
     memset(m, 0, sizeof(MatchHistoryEntry));
 
+    // Force ID from filename to ensure sync (Fix deletion bug)
+    // Extract basename: "C:/.../matches/m_123.json" -> "m_123"
+    const char* base = strrchr(path, '/');
+#ifdef _WIN32
+    const char* base_win = strrchr(path, '\\');
+    if (base_win > base) base = base_win;
+#endif
+    
+    if (base) base++; // Skip slash
+    else base = path;
+    
+    snprintf(m->id, sizeof(m->id), "%.63s", base);
+    
+    // Remove .json extension if present
+    char* ext = strstr(m->id, ".json");
+    if (ext) *ext = '\0';
+
     char line[4096];
     while (fgets(line, sizeof(line), f)) {
-        if (strstr(line, "\"id\"")) extract_json_str(line, "id", m->id, sizeof(m->id));
-        else if (strstr(line, "\"timestamp\"")) {
+        // Skip "id" parsing from file to avoid corruption/desync
+        // if (strstr(line, "\"id\"")) extract_json_str(line, "id", m->id, sizeof(m->id));
+        
+        if (strstr(line, "\"timestamp\"")) {
             char* p = strchr(line, ':');
             if (p) m->timestamp = atol(p + 1);
         }
@@ -650,8 +670,10 @@ static void parse_match_file(const char* path) {
         else if (strstr(line, "\"moves_san\"")) {
             char val[4096];
             extract_json_str(line, "moves_san", val, sizeof(val));
+            if (m->moves_san) free(m->moves_san); // Safety
             m->moves_san = strdup(val);
         }
+        else if (strstr(line, "\"start_fen\"")) extract_json_str(line, "start_fen", m->start_fen, sizeof(m->start_fen));
         else if (strstr(line, "\"final_fen\"")) extract_json_str(line, "final_fen", m->final_fen, sizeof(m->final_fen));
         
         // Note: Simple parser only gets top level for now. Detailed white/black config can be added if needed for UI.
@@ -695,7 +717,7 @@ void match_history_load_all(void) {
         closedir(d);
     }
 #endif
-    printf("[DEBUG] Loaded %d matches from %s\n", g_history_count, matches_dir);
+    printf("[ConfigManager] Loaded %d matches from %s\n", g_history_count, matches_dir);
 }
 
 void match_history_delete(const char* id) {
@@ -726,7 +748,7 @@ void match_history_delete(const char* id) {
         }
         g_history_count--;
     }
-    printf("[DEBUG] Deleted match: %s\n", path);
+    printf("[ConfigManager] Deleted match: %s\n", path);
 }
 
 void match_history_add(MatchHistoryEntry* entry) {

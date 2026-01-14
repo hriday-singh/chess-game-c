@@ -85,9 +85,11 @@ void puzzle_controller_check_move(AppState* state) {
     if (last_move) {
         // Convert to UCI format (e.g., "e2e4" or "e7e8q" for promotion)
         char move_uci[32]; 
+        int r1 = last_move->from_sq / 8, c1 = last_move->from_sq % 8;
+        int r2 = last_move->to_sq / 8, c2 = last_move->to_sq % 8;
         snprintf(move_uci, sizeof(move_uci), "%c%d%c%d",
-            'a' + last_move->startCol, 8 - last_move->startRow,
-            'a' + last_move->endCol, 8 - last_move->endRow);
+            'a' + c1, 8 - r1,
+            'a' + c2, 8 - r2);
         
         // Check if it matches expected move
         const char* expected = puzzle->solution_moves[state->puzzle.move_idx];

@@ -206,5 +206,23 @@ test-focus: $(FOCUS_TEST_TARGET)
 	./$(FOCUS_TEST_TARGET)
 
 
+# Reproduction test target
+REPRO_TARGET = $(BUILDDIR)/repro_perform_move.exe
+
+test-repro: $(GAME_OBJECTS)
+	@echo "Building reproduction test..."
+	$(CC) $(CFLAGS) -I. -I$(SRCDIR) repro_perform_move.c $(filter-out $(OBJDIR)/test_suite.o $(OBJDIR)/main_test.o, $(GAME_OBJECTS)) -o $(REPRO_TARGET)
+	@echo "Running reproduction test..."
+	./$(REPRO_TARGET)
+
+# SAN Check Test
+SAN_TEST_TARGET = $(BUILDDIR)/repro_check_san.exe
+
+test-san: $(GAME_OBJECTS)
+	@echo "Building SAN check test..."
+	$(CC) $(CFLAGS) -I. -I$(SRCDIR) repro_check_san.c $(filter-out $(OBJDIR)/test_suite.o $(OBJDIR)/main_test.o $(OBJDIR)/move_validation_test.o, $(GAME_OBJECTS)) -o $(SAN_TEST_TARGET)
+	@echo "Running SAN check test..."
+	./$(SAN_TEST_TARGET)
+
 # Phony targets
-.PHONY: all all-tests clean test test-suite gui test-svg test-focus
+.PHONY: all all-tests clean test test-suite gui test-svg test-focus test-repro test-san

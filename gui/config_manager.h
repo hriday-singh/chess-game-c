@@ -120,6 +120,7 @@ typedef struct {
     char result_reason[64]; // "Checkmate", "Stalemate", "Reset", "Incomplete"
     int move_count;
     char* moves_san;        // Allocated string of moves "1. e4 e5 2. Nf3 ..."
+    char start_fen[256];
     char final_fen[256];
 } MatchHistoryEntry;
 

@@ -58,7 +58,7 @@ static void test_initial_setup(void) {
 // Test 2: Movement and Undo
 static void test_movement_and_undo(void) {
     GameLogic* logic = gamelogic_create();
-    Move* m = move_create(6, 4, 4, 4); // e2-e4
+    Move* m = move_create(6 * 8 + 4, 4 * 8 + 4); // e2-e4
     gamelogic_perform_move(logic, m);
     move_free(m);
     
@@ -79,27 +79,27 @@ static void test_en_passant_capture(void) {
     GameLogic* logic = gamelogic_create();
     
     // e4
-    Move* m1 = move_create(6, 4, 4, 4);
+    Move* m1 = move_create(6 * 8 + 4, 4 * 8 + 4);
     gamelogic_perform_move(logic, m1);
     move_free(m1);
     
     // a7-a6 (filler)
-    Move* m2 = move_create(1, 0, 2, 0);
+    Move* m2 = move_create(1 * 8 + 0, 2 * 8 + 0);
     gamelogic_perform_move(logic, m2);
     move_free(m2);
     
     // e5
-    Move* m3 = move_create(4, 4, 3, 4);
+    Move* m3 = move_create(4 * 8 + 4, 3 * 8 + 4);
     gamelogic_perform_move(logic, m3);
     move_free(m3);
     
     // d7-d5 (double move, sets en passant)
-    Move* m4 = move_create(1, 3, 3, 3);
+    Move* m4 = move_create(1 * 8 + 3, 3 * 8 + 3);
     gamelogic_perform_move(logic, m4);
     move_free(m4);
     
     // e5xd6 (En Passant)
-    Move* m5 = move_create(3, 4, 2, 3);
+    Move* m5 = move_create(3 * 8 + 4, 2 * 8 + 3);
     gamelogic_perform_move(logic, m5);
     move_free(m5);
     
@@ -131,7 +131,7 @@ static void test_promotion(void) {
     logic->board[0][4] = piece_create(PIECE_KING, PLAYER_BLACK);
     logic->turn = PLAYER_WHITE;
     
-    Move* m = move_create(1, 0, 0, 0);
+    Move* m = move_create(1 * 8 + 0, 0 * 8 + 0);
     m->promotionPiece = PIECE_QUEEN;
     gamelogic_perform_move(logic, m);
     move_free(m);
@@ -179,7 +179,7 @@ static void test_castling_illegal_through_check(void) {
     bool can_castle = false;
     for (int i = 0; i < moves->count; i++) {
         Move* m = moves->moves[i];
-        if (m->startCol == 4 && (m->isCastling || m->endCol == 6)) {
+        if ((m->from_sq % 8) == 4 && (m->isCastling || (m->to_sq % 8) == 6)) {
             can_castle = true;
             break;
         }
@@ -219,7 +219,7 @@ static void test_castling_illegal_while_in_check(void) {
     bool can_castle = false;
     for (int i = 0; i < moves->count; i++) {
         Move* m = moves->moves[i];
-        if (m->endCol == 6) { // g1
+        if ((m->to_sq % 8) == 6) { // g1
             can_castle = true;
             break;
         }
@@ -261,11 +261,11 @@ static void test_piece_pin_logic(void) {
     bool pin_violated = false;
     for (int i = 0; i < moves->count; i++) {
         Move* m = moves->moves[i];
-        if (m->startRow == 5 && m->startCol == 4) {
-            if (m->endCol != 4) {
+        if (m->from_sq == (5 * 8 + 4)) {
+            if ((m->to_sq % 8) != 4) {
                 pin_violated = true;
                 printf("ERROR: Pinned Rook moved horizontally from (%d,%d) to (%d,%d)!\n",
-                       m->startRow, m->startCol, m->endRow, m->endCol);
+                       m->from_sq / 8, m->from_sq % 8, m->to_sq / 8, m->to_sq % 8);
                 // print_board(logic);
                 break;
             }
@@ -345,7 +345,7 @@ static void test_en_passant_illegal_pin(void) {
     bool ep_allowed = false;
     for (int i = 0; i < moves->count; i++) {
         Move* m = moves->moves[i];
-        if (m->startRow == 3 && m->startCol == 4 && m->endRow == 2 && m->endCol == 3) {
+        if (m->from_sq == (3 * 8 + 4) && m->to_sq == (2 * 8 + 3)) {
             ep_allowed = true;
             break;
         }
@@ -370,7 +370,7 @@ static void test_promotion_memory_safety(void) {
     logic->board[1][4] = piece_create(PIECE_PAWN, PLAYER_WHITE);
     logic->turn = PLAYER_WHITE;
     
-    Move* m = move_create(1, 4, 0, 4);
+    Move* m = move_create(1 * 8 + 4, 0 * 8 + 4);
     m->promotionPiece = PIECE_QUEEN;
     
     // Before fix, this might crash or use freed memory if running with sanitizers
@@ -390,12 +390,12 @@ static void test_en_passant_undo_state(void) {
     GameLogic* logic = gamelogic_create();
     
     // 1. e4 (sets enPassantCol to 4)
-    Move* m1 = move_create(6, 4, 4, 4);
+    Move* m1 = move_create(6 * 8 + 4, 4 * 8 + 4);
     gamelogic_perform_move(logic, m1);
     assert_condition(logic->enPassantCol == 4, "EP col should be 4 after e4");
     
     // 2. d5
-    Move* m2 = move_create(1, 3, 3, 3);
+    Move* m2 = move_create(1 * 8 + 3, 3 * 8 + 3);
     gamelogic_perform_move(logic, m2);
     assert_condition(logic->enPassantCol == 3, "EP col should be 3 after d5");
     
@@ -429,24 +429,24 @@ static void test_castling_rook_state_undo(void) {
     logic->turn = PLAYER_WHITE;
     
     // 1. Move rook e.g. h1-h2 then back h2-h1 (it has moved now)
-    Move* m1 = move_create(7, 7, 6, 7);
+    Move* m1 = move_create(7 * 8 + 7, 6 * 8 + 7);
     gamelogic_perform_move(logic, m1);
     
     // Filler move for black
-    Move* filler = move_create(0, 4, 0, 3); 
+    Move* filler = move_create(0 * 8 + 4, 0 * 8 + 3); 
     gamelogic_perform_move(logic, filler);
     
-    Move* m2 = move_create(6, 7, 7, 7);
+    Move* m2 = move_create(6 * 8 + 7, 7 * 8 + 7);
     gamelogic_perform_move(logic, m2);
     
     // Filler move for black
-    Move* filler2 = move_create(0, 3, 0, 4);
+    Move* filler2 = move_create(0 * 8 + 3, 0 * 8 + 4);
     gamelogic_perform_move(logic, filler2);
     
     assert_condition(logic->board[7][7]->hasMoved == true, "Rook should have hasMoved=true after moving");
     
     // 2. Try to castle
-    Move* castle = move_create(7, 4, 7, 6);
+    Move* castle = move_create(7 * 8 + 4, 7 * 8 + 6);
     castle->isCastling = true;
     gamelogic_perform_move(logic, castle);
     

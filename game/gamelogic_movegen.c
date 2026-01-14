@@ -95,7 +95,10 @@ void gamelogic_generate_legal_moves(GameLogic* logic, Player player, void* moves
         if (gamelogic_simulate_move_and_check_safety(logic, m, player)) {
              // Use move_copy to preserve ALL fields (isEnPassant, isCastling, promotionPiece, etc.)
              Move* mp = move_copy(m);
-             if (mp) movelist_add(legal_moves, mp);
+             if (mp) {
+                 mp->mover = player;
+                 movelist_add(legal_moves, mp);
+             }
         }
     }
     
@@ -118,12 +121,12 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                 if (isPromo) {
                     PieceType promos[] = {PIECE_QUEEN, PIECE_ROOK, PIECE_BISHOP, PIECE_KNIGHT};
                     for(int k=0; k<4; k++) {
-                        Move* m = move_create(r, c, r + forward, c);
+                        Move* m = move_create(r * 8 + c, (r + forward) * 8 + c);
                         m->promotionPiece = promos[k];
                         movelist_add(moves, m);
                     }
                 } else {
-                    Move* m = move_create(r, c, r + forward, c);
+                    Move* m = move_create(r * 8 + c, (r + forward) * 8 + c);
                     movelist_add(moves, m);
                 }
                 
@@ -133,7 +136,7 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                 if (!p->hasMoved && isStartRank && is_valid_pos(r + (forward * 2), c) && 
                     logic->board[r + (forward * 2)][c] == NULL) {
                     // Start rank moves can't be promotions, so just add
-                    movelist_add(moves, move_create(r, c, r + (forward * 2), c));
+                    movelist_add(moves, move_create(r * 8 + c, (r + (forward * 2)) * 8 + c));
                 }
             }
             
@@ -148,12 +151,15 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                         if (isPromo) {
                             PieceType promos[] = {PIECE_QUEEN, PIECE_ROOK, PIECE_BISHOP, PIECE_KNIGHT};
                             for(int k=0; k<4; k++) {
-                                Move* m = move_create(r, c, r + forward, targetCol);
+                                Move* m = move_create(r * 8 + c, (r + forward) * 8 + targetCol);
                                 m->promotionPiece = promos[k];
+                                m->capturedPieceType = target->type;
                                 movelist_add(moves, m);
                             }
                         } else {
-                            movelist_add(moves, move_create(r, c, r + forward, targetCol));
+                            Move* m = move_create(r * 8 + c, (r + forward) * 8 + targetCol);
+                            m->capturedPieceType = target->type;
+                            movelist_add(moves, m);
                         }
                     }
                     // En passant
@@ -166,8 +172,9 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                         if (abs(targetCol - c) == 1) {
                             Piece* epPawn = logic->board[r][targetCol];
                             if (epPawn && epPawn->type == PIECE_PAWN && epPawn->owner != p->owner) {
-                                Move* epMove = move_create(r, c, r + forward, targetCol);
+                                Move* epMove = move_create(r * 8 + c, (r + forward) * 8 + targetCol);
                                 epMove->isEnPassant = 1;  // Mark as en passant move
+                                epMove->capturedPieceType = epPawn->type;
                                 movelist_add(moves, epMove);
                             }
                         }
@@ -193,13 +200,13 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
             if (!p->hasMoved && !gamelogic_is_in_check(logic, p->owner)) {
                 // Kingside
                 if (can_castle(logic, r, c, 7)) {
-                    Move* m = move_create(r, c, r, 6);
+                    Move* m = move_create(r * 8 + c, r * 8 + 6);
                     m->isCastling = true;
                     movelist_add(moves, m);
                 }
                 // Queenside
                 if (can_castle(logic, r, c, 0)) {
-                    Move* m = move_create(r, c, r, 2);
+                    Move* m = move_create(r * 8 + c, r * 8 + 2);
                     m->isCastling = true;
                     movelist_add(moves, m);
                 }
@@ -238,8 +245,12 @@ static void add_moves_single_step(GameLogic* logic, int r, int c, int offsets[][
         int nc = c + offsets[i][1];
         if (is_valid_pos(nr, nc)) {
             Piece* target = logic->board[nr][nc];
-            if (target == NULL || target->owner != owner) {
-                movelist_add(moves, move_create(r, c, nr, nc));
+            if (target == NULL) {
+                 movelist_add(moves, move_create(r * 8 + c, nr * 8 + nc));
+            } else if (target->owner != owner) {
+                 Move* m = move_create(r * 8 + c, nr * 8 + nc);
+                 m->capturedPieceType = target->type;
+                 movelist_add(moves, m);
             }
         }
     }
@@ -256,10 +267,12 @@ static void add_linear_moves(GameLogic* logic, int r, int c, int dirs[][2], int 
         while (is_valid_pos(nr, nc)) {
             Piece* target = logic->board[nr][nc];
             if (target == NULL) {
-                movelist_add(moves, move_create(r, c, nr, nc));
+                movelist_add(moves, move_create(r * 8 + c, nr * 8 + nc));
             } else {
                 if (target->owner != owner) {
-                    movelist_add(moves, move_create(r, c, nr, nc));
+                    Move* m = move_create(r * 8 + c, nr * 8 + nc);
+                    m->capturedPieceType = target->type;
+                    movelist_add(moves, m);
                 }
                 break;
             }
@@ -391,7 +404,7 @@ bool gamelogic_is_move_valid(GameLogic* logic, int startRow, int startCol, int e
     bool valid = false;
     if (moves) {
         for (int i = 0; i < count; i++) {
-            if (moves[i]->endRow == endRow && moves[i]->endCol == endCol) {
+            if (moves[i]->to_sq == (endRow * 8 + endCol)) {
                 valid = true;
                 break;
             }

@@ -11,7 +11,21 @@ static void on_piece_icon_data_free(gpointer data) {
     g_free(data);
 }
 
-static void on_nav_btn_clicked(GtkButton* btn, gpointer user_data); // Forward decl
+static void on_nav_btn_clicked(GtkButton* btn, gpointer user_data) {
+    RightSidePanel* panel = (RightSidePanel*)user_data;
+    const char* action = (const char*)g_object_get_data(G_OBJECT(btn), "action");
+    if (!action) return;
+    
+    int ply_index = -1;
+    if (strcmp(action, "goto_ply") == 0) {
+        ply_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "ply-index"));
+    }
+    
+    if (panel->nav_cb) {
+        panel->nav_cb(action, ply_index, panel->nav_cb_data);
+    }
+}
+
 
 static GtkWidget* create_move_label(RightSidePanel* panel, const char* text, int ply_index) {
     GtkWidget* btn = gtk_button_new_with_label(text);
@@ -85,28 +99,7 @@ static GtkWidget* create_move_cell_contents(RightSidePanel* panel, PieceType typ
     return btn; // Return the button directly, no outer box needed
 }
 
-static void on_nav_btn_clicked(GtkButton* btn, gpointer user_data) {
-    RightSidePanel* panel = (RightSidePanel*)user_data;
-    const char* action = (const char*)g_object_get_data(G_OBJECT(btn), "action");
-    if (!action) return;
-    
-    int ply_index = -1;
-    if (strcmp(action, "goto_ply") == 0) {
-        ply_index = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "ply-index"));
-    } else if (strcmp(action, "prev") == 0) {
-        ply_index = panel->viewed_ply - 1;
-    } else if (strcmp(action, "next") == 0) {
-        ply_index = panel->viewed_ply + 1;
-    } else if (strcmp(action, "start") == 0) {
-        ply_index = -1; // Board start
-    } else if (strcmp(action, "end") == 0) {
-        ply_index = panel->total_plies - 1;
-    }
-    
-    if (panel->nav_cb) {
-        panel->nav_cb(action, ply_index, panel->nav_cb_data);
-    }
-}
+// on_nav_btn_clicked removed - buttons moved to InfoPanel
 
 // --- Advantage Bar Drawing ---
 static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
@@ -359,23 +352,7 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     gtk_box_append(GTK_BOX(panel->history_zone), panel->history_scrolled);
     gtk_box_append(GTK_BOX(panel->main_col), panel->history_zone);
     
-    // Footer Navigation
-    panel->nav_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-    gtk_widget_add_css_class(panel->nav_box, "nav-footer-v4");
-    gtk_widget_set_halign(panel->nav_box, GTK_ALIGN_CENTER);
-    
-    const char* icons[] = {"go-first-symbolic", "go-previous-symbolic", "go-next-symbolic", "go-last-symbolic"};
-    const char* actions[] = {"start", "prev", "next", "end"};
-    GtkWidget** btns[] = {&panel->btn_start, &panel->btn_prev, &panel->btn_next, &panel->btn_end};
-    
-    for (int i = 0; i < 4; i++) {
-        *btns[i] = gtk_button_new_from_icon_name(icons[i]);
-        gtk_widget_add_css_class(*btns[i], "nav-btn-v4");
-        g_object_set_data(G_OBJECT(*btns[i]), "action", (gpointer)actions[i]);
-        g_signal_connect(*btns[i], "clicked", G_CALLBACK(on_nav_btn_clicked), panel);
-        gtk_box_append(GTK_BOX(panel->nav_box), *btns[i]);
-    }
-    gtk_box_append(GTK_BOX(panel->main_col), panel->nav_box);
+    // Footer Navigation Removed (Moved to InfoPanel)
     
     return panel;
 }
@@ -479,15 +456,7 @@ void right_side_panel_set_interactive(RightSidePanel* panel, bool interactive) {
     if (!panel) return;
     panel->interactive = interactive;
     
-    // Footer button sensitivity
-    gtk_widget_set_sensitive(panel->btn_start, interactive);
-    gtk_widget_set_sensitive(panel->btn_prev, interactive);
-    gtk_widget_set_sensitive(panel->btn_next, interactive);
-    gtk_widget_set_sensitive(panel->btn_end, interactive);
-    
-    // Optionally hide when not interactive (as requested)
-    if (gtk_widget_get_visible(panel->nav_box) != interactive)
-        gtk_widget_set_visible(panel->nav_box, interactive);
+    // Footer button sensitivity handled in info_panel now
     
     // Deep sensitivity for history list boxes
     GtkWidget* row = gtk_widget_get_first_child(panel->history_list);
@@ -601,11 +570,7 @@ void right_side_panel_sync_config(RightSidePanel* panel, const void* config) {
     gtk_widget_set_opacity(panel->pos_info, master_on ? 1.0 : 0.4);
 }
 
-void right_side_panel_set_nav_visible(RightSidePanel* panel, bool visible) {
-    if (!panel) return;
-    if (gtk_widget_get_visible(panel->nav_box) != visible)
-        gtk_widget_set_visible(panel->nav_box, visible);
-}
+// right_side_panel_set_nav_visible removed
 
 void right_side_panel_add_san_move(RightSidePanel* panel, const char* san, int move_number, Player turn) {
     if (!panel) return;
@@ -704,8 +669,9 @@ void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_numbe
         gtk_widget_set_hexpand(w_cell, TRUE);
         
         PieceType p_type = PIECE_PAWN;
-        if (panel->logic->board[move->endRow][move->endCol]) {
-            p_type = panel->logic->board[move->endRow][move->endCol]->type;
+        int r2 = move->to_sq / 8, c2 = move->to_sq % 8;
+        if (panel->logic->board[r2][c2]) {
+            p_type = panel->logic->board[r2][c2]->type;
         }
         
         GtkWidget* w_contents = create_move_cell_contents(panel, p_type, PLAYER_WHITE, san, ply_index);
@@ -728,8 +694,9 @@ void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_numbe
             GtkWidget* b_cell = gtk_widget_get_last_child(row_box);
             if (b_cell) {
                 PieceType p_type = PIECE_PAWN;
-                if (panel->logic->board[move->endRow][move->endCol]) {
-                    p_type = panel->logic->board[move->endRow][move->endCol]->type;
+                int r2 = move->to_sq / 8, c2 = move->to_sq % 8;
+                if (panel->logic->board[r2][c2]) {
+                    p_type = panel->logic->board[r2][c2]->type;
                 }
                 GtkWidget* b_contents = create_move_cell_contents(panel, p_type, PLAYER_BLACK, san, ply_index);
                 gtk_widget_set_hexpand(b_contents, TRUE);

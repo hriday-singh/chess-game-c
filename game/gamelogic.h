@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// GameLogic structure (equivalent to Java class)
+// GameLogic structure
 struct GameLogic {
     // Board state
     Piece* board[8][8];
@@ -17,13 +17,17 @@ struct GameLogic {
     Player playerSide;
     bool isGameOver;
     char statusMessage[256];
+    char start_fen[256];
     
-    // En passant
-    int enPassantCol;  // -1 if none
+    // Position attributes
+    uint8_t castlingRights; // Bitmask: WK=1, WQ=2, BK=4, BQ=8
+    int8_t enPassantCol;    // -1 if none
+    int halfmoveClock;
+    int fullmoveNumber;
+    uint64_t currentHash;
     
     // History for undo
     void* moveHistory;  // Stack<Move>
-    void* enPassantHistory;  // Stack<Integer>
     
     // Cache for single-piece move generation
     void* cachedMoves;      // MoveList* (internal)
@@ -48,7 +52,12 @@ void gamelogic_reset(GameLogic* logic);
 GameMode gamelogic_get_game_mode(GameLogic* logic);
 void gamelogic_set_game_mode(GameLogic* logic, GameMode mode);
 
-// Move generation & validation (UI Decouplings)
+// Snapshot and Hashing
+void gamelogic_create_snapshot(GameLogic* logic, PositionSnapshot* snap);
+void gamelogic_restore_snapshot(GameLogic* logic, const PositionSnapshot* snap);
+uint64_t gamelogic_compute_hash(GameLogic* logic);
+
+// Move generation & validation
 void gamelogic_generate_legal_moves(GameLogic* logic, Player player, void* moves_list);
 Move** gamelogic_get_valid_moves_for_piece(GameLogic* logic, int row, int col, int* count);
 Move** gamelogic_get_all_legal_moves(GameLogic* logic, Player player, int* count);
@@ -67,49 +76,33 @@ bool gamelogic_is_computer(GameLogic* logic, Player player);
 // FEN generation
 void gamelogic_generate_fen(GameLogic* logic, char* fen, size_t fen_size);
 void gamelogic_load_fen(GameLogic* logic, const char* fen);
-int gamelogic_get_castling_rights(GameLogic* logic);
 
 // Move validation
 bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player p);
 
-// Get last move
+// History access
 Move* gamelogic_get_last_move(GameLogic* logic);
-// Get move at specific index (0-indexed)
 Move* gamelogic_get_move_at(GameLogic* logic, int index);
-// Get total moves made
 int gamelogic_get_move_count(GameLogic* logic);
 
-// Get captured pieces
+// Captured pieces
 void gamelogic_get_captured_pieces(GameLogic* logic, Player capturer, void* pieces_list);
 
-// Get status message
+// Status and turn
 const char* gamelogic_get_status_message(GameLogic* logic);
-
-// Get current turn
 Player gamelogic_get_turn(GameLogic* logic);
-
-// Get player side
 Player gamelogic_get_player_side(GameLogic* logic);
-
-// Reset game (alias for gamelogic_reset)
-void gamelogic_reset_game(GameLogic* logic);
-
-// Update game state
 void gamelogic_update_game_state(GameLogic* logic);
 
-// Square safety check
+// Square safety
 bool gamelogic_is_square_safe(GameLogic* logic, int r, int c, Player p);
 int gamelogic_count_hanging_pieces(GameLogic* logic, Player player);
 
-// Callbacks
 void gamelogic_set_callback(GameLogic* logic, void (*callback)(void));
-
-// Learning
 void gamelogic_handle_game_end_learning(GameLogic* logic, Player winner);
 
-// SAN generation
+// SAN and PGN
 void gamelogic_get_move_san(GameLogic* logic, Move* move, char* san, size_t san_size);
-void gamelogic_load_from_san_moves(GameLogic* logic, const char* moves_san);
+void gamelogic_load_from_san_moves(GameLogic* logic, const char* moves_san, const char* start_fen);
 
 #endif // GAMELOGIC_H
-

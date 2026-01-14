@@ -8,9 +8,7 @@
 #include "piece_theme_dialog.h"
 #include "app_theme_dialog.h"
 #include "right_side_panel.h"
-#include "tutorial.h"
 #include "gui_utils.h"
-#include <ctype.h>
 
 struct _SettingsDialog {
     GtkWindow* window;
@@ -287,6 +285,7 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     gtk_window_set_title(dialog->window, "Settings");
     gtk_window_set_default_size(dialog->window, 850, 580);
     gtk_window_set_modal(dialog->window, TRUE);
+    gtk_widget_add_css_class(GTK_WIDGET(dialog->window), "window"); // Ensure theme background
     if (app_state && app_state->gui.window) {
         gtk_window_set_transient_for(dialog->window, app_state->gui.window);
     }
@@ -330,6 +329,8 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     dialog->stack = gtk_stack_new();
     gtk_stack_set_transition_type(GTK_STACK(dialog->stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
     gtk_widget_set_hexpand(GTK_WIDGET(dialog->stack), TRUE);
+    // Force background color for the content area
+    gtk_widget_add_css_class(GTK_WIDGET(dialog->stack), "settings-content");
     gtk_box_append(GTK_BOX(main_hbox), GTK_WIDGET(dialog->stack));
     
     // 1. Tutorial

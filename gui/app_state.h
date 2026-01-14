@@ -7,6 +7,7 @@
 #include "piece_theme_dialog.h"
 #include "ai_dialog.h"
 #include "config_manager.h"
+#include "replay_controller.h"
 
 // Tutorial Enums
 enum {
@@ -99,6 +100,11 @@ typedef struct AppState {
     bool match_saved;
     bool is_replaying;
     char* replay_match_id;
+    ReplayController* replay_controller;
+
+    // State restoration
+    GameMode pre_replay_mode;
+    Player pre_replay_side;
 
     // Timers
     guint settings_timer_id;

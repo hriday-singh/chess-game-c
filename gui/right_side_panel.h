@@ -36,12 +36,7 @@ struct _RightSidePanel {
     GtkWidget* history_list;
     GtkWidget* history_scrolled;
     
-    // Footer Navigation
-    GtkWidget* nav_box;
-    GtkWidget* btn_start;
-    GtkWidget* btn_prev;
-    GtkWidget* btn_next;
-    GtkWidget* btn_end;
+    // Footer Navigation (Removed)
     
     GtkWidget* w_lbl; // Rail label W
     GtkWidget* b_lbl; // Rail label B
@@ -71,7 +66,6 @@ void right_side_panel_set_hanging_pieces(RightSidePanel* panel, int white_count,
 void right_side_panel_show_rating_toast(RightSidePanel* panel, const char* rating, const char* reason, int ply_index);
 void right_side_panel_show_toast(RightSidePanel* panel, const char* message);
 void right_side_panel_set_interactive(RightSidePanel* panel, bool interactive);
-void right_side_panel_set_nav_visible(RightSidePanel* panel, bool visible);
 void right_side_panel_set_analysis_visible(RightSidePanel* panel, bool visible);
 void right_side_panel_sync_config(RightSidePanel* panel, const void* config); // Using void* to avoid circular dependency, cast in .c
 void right_side_panel_set_flipped(RightSidePanel* panel, bool flipped); // New

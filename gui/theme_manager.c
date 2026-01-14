@@ -581,6 +581,19 @@ static const char *CSS_STRUCTURAL =
     ".sidebar row:hover { background-color: alpha(@button_hover, 0.75); }\n"
     ".sidebar row:selected { background-color: @accent_color; color: @accent_fg; font-weight: bold; }\n"
 
+    /* History Match List - Fix white background */
+    ".history-list { background-color: transparent; }\n"
+    ".match-row { \n"
+    "  background-color: @card_bg; \n"
+    "  color: @fg_color; \n"
+    "  border: 1px solid @border_color; \n"
+    "  border-radius: 8px;\n"
+    "  margin-bottom: 8px;\n"
+    "  padding: 0;\n"
+    "}\n"
+    ".match-row:hover { background-color: alpha(@button_hover, 0.4); }\n"
+    ".match-row label { color: @fg_color; }\n"
+
     /* -------------------- Transparent overlay (particles) -------------------- */
     "window.transparent-overlay { background: transparent; box-shadow: none; border: none; }\n"
     "window.transparent-overlay > widget { background: transparent; }\n"
@@ -640,10 +653,19 @@ static const char *CSS_STRUCTURAL =
     
     // Severity Tints (Subtle backgrounds)
     ".feedback-best { background: rgba(39, 174, 96, 0.15); color: #27ae60; }\n"
+    ".feedback-excellent { background: rgba(39, 174, 96, 0.15); color: #27ae60; }\n"
     ".feedback-good { background: rgba(46, 204, 113, 0.1); color: #2ecc71; }\n"
     ".feedback-inaccuracy { background: rgba(241, 196, 15, 0.1); color: #f1c40f; }\n"
     ".feedback-mistake { background: rgba(230, 126, 34, 0.1); color: #e67e22; }\n"
     ".feedback-blunder { background: rgba(231, 76, 60, 0.15); color: #e74c3c; }\n"
+    
+    // Rating labels (for History / Info Panel)
+    ".rating-best { color: #27ae60; font-weight: bold; }\n"
+    ".rating-excellent { color: #27ae60; font-weight: bold; }\n"
+    ".rating-good { color: #2ecc71; font-weight: bold; }\n"
+    ".rating-inaccuracy { color: #f1c40f; font-weight: bold; }\n"
+    ".rating-mistake { color: #e67e22; font-weight: bold; }\n"
+    ".rating-blunder { color: #e74c3c; font-weight: bold; }\n"
     
     // 3. Move History Zone
     ".history-header-v2 { padding: 6px 12px; background: rgba(0,0,0,0.03); border-top: 1px solid rgba(0,0,0,0.05); border-bottom: 1px solid rgba(0,0,0,0.05); }\n"

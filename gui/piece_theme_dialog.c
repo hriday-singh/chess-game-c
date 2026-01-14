@@ -31,7 +31,7 @@ static void print_memory_usage() {
 #ifdef _WIN32
     PROCESS_MEMORY_COUNTERS pmc;
     if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
-        // printf("[DEBUG] RAM Usage: %.2f MB\n", pmc.WorkingSetSize / (1024.0 * 1024.0));
+        // printf("[PieceThemeDialog] RAM Usage: %.2f MB\n", pmc.WorkingSetSize / (1024.0 * 1024.0));
     }
 #endif
 }
@@ -101,7 +101,7 @@ static char* capitalize_string(const char* str) {
     size_t len = strlen(str);
     char* result = (char*)malloc(len + 1);
     if (!result) return NULL;
-    strcpy(result, str);
+    snprintf(result, len + 1, "%s", str);
     if (result[0] >= 'a' && result[0] <= 'z') result[0] -= 32;
     return result;
 }

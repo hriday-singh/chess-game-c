@@ -13,6 +13,7 @@
 #include <windows.h>
 #endif
 #include "gamelogic.h"
+#include "move.h"
 #include "board_widget.h"
 #include "info_panel.h"
 #include "sound_engine.h"
@@ -31,8 +32,9 @@
 #include "ai_controller.h"
 #include "right_side_panel.h"
 #include "puzzle_controller.h"
+#include "replay_controller.h"
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 static int app_height = 960;
 static int app_width = 1575;
 
@@ -84,17 +86,17 @@ static void on_cvc_control_action(CvCMatchState action, gpointer user_data) {
     if (!state) return;
     
     state->cvc_match_state = action;
-    if (debug_mode) printf("[CvC] State changed to %d\n", action);
+    if (debug_mode) printf("[Main] CvC: State changed to %d\n", action);
     
     // If stopped, just pause the match state (no reset)
     if (action == CVC_STATE_STOPPED) {
          if (state->gui.board) board_widget_refresh(state->gui.board);
-         if (debug_mode) printf("[CvC] Match stopped. AI thinking flag reset.\n");
+         if (debug_mode) printf("[Main] CvC: Match stopped. AI thinking flag reset.\n");
          if (state->ai_controller) ai_controller_stop(state->ai_controller);
          if (state->ai_trigger_id > 0) {
              g_source_remove(state->ai_trigger_id);
              state->ai_trigger_id = 0;
-             if (debug_mode) printf("[CvC] AI trigger ID cleared.\n");
+             if (debug_mode) printf("[Main] CvC: AI trigger ID cleared.\n");
          }
     }
     
@@ -108,7 +110,7 @@ static void on_cvc_control_action(CvCMatchState action, gpointer user_data) {
     if (action == CVC_STATE_RUNNING) {
         if (state->ai_trigger_id == 0) {
             state->ai_trigger_id = g_idle_add(check_trigger_ai_idle, state);
-            if (debug_mode) printf("[CvC] Match running. AI trigger scheduled.\n");
+            if (debug_mode) printf("[Main] CvC: Match running. AI trigger scheduled.\n");
         }
     } else {
         if (state->ai_controller) ai_controller_stop(state->ai_controller);
@@ -165,23 +167,36 @@ static void on_right_panel_nav(const char* action, int ply_index, gpointer user_
     if (!state || !state->logic) return;
     
     if (strcmp(action, "goto_ply") == 0) {
-        // Only allow jumping back in history
-        while (gamelogic_get_move_count(state->logic) > ply_index + 1) {
-            gamelogic_undo_move(state->logic);
+        if (state->is_replaying && state->replay_controller) {
+            replay_controller_seek(state->replay_controller, ply_index + 1); // ply_index is 0-based index of move, seek expects target ply count?
+            // Wait, logic says ply_index + 1. 
+            // ply_index 0 -> Move 1 (White). Count should be 1.
+            // ply_index 1 -> Move 1 (Black). Count should be 2.
+            // So ply_index + 1 seems correct target ply count.
+        } else {
+            // Only allow jumping back in history
+            while (gamelogic_get_move_count(state->logic) > ply_index + 1) {
+                gamelogic_undo_move(state->logic);
+            }
         }
     } else if (strcmp(action, "prev") == 0) {
-        gamelogic_undo_move(state->logic);
-    } else if (strcmp(action, "next") == 0) {
-        // Currently no redo, but next is possible if we navigated to the past
-        // Actually, REDO was removed, so next is only if we've undone.
-        // Rule: Restricted to "undo exclusively for live matches".
-        // If the user wants to jump forward again, they'd need redo.
-        // User said: "remove all redo history functionality ... so i want all the four buttons though"
-        // This is contradictory. If redo is gone, 'Next' and 'End' don't work unless we keep a hidden redo stack.
-        // I will assume 'Next' and 'End' only work if the user is currently "in the past" due to undos.
-    } else if (strcmp(action, "start") == 0) {
-        while (gamelogic_get_move_count(state->logic) > 0) {
+        if (state->is_replaying && state->replay_controller) {
+            replay_controller_prev(state->replay_controller);
+        } else {
             gamelogic_undo_move(state->logic);
+        }
+    } else if (strcmp(action, "next") == 0) {
+        if (state->is_replaying && state->replay_controller) {
+            replay_controller_next(state->replay_controller);
+        }
+        // Normal mode has no redo
+    } else if (strcmp(action, "start") == 0) {
+        if (state->is_replaying && state->replay_controller) {
+            replay_controller_seek(state->replay_controller, 0); // Goto start
+        } else {
+            while (gamelogic_get_move_count(state->logic) > 0) {
+                gamelogic_undo_move(state->logic);
+            }
         }
     }
 }
@@ -190,8 +205,9 @@ static void record_match_history(AppState* state, const char* reason) {
     if (!state || !state->logic || state->match_saved) return;
     int plies = gamelogic_get_move_count(state->logic);
     // User requested: games that ended with some result OR matches that went over 5 pairs (10 plies)
+    if (state->is_replaying) return;
     bool is_result = (strcmp(reason, "Checkmate") == 0 || strcmp(reason, "Stalemate") == 0);
-    if (!is_result && plies < 10) return;
+    if (!is_result && strcmp(reason, "Reset") == 0 && plies < 10) return;
 
     MatchHistoryEntry entry = {0};
     snprintf(entry.id, sizeof(entry.id), "m_%ld", (long)time(NULL));
@@ -238,17 +254,55 @@ static void record_match_history(AppState* state, const char* reason) {
         strncpy(entry.result, "*", 15);
     }
 
-    // SAN Generation
+    // SAN Generation using Simulation (to ensure correct context for checking/disambiguation)
     GString* moves_str = g_string_new("");
-    for (int i = 0; i < plies; i++) {
-        if (i % 2 == 0) g_string_append_printf(moves_str, "%d. ", (i/2)+1);
-        Move* m = gamelogic_get_move_at(state->logic, i);
-        char san[32];
-        gamelogic_get_move_san(state->logic, m, san, sizeof(san));
-        g_string_append_printf(moves_str, "%s ", san);
+    
+    // Create a temporary logic instance to replay the game
+    GameLogic* temp_logic = gamelogic_create();
+    if (temp_logic) {
+        // Load the starting position
+        if (state->logic->start_fen[0] != '\0') {
+            gamelogic_load_fen(temp_logic, state->logic->start_fen);
+        } else {
+            gamelogic_reset(temp_logic);
+        }
+        
+        // Suppress callbacks during simulation
+        temp_logic->isSimulation = true;
+        
+        for (int i = 0; i < plies; i++) {
+            if (i % 2 == 0) g_string_append_printf(moves_str, "%d. ", (i/2)+1);
+            
+            Move* historical_move = gamelogic_get_move_at(state->logic, i);
+            if (historical_move) {
+                // Create a copy to perform on temp logic (so we don't mess up history pointer)
+                // Actually we just need the coords.
+                Move* temp_move = move_copy(historical_move);
+                
+                // IMPORTANT: We must ensure the 'mover' and other basic fields are set
+                // But move_copy copies everything.
+                // gamelogic_perform_move ignores 'capturedPieceType' etc and re-calculates.
+                
+                char san[32];
+                gamelogic_get_move_san(temp_logic, temp_move, san, sizeof(san));
+                g_string_append_printf(moves_str, "%s ", san);
+                
+                // Apply move to temp logic to advance state
+                gamelogic_perform_move(temp_logic, temp_move);
+                
+                move_free(temp_move);
+            }
+        }
+        gamelogic_free(temp_logic);
+    } else {
+        // Fallback (should rarely happen)
+        printf("[ERROR] Failed to create temp logic for SAN generation\n");
     }
     entry.moves_san = moves_str->str;
     entry.move_count = plies;
+    
+    // Capture Start FEN
+    snprintf(entry.start_fen, sizeof(entry.start_fen), "%s", state->logic->start_fen);
     
     gamelogic_generate_fen(state->logic, entry.final_fen, sizeof(entry.final_fen));
 
@@ -293,7 +347,9 @@ static void update_ui_callback(void) {
             int m_num = (count + 1) / 2;
             Player p = (count % 2 == 1) ? PLAYER_WHITE : PLAYER_BLACK;
             // This now handles truncation automatically if we are in the past
-            right_side_panel_add_move(state->gui.right_side_panel, last, m_num, p);
+            if (!state->is_replaying) {
+                right_side_panel_add_move(state->gui.right_side_panel, last, m_num, p);
+            }
         } else if (count == 0) {
             right_side_panel_clear_history(state->gui.right_side_panel);
         }
@@ -305,12 +361,12 @@ static void update_ui_callback(void) {
             state->match_saved = false; // New move made, any previous "saved" state for this match is potentially stale
         }
 
-        bool is_live_match = !state->logic->isGameOver && !state->tutorial.step;
-        bool in_playing_mode = (state->logic->gameMode == GAME_MODE_PVC || state->logic->gameMode == GAME_MODE_CVC);
-        bool should_hide_nav = is_live_match && in_playing_mode;
+        bool is_live_match = !state->logic->isGameOver && !state->tutorial.step && !state->is_replaying;
+        // bool in_playing_mode = (state->logic->gameMode == GAME_MODE_PVC || state->logic->gameMode == GAME_MODE_CVC);
+        // bool should_hide_nav = is_live_match && in_playing_mode;
 
         right_side_panel_set_interactive(state->gui.right_side_panel, !is_live_match);
-        right_side_panel_set_nav_visible(state->gui.right_side_panel, !should_hide_nav);
+        // right_side_panel_set_nav_visible(state->gui.right_side_panel, !should_hide_nav); // Removed
         right_side_panel_highlight_ply(state->gui.right_side_panel, count - 1);
     }
 
@@ -321,7 +377,7 @@ static void update_ui_callback(void) {
     
     // 6. AI & Match Orchestration
     // Only trigger if not game over and NOT currently animating
-    if (!state->logic->isGameOver && !board_widget_is_animating(state->gui.board)) {
+    if (!state->logic->isGameOver && !board_widget_is_animating(state->gui.board) && !state->is_replaying) {
         if (state->ai_controller && !ai_controller_is_thinking(state->ai_controller)) {
             // Trigger AI if it's currently a computer turn in PvC or we are in CvC
             GameMode mode = state->logic->gameMode;
@@ -354,7 +410,7 @@ static gboolean sync_ai_settings_to_panel(gpointer user_data);
 
 static void on_ai_settings_changed(void* user_data) {
     AppState* state = (AppState*)user_data;
-    if (debug_mode) printf("[DEBUG] AI Settings Changed callback fired.\n");
+    if (debug_mode) printf("[Main] ConfigManager: AI Settings Changed callback fired.\n");
     
     // Force immediate sync to panel
     sync_live_analysis(state);
@@ -393,7 +449,7 @@ static void on_undo_move(gpointer user_data) {
     AppState* state = (AppState*)user_data;
     if (!state) return;
 
-    if (debug_mode) printf("[Undo] Move undone. Invalidating analysis.\n");
+    if (debug_mode) printf("[Main] Move undone. Invalidating analysis.\n");
 
     // Clear stale analysis UI state immediately
     if (state->gui.right_side_panel) {
@@ -410,7 +466,7 @@ static void on_game_reset(gpointer user_data) {
     
     if (state->ai_controller) ai_controller_stop(state->ai_controller);
     state->cvc_match_state = CVC_STATE_STOPPED;
-    if (debug_mode) printf("[Reset] Game reset. CvC state -> STOPPED\n"); 
+    if (debug_mode) printf("[Main] Game reset. CvC state -> STOPPED\n"); 
     
     // Cancel AI trigger on reset to prevent old moves trigger
     if (state->ai_trigger_id > 0) {
@@ -576,7 +632,7 @@ static void on_ai_move_ready(Move* move, gpointer user_data) {
     if (!state || !state->gui.board || !state->logic || !move) return;
     
     if (debug_mode) {
-        printf("[AI] Move Ready. Applying to board.\n");
+        printf("[Main] AI: Move Ready. Applying to board.\n");
     }
 
     // Add visual delay effect is handled in controller
@@ -584,7 +640,7 @@ static void on_ai_move_ready(Move* move, gpointer user_data) {
 }
 
 static void request_ai_move(AppState* state) {
-    if(debug_mode) printf("[AI] Requesting move from system...\n");
+    if(debug_mode) printf("[Main] AI: Requesting move from system...\n");
     if (!state->ai_controller) return;
     
     if (ai_controller_is_thinking(state->ai_controller)) return;
@@ -659,6 +715,7 @@ static void on_app_shutdown(GApplication* app, gpointer user_data) {
         }
 
         if (state->ai_controller) ai_controller_free(state->ai_controller);
+        if (state->replay_controller) replay_controller_free(state->replay_controller);
         
         // Final background save attempt if window closed mid-game
         if (!state->match_saved && !state->tutorial.step && state->logic->gameMode != GAME_MODE_PUZZLE) {
@@ -767,7 +824,7 @@ static void on_board_before_move(const char* move_uci, void* user_data) {
     if (state && state->ai_controller && state->logic) {
         // Only mark if it's currently a human turn. 
         // This prevents the AI move execution from triggering a "human move" snapshot.
-        if (!gamelogic_is_computer(state->logic, state->logic->turn)) {
+        if (!state->is_replaying && !gamelogic_is_computer(state->logic, state->logic->turn)) {
             ai_controller_mark_human_move_begin(state->ai_controller, move_uci);
         }
     }
@@ -810,50 +867,52 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
         return;
     }
 
-    // 1. Reset current game state
-    on_game_reset(state); // This also saves current game if applicable
+    // 1. Save current game state before reset
+    state->pre_replay_mode = state->logic->gameMode;
+    state->pre_replay_side = state->logic->playerSide;
 
-    // 2. Load the match for replay
-    gamelogic_load_from_san_moves(state->logic, entry->moves_san);
-    state->is_replaying = true;
-    state->replay_match_id = g_strdup(match_id); // Store ID for current replay
+    // 2. Reset current game state
+    on_game_reset(state); 
 
-    // 3. Update UI for replay mode
-    // Hiding live analysis UI during replay
-    if (state->gui.right_side_panel) {
-        right_side_panel_clear_history(state->gui.right_side_panel);
-        // Manual move loading into panel
-        char* moves_copy = g_strdup(entry->moves_san);
-        char* token = strtok(moves_copy, " ");
-        int move_num = 1;
-        Player turn = PLAYER_WHITE;
-        while (token) {
-            right_side_panel_add_san_move(state->gui.right_side_panel, token, move_num, turn);
-            if (turn == PLAYER_BLACK) move_num++;
-            turn = (turn == PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
-            token = strtok(NULL, " ");
-        }
-        g_free(moves_copy);
-        
-        right_side_panel_set_nav_visible(state->gui.right_side_panel, TRUE);
-        right_side_panel_set_analysis_visible(state->gui.right_side_panel, FALSE);
+    // 2. Initialize Controller if needed (lazy init)
+    if (!state->replay_controller) {
+        state->replay_controller = replay_controller_new(state->logic, state);
     }
 
-    // Disable board interaction
-    board_widget_set_interactive(state->gui.board, FALSE);
+    // 3. Load Match
+    state->is_replaying = true;
+    state->replay_match_id = g_strdup(match_id);
+    replay_controller_load_match(state->replay_controller, entry->moves_san, entry->start_fen);
+    
+    // 4. Update UI for replay mode
+    // Hiding live analysis UI during replay
+    if (state->gui.right_side_panel) {
+        // Just enforce visibility, the controller loaded the moves into the panel
+        // right_side_panel_set_nav_visible(state->gui.right_side_panel, TRUE); // Removed
+        right_side_panel_set_analysis_visible(state->gui.right_side_panel, FALSE);
+    }
+    
+    // Show Replay UI in InfoPanel
+    if (state->gui.info_panel) {
+        info_panel_show_replay_controls(state->gui.info_panel, TRUE);
+    }
 
-    // Header bar transitions
-    gtk_widget_set_visible(state->gui.exit_replay_btn, TRUE);
-    gtk_widget_set_visible(state->gui.history_btn, FALSE);
-    gtk_widget_set_visible(state->gui.dark_mode_btn, FALSE);
-    gtk_widget_set_visible(state->gui.settings_btn, FALSE);
+    // Disable board interaction and clear any selection
+    if (state->ai_controller) ai_controller_stop(state->ai_controller);
+    board_widget_reset_selection(state->gui.board);
+    board_widget_set_interactive(state->gui.board, FALSE);
 
     // Close history dialog
     if (state->gui.history_dialog) {
         gtk_window_destroy(history_dialog_get_window(state->gui.history_dialog));
     }
     
-    if (debug_mode) printf("Started replay for match ID: %s\n", match_id);
+    if (debug_mode) printf("[Main] Started replay for match ID: %s\n", match_id);
+}
+
+// Bridge callback for InfoPanel exit button
+static void on_replay_exit_requested(gpointer user_data) {
+    on_exit_replay(NULL, NULL, user_data);
 }
 
 static void on_exit_replay(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
@@ -865,32 +924,43 @@ static void on_exit_replay(GSimpleAction* action, GVariant* parameter, gpointer 
     g_free(state->replay_match_id);
     state->replay_match_id = NULL;
 
+    if (state->replay_controller) {
+        replay_controller_exit(state->replay_controller);
+    }
+    
+    if (state->gui.info_panel) {
+        info_panel_show_replay_controls(state->gui.info_panel, FALSE);
+    }
+
+    // Mark match as saved to prevent on_game_reset from saving the replay
+    state->match_saved = true;
+
     // Reset game to initial state
     on_game_reset(state);
 
+    // Restore Game Mode & Side
+    state->logic->gameMode = state->pre_replay_mode;
+    state->logic->playerSide = state->pre_replay_side;
+    
+    // Sync UI with restored state
+    board_widget_set_flipped(state->gui.board, state->logic->playerSide == PLAYER_BLACK);
+    board_widget_refresh(state->gui.board);
+
     // Restore UI to normal mode
     board_widget_set_interactive(state->gui.board, TRUE); // Re-enable board interaction
-    
-    if (state->gui.exit_replay_btn) {
-        gtk_widget_set_visible(state->gui.exit_replay_btn, FALSE);
-    }
-    if (state->gui.history_btn) {
-        gtk_widget_set_visible(state->gui.history_btn, TRUE);
-    }
-    if (state->gui.settings_btn) {
-        gtk_widget_set_visible(state->gui.settings_btn, TRUE);
-    }
-    if (state->gui.dark_mode_btn) {
-        gtk_widget_set_visible(state->gui.dark_mode_btn, TRUE);
+
+    // Trigger AI if restored mode requires it (PvC computer turn)
+    if (state->logic->gameMode == GAME_MODE_PVC && gamelogic_is_computer(state->logic, state->logic->turn)) {
+         request_ai_move(state); 
     }
 
     if (state->gui.right_side_panel) {
-        right_side_panel_set_nav_visible(state->gui.right_side_panel, FALSE);
+        // right_side_panel_set_nav_visible(state->gui.right_side_panel, FALSE); // Removed
         right_side_panel_set_analysis_visible(state->gui.right_side_panel, TRUE);
         right_side_panel_clear_history(state->gui.right_side_panel);
     }
     
-    if (debug_mode) printf("Exited replay mode.\n");
+    if (debug_mode) printf("[Main] Exited replay mode.\n");
 }
 
 
@@ -898,6 +968,8 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     AppState* state = (AppState*)user_data;
     state->gui.window = GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(app)));
     gtk_window_set_title(state->gui.window, "HAL :) Chess");
+    gtk_window_set_default_size(state->gui.window, app_width, app_height);
+    
     gtk_window_set_default_size(state->gui.window, app_width, app_height);
     
     config_set_app_param("HAL Chess");
@@ -957,6 +1029,8 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* history_btn = gtk_button_new_from_icon_name("document-open-recent-symbolic");
     gtk_widget_set_valign(history_btn, GTK_ALIGN_CENTER);
     gtk_widget_set_tooltip_text(history_btn, "Game History");
+    // Ensure it uses the transparent header button class
+    gtk_widget_add_css_class(history_btn, "header-button");
     state->gui.history_btn = history_btn;
 
     // Exit Replay Button (Initially Hidden)
@@ -1011,10 +1085,16 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GSimpleAction* act_start_puzzle = g_simple_action_new("start-puzzle", G_VARIANT_TYPE_INT32);
     g_signal_connect(act_start_puzzle, "activate", G_CALLBACK(on_start_puzzle_action), state);
     g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_start_puzzle));
+
+    GSimpleAction* act_start_replay = g_simple_action_new("start-replay", G_VARIANT_TYPE_STRING);
+    g_signal_connect(act_start_replay, "activate", G_CALLBACK(on_start_replay_action), state);
+    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_start_replay));
     
-    printf("DEBUG: App Activate complete. Actions connected.\n");
+    printf("[Main] DEBUG: App Activate complete. Actions connected.\n");
 
     GtkWidget* main_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    
+    if (debug_mode) printf("[Main] Creating BoardWidget with logic %p\n", (void*)state->logic);
     state->gui.board = board_widget_new(state->logic);
     
     // Register Pre-Move Callback for Rating Accuracy
@@ -1023,6 +1103,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     board_widget_set_theme(state->gui.board, state->theme);
     
     state->gui.info_panel = info_panel_new(state->logic, state->gui.board, state->theme);
+    g_object_set_data(G_OBJECT(state->gui.info_panel), "app_state", state); // Attach State for Replay UI callbacks
     info_panel_set_cvc_callback(state->gui.info_panel, on_cvc_control_action, state);
     info_panel_set_ai_settings_callback(state->gui.info_panel, (GCallback)show_ai_settings_dialog, state);
     info_panel_set_puzzle_list_callback(state->gui.info_panel, G_CALLBACK(on_panel_puzzle_selected_safe), state);
@@ -1035,6 +1116,9 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     
     // Connect undo callback to handle analysis state
     info_panel_set_undo_callback(state->gui.info_panel, on_undo_move, state);
+    
+    // Connect Replay Exit Callback
+    info_panel_set_replay_exit_callback(state->gui.info_panel, G_CALLBACK(on_replay_exit_requested), state);
     
     puzzle_controller_refresh_list(state);
     gtk_widget_set_size_request(state->gui.info_panel, 290, -1);
@@ -1051,6 +1135,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gtk_box_append(GTK_BOX(main_box), aspect_frame);
 
     // Right Side Panel
+    if (debug_mode) printf("[Main] Creating RightSidePanel with logic %p\n", (void*)state->logic);
     state->gui.right_side_panel = right_side_panel_new(state->logic, state->theme);
     right_side_panel_set_nav_callback(state->gui.right_side_panel, on_right_panel_nav, state);
     gtk_box_append(GTK_BOX(main_box), right_side_panel_get_widget(state->gui.right_side_panel));
