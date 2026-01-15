@@ -5,7 +5,6 @@
 #include "board_widget.h"
 #include "right_side_panel.h"
 #include "info_panel.h"
-#include <stdlib.h>
 #include <string.h>
 
 static bool debug_mode = true;
@@ -23,7 +22,17 @@ ReplayController* replay_controller_new(GameLogic* logic, AppState* app_state) {
 
 static void replay_ui_update(ReplayController* self) {
     if (!self || !self->app_state || !self->app_state->gui.info_panel) return;
+    
+    // 1. Sync Logic History for correct graveyard calc
+    gamelogic_rebuild_history(self->logic, self->moves, self->current_ply);
+    
+    // 2. Refresh Status Checkmate/Stalemate
+    gamelogic_update_game_state(self->logic);
+    
+    // 3. Update UI
     info_panel_update_replay_status(self->app_state->gui.info_panel, self->current_ply, self->total_moves);
+    info_panel_refresh_graveyard(self->app_state->gui.info_panel);
+    info_panel_update_status(self->app_state->gui.info_panel);
 }
 
 void replay_controller_free(ReplayController* self) {
@@ -44,13 +53,13 @@ void replay_controller_free(ReplayController* self) {
         g_free(self->snapshots);
     }
     
-    g_free(self->full_san_history);
+    g_free(self->full_uci_history);
     
     g_free(self);
 }
 
-void replay_controller_load_match(ReplayController* self, const char* san_moves, const char* start_fen) {
-    if (!self || !san_moves) return;
+void replay_controller_load_match(ReplayController* self, const char* moves_uci, const char* start_fen) {
+    if (!self) return;
     
     replay_controller_pause(self);
     
@@ -62,36 +71,28 @@ void replay_controller_load_match(ReplayController* self, const char* san_moves,
         self->snapshot_capacity = 0;
     }
 
-    g_free(self->full_san_history);
-    self->full_san_history = g_strdup(san_moves);
+    // We no longer store full SAN history as a string from source
+    g_free(self->full_uci_history);
+    self->full_uci_history = NULL;
+    
     self->total_moves = 0;
     self->current_ply = 0;
-    
-    // 2. Temporarily load into GameLogic to extract Moves
-    GString* clean_moves = g_string_new(NULL);
-    char* temp_cur = g_strdup(san_moves);
-    char* next_tok = NULL;
-    char* tok = strtok_s(temp_cur, " ", &next_tok);
-    while (tok) {
-        size_t len = strlen(tok);
-        if (len > 0 && tok[len-1] != '.') {
-            if (clean_moves->len > 0) g_string_append_c(clean_moves, ' ');
-            g_string_append(clean_moves, tok);
-        }
-        tok = strtok_s(NULL, " ", &next_tok);
-    }
-    g_free(temp_cur);
 
-    // Use cleaned string with start_fen
-    gamelogic_load_from_san_moves(self->logic, clean_moves->str, start_fen);
+    // 1. Load Logic (UCI Only)
+    if (moves_uci && strlen(moves_uci) > 0) {
+        gamelogic_load_from_uci_moves(self->logic, moves_uci, start_fen);
+    } else {
+        // No moves to load
+        if (debug_mode) printf("[ReplayController] No UCI moves provided, match loaded empty.\n");
+    }
     
-    // 3. Extract moves and Generate Snapshots
+    // 2. Extract Moves & Snapshots
     self->total_moves = gamelogic_get_move_count(self->logic);
     if (self->total_moves > 0) {
         self->moves = g_new0(Move*, self->total_moves);
         for (int i = 0; i < self->total_moves; i++) {
-            Move* m = gamelogic_get_move_at(self->logic, i);
-            if (m) self->moves[i] = move_copy(m);
+            Move m = gamelogic_get_move_at(self->logic, i);
+            self->moves[i] = move_copy(&m);
         }
     }
 
@@ -113,28 +114,68 @@ void replay_controller_load_match(ReplayController* self, const char* san_moves,
     // Reset board to start position for Replay
     gamelogic_restore_snapshot(self->logic, &self->snapshots[0]);
     self->current_ply = 0;
+
+    if (debug_mode) {
+        printf("[ReplayController] Match Loaded:\n");
+        printf("  Total Moves: %d\n", self->total_moves);
+        printf("  Snapshots: %d\n", self->snapshot_count);
+        printf("  Move 0 (Start) FEN: %s\n", self->logic->start_fen);
+        // Debug stack pointer indirectly via move count or internal inspection
+        int current_count = gamelogic_get_move_count(self->logic);
+        printf("  Move 0 Stack Count: %d (Should be 0)\n", current_count);
+    }
     
-    // Update UI initial state
+    // 3. Update UI: Regenerate SAN from Logic history
     if (self->app_state) {
         board_widget_refresh(self->app_state->gui.board);
         if (self->app_state->gui.right_side_panel) {
              right_side_panel_clear_history(self->app_state->gui.right_side_panel);
-             char* copy = g_strdup(clean_moves->str);
-             char* next_copy = NULL;
-             char* token = strtok_s(copy, " ", &next_copy);
-             int m_num = 1;
-             Player p = self->logic->turn; 
              
-             while (token) {
-                 right_side_panel_add_san_move(self->app_state->gui.right_side_panel, token, m_num, p);
-                 if (p == PLAYER_BLACK) m_num++;
-                 p = (p == PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
-                 token = strtok_s(NULL, " ", &next_copy);
+             // Use a temp logic to replay and generate accurate SAN context (checks/mates/disambiguation)
+             GameLogic* temp_logic = gamelogic_create();
+             if (temp_logic) {
+                 if (start_fen && start_fen[0] != '\0') gamelogic_load_fen(temp_logic, start_fen);
+                 else gamelogic_reset(temp_logic);
+                 
+                 temp_logic->isSimulation = true; // fast mode
+                 
+                 Player p = temp_logic->turn;
+                 int m_num = 1;
+
+                 // Accumulate UCI string for export/debug if needed
+                 GString* full_uci = g_string_new("");
+
+                 for (int i = 0; i < self->total_moves; i++) {
+                     Move* m = self->moves[i];
+                     char uci[16];
+                     gamelogic_get_move_uci(temp_logic, m, uci, sizeof(uci));
+                     
+                     // Get piece type from current board state before move
+                     int r = m->from_sq / 8;
+                     int c = m->from_sq % 8;
+                     PieceType p_type = NO_PIECE;
+                     if (temp_logic->board[r][c] != NULL) {
+                         p_type = temp_logic->board[r][c]->type;
+                     }
+
+                     right_side_panel_add_uci_move(self->app_state->gui.right_side_panel, uci, p_type, m_num, p);
+                     
+                     if (full_uci->len > 0) g_string_append_c(full_uci, ' ');
+                     g_string_append(full_uci, uci);
+                     
+                     // Advance temp logic
+                     gamelogic_perform_move(temp_logic, m);
+                     
+                     if (p == PLAYER_BLACK) m_num++;
+                     p = (p == PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
+                 }
+                 gamelogic_free(temp_logic);
+                 
+                 // Store reconstructed UCI history
+                 self->full_uci_history = g_string_free(full_uci, FALSE);
              }
-             g_free(copy);
         }
     }
-    g_string_free(clean_moves, TRUE);
     
     // Initialize highlighting to first move (ply 0)
     if (self->app_state && self->app_state->gui.right_side_panel) {

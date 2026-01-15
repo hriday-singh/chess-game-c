@@ -81,8 +81,8 @@ void gamelogic_load_fen(GameLogic* logic, const char* fen);
 bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player p);
 
 // History access
-Move* gamelogic_get_last_move(GameLogic* logic);
-Move* gamelogic_get_move_at(GameLogic* logic, int index);
+Move gamelogic_get_last_move(GameLogic* logic);
+Move gamelogic_get_move_at(GameLogic* logic, int index);
 int gamelogic_get_move_count(GameLogic* logic);
 
 // Captured pieces
@@ -102,7 +102,11 @@ void gamelogic_set_callback(GameLogic* logic, void (*callback)(void));
 void gamelogic_handle_game_end_learning(GameLogic* logic, Player winner);
 
 // SAN and PGN
-void gamelogic_get_move_san(GameLogic* logic, Move* move, char* san, size_t san_size);
-void gamelogic_load_from_san_moves(GameLogic* logic, const char* moves_san, const char* start_fen);
+void gamelogic_get_move_uci(GameLogic* logic, Move* move, char* uci, size_t uci_size);
+
+void gamelogic_load_from_uci_moves(GameLogic* logic, const char* moves_uci, const char* start_fen);
+
+// Reconstruct history stack (e.g. for replay)
+void gamelogic_rebuild_history(GameLogic* logic, Move** moves, int count);
 
 #endif // GAMELOGIC_H

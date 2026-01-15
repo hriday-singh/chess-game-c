@@ -25,12 +25,6 @@ typedef enum {
     GAME_MODE_PUZZLE = 3
 } GameMode;
 
-typedef enum {
-    AI_TYPE_PRO = 0,
-    AI_TYPE_STOCKFISH = 1,
-    AI_TYPE_CUSTOM = 2
-} AIType;
-
 // Piece structure
 typedef struct {
     PieceType type;
@@ -46,6 +40,7 @@ typedef struct {
 typedef struct {
     uint8_t from_sq; // 0-63
     uint8_t to_sq;   // 0-63
+    PieceType movedPieceType;    // The piece that is moving
     PieceType promotionPiece;
     PieceType capturedPieceType; // PIECE_KING..PIECE_PAWN or NO_PIECE
     int isEnPassant;

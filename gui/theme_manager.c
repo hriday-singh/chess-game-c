@@ -668,7 +668,7 @@ static const char *CSS_STRUCTURAL =
     " .move-history-list-v4 { background: transparent; }\n"
     " .move-number-v2 { min-width: 44px; padding: 10px 10px; color: @dim_label; font-size: 13px; font-weight: 700; opacity: 0.8; background: alpha(@bg_color, 0.08); border-right: 1px solid alpha(@border_color, 0.1); }\n"
     " .move-cell-v2 { padding: 4px; min-width: 110px; transition: background 0.15s; border-right: 1px solid alpha(@border_color, 0.05); }\n"
-    " .move-text-btn { border: 1px solid alpha(@border_color, 0.2); background: alpha(@fg_color, 0.02); border-radius: 20px; padding: 2px 8px; margin: 4px; color: @fg_color; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 14px; transition: all 0.25s; min-height: 32px; }\n"
+    " .move-text-btn { border: 1.5px solid alpha(@border_color, 0.5); background: alpha(@fg_color, 0.02); border-radius: 20px; padding: 2px 8px; margin: 4px; color: @fg_color; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 14px; transition: all 0.25s; min-height: 32px; }\n"
     " .move-text-btn:hover { background: alpha(@accent_color, 0.15); color: @accent_color; transform: translateY(-1px); border-color: alpha(@accent_color, 0.3); }\n"
     " .move-text-btn.active { background: @accent_color; color: @accent_fg; font-weight: 800; box-shadow: 0 4px 12px alpha(@accent_color, 0.6); border-color: @accent_color; }\n"
     

@@ -592,8 +592,7 @@ static void extract_json_str(const char* line, const char* key, char* dest, size
                 if (val_end) {
                     size_t len = val_end - val_start;
                     if (len >= dest_size) len = dest_size - 1;
-                    strncpy(dest, val_start, len);
-                    dest[len] = '\0';
+                    snprintf(dest, dest_size, "%.*s", (int)len, val_start);
                 }
             }
         }
@@ -622,10 +621,10 @@ static void on_import_finish(GObject* source, GAsyncResult* result, gpointer dat
                 else if (strstr(line, "\"display_name\"")) {
                     extract_json_str(line, "display_name", imported_theme.display_name, sizeof(imported_theme.display_name));
                     // Append (Imported) to differentiate
-                    size_t len = strlen(imported_theme.display_name);
-                    if (len < sizeof(imported_theme.display_name) - 12) {
-                         strcat(imported_theme.display_name, " (Imported)");
-                    }
+
+                    size_t cur_len = strlen(imported_theme.display_name);
+                    size_t remaining = sizeof(imported_theme.display_name) - cur_len;
+                    snprintf(imported_theme.display_name + cur_len, remaining, " (Imported)");
                 }
                 else if (strstr(line, "\"light\": {")) current_colors = &imported_theme.light;
                 else if (strstr(line, "\"dark\": {")) current_colors = &imported_theme.dark;

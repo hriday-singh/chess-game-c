@@ -16,7 +16,7 @@
 #define MKDIR(path) mkdir(path, 0755)
 #endif
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 // Global configuration instance
 static AppConfig g_config;
@@ -562,9 +562,9 @@ static int g_history_count = 0;
 static int g_history_capacity = 0;
 
 void match_history_free_entry(MatchHistoryEntry* entry) {
-    if (entry && entry->moves_san) {
-        free(entry->moves_san);
-        entry->moves_san = NULL;
+    if (entry && entry->moves_uci) {
+        free(entry->moves_uci);
+        entry->moves_uci = NULL;
     }
 }
 
@@ -579,7 +579,7 @@ static void save_single_match(MatchHistoryEntry* m) {
     
     FILE* f = fopen(match_path, "w");
     if (!f) {
-        printf("[ERROR] Failed to save match history file: %s\n", match_path);
+        if(debug_mode) printf("[MatchHistory] ERROR: Failed to save match history file: %s\n", match_path);
         return;
     }
 
@@ -601,18 +601,42 @@ static void save_single_match(MatchHistoryEntry* m) {
     fprintf(f, "  \"result\": \"%s\",\n", m->result);
     fprintf(f, "  \"result_reason\": \"%s\",\n", m->result_reason);
     fprintf(f, "  \"move_count\": %d,\n", m->move_count);
-    fprintf(f, "  \"moves_san\": \"%s\",\n", m->moves_san ? m->moves_san : "");
+    fprintf(f, "  \"move_count\": %d,\n", m->move_count);
+    fprintf(f, "  \"moves_uci\": \"%s\",\n", m->moves_uci ? m->moves_uci : "");
     fprintf(f, "  \"start_fen\": \"%s\",\n", m->start_fen);
     fprintf(f, "  \"final_fen\": \"%s\"\n", m->final_fen);
     fprintf(f, "}\n");
     
     fclose(f);
-    printf("[ConfigManager] Match History saved to: %s\n", match_path);
+    if (debug_mode){
+         printf("[ConfigManager] Match History saved to: %s\n", match_path);
+         printf("  \"id\": \"%s\",\n", m->id);
+         printf("  \"timestamp\": %ld,\n", m->timestamp);
+         printf("  \"game_mode\": %d,\n", m->game_mode);
+    
+         printf("  \"white\": {\n");
+         printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+            m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.movetime, m->white.engine_type, m->white.engine_path);
+         printf("  },\n");
+    
+         printf("  \"black\": {\n");
+         printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+            m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.movetime, m->black.engine_type, m->black.engine_path);
+         printf("  },\n");
+    
+         printf("  \"result\": \"%s\",\n", m->result);
+         printf("  \"result_reason\": \"%s\",\n", m->result_reason);
+         printf("  \"move_count\": %d,\n", m->move_count);
+         printf("  \"moves_uci\": \"%s\",\n", m->moves_uci);
+
+         printf("  \"start_fen\": \"%s\",\n", m->start_fen);
+         printf("  \"final_fen\": \"%s\"\n", m->final_fen);
+    }
 }
 
 void match_history_init(void) {
     g_history_count = 0;
-    g_history_capacity = 20;
+    g_history_capacity = 50;
     g_history_list = calloc(g_history_capacity, sizeof(MatchHistoryEntry));
     match_history_load_all();
 }
@@ -660,18 +684,20 @@ static void parse_match_file(const char* path) {
             if (p) m->game_mode = atoi(p + 1);
         }
         else if (strstr(line, "\"result\"")) {
-            if (strstr(line, "\"result_reason\"")) extract_json_str(line, "result_reason", m->result_reason, sizeof(m->result_reason));
-            else extract_json_str(line, "result", m->result, sizeof(m->result));
+            extract_json_str(line, "result", m->result, sizeof(m->result));
+        }
+        else if (strstr(line, "\"result_reason\"")) {
+            extract_json_str(line, "result_reason", m->result_reason, sizeof(m->result_reason));
         }
         else if (strstr(line, "\"move_count\"")) {
             char* p = strchr(line, ':');
             if (p) m->move_count = atoi(p + 1);
         }
-        else if (strstr(line, "\"moves_san\"")) {
+        else if (strstr(line, "\"moves_uci\"")) {
             char val[4096];
-            extract_json_str(line, "moves_san", val, sizeof(val));
-            if (m->moves_san) free(m->moves_san); // Safety
-            m->moves_san = strdup(val);
+            extract_json_str(line, "moves_uci", val, sizeof(val));
+            if (m->moves_uci) free(m->moves_uci);
+            m->moves_uci = strdup(val);
         }
         else if (strstr(line, "\"start_fen\"")) extract_json_str(line, "start_fen", m->start_fen, sizeof(m->start_fen));
         else if (strstr(line, "\"final_fen\"")) extract_json_str(line, "final_fen", m->final_fen, sizeof(m->final_fen));
@@ -679,6 +705,31 @@ static void parse_match_file(const char* path) {
         // Note: Simple parser only gets top level for now. Detailed white/black config can be added if needed for UI.
     }
     fclose(f);
+    // Check this
+    if (debug_mode){
+         printf("[ConfigManager] Match History loaded from: %s\n", path);
+         printf("  \"id\": \"%s\",\n", m->id);
+         printf("  \"timestamp\": %ld,\n", m->timestamp);
+         printf("  \"game_mode\": %d,\n", m->game_mode);
+    
+         printf("  \"white\": {\n");
+         printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+            m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.movetime, m->white.engine_type, m->white.engine_path);
+         printf("  },\n");
+    
+         printf("  \"black\": {\n");
+         printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+            m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.movetime, m->black.engine_type, m->black.engine_path);
+         printf("  },\n");
+    
+         printf("  \"result\": \"%s\",\n", m->result);
+         printf("  \"result_reason\": \"%s\",\n", m->result_reason);
+         printf("  \"move_count\": %d,\n", m->move_count);
+         printf("  \"moves_uci\": \"%s\",\n", m->moves_uci);
+
+         printf("  \"start_fen\": \"%s\",\n", m->start_fen);
+         printf("  \"final_fen\": \"%s\"\n", m->final_fen);
+    }
 }
 
 void match_history_load_all(void) {
@@ -717,7 +768,7 @@ void match_history_load_all(void) {
         closedir(d);
     }
 #endif
-    printf("[ConfigManager] Loaded %d matches from %s\n", g_history_count, matches_dir);
+    if(debug_mode) printf("[ConfigManager] Loaded %d matches from %s\n", g_history_count, matches_dir);
 }
 
 void match_history_delete(const char* id) {
@@ -748,7 +799,7 @@ void match_history_delete(const char* id) {
         }
         g_history_count--;
     }
-    printf("[ConfigManager] Deleted match: %s\n", path);
+    if(debug_mode) printf("[ConfigManager] Deleted match: %s\n", path);
 }
 
 void match_history_add(MatchHistoryEntry* entry) {
@@ -760,7 +811,8 @@ void match_history_add(MatchHistoryEntry* entry) {
     
     MatchHistoryEntry* dest = &g_history_list[g_history_count++];
     *dest = *entry;
-    if (entry->moves_san) dest->moves_san = strdup(entry->moves_san);
+    *dest = *entry;
+    if (entry->moves_uci) dest->moves_uci = strdup(entry->moves_uci);
     
     save_single_match(dest);
 }

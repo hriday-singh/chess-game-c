@@ -9,6 +9,7 @@
 #include <ctype.h>
 #include <math.h>
 
+static bool debug_mode = true;
 
 // Simple stack implementation for move history
 typedef struct StackNode {
@@ -333,36 +334,56 @@ static Player get_opponent(Player p) {
 }
 
 // Update game state
-void gamelogic_update_game_state(GameLogic* logic) {
+// Update game state
+// Set skipExpensiveChecks=true during FEN loading to avoid board corruption
+void gamelogic_update_game_state_internal(GameLogic* logic, bool skipExpensiveChecks) {
     if (!logic) return;
     
     // Reset isGameOver before checking conditions
     logic->isGameOver = false;
     
-    if (gamelogic_is_checkmate(logic, logic->turn)) {
-        logic->isGameOver = true;
-        Player winner = get_opponent(logic->turn);
-        if (winner == PLAYER_WHITE) {
-            snprintf(logic->statusMessage, sizeof(logic->statusMessage), "Checkmate! White wins!");
-        } else {
-            snprintf(logic->statusMessage, sizeof(logic->statusMessage), "Checkmate! Black wins!");
+    // Skip expensive checks (checkmate/stalemate) if requested
+    if (!skipExpensiveChecks) {
+        // Check for checkmate first
+        if (gamelogic_is_checkmate(logic, logic->turn)) {
+            logic->isGameOver = true;
+            Player winner = get_opponent(logic->turn);
+            if (winner == PLAYER_WHITE) {
+                snprintf(logic->statusMessage, sizeof(logic->statusMessage), "Checkmate! White wins!");
+            } else {
+                snprintf(logic->statusMessage, sizeof(logic->statusMessage), "Checkmate! Black wins!");
+            }
+            return;
+        } 
+        // Then check for stalemate
+        else if (gamelogic_is_stalemate(logic, logic->turn)) {
+            logic->isGameOver = true;
+            snprintf(logic->statusMessage, sizeof(logic->statusMessage), "Stalemate! Draw.");
+            return;
         }
-    } else if (gamelogic_is_stalemate(logic, logic->turn)) {
-        logic->isGameOver = true;
-        snprintf(logic->statusMessage, sizeof(logic->statusMessage), "Stalemate! Draw.");
-    } else if (gamelogic_is_in_check(logic, logic->turn)) {
+    }
+    
+    // Check for regular check (always safe)
+    if (gamelogic_is_in_check(logic, logic->turn)) {
         if (logic->turn == PLAYER_WHITE) {
             snprintf(logic->statusMessage, sizeof(logic->statusMessage), "White is in Check!");
         } else {
             snprintf(logic->statusMessage, sizeof(logic->statusMessage), "Black is in Check!");
         }
-    } else {
+    } 
+    // Normal turn
+    else {
         if (logic->turn == PLAYER_WHITE) {
             snprintf(logic->statusMessage, sizeof(logic->statusMessage), "White's Turn");
         } else {
             snprintf(logic->statusMessage, sizeof(logic->statusMessage), "Black's Turn");
         }
     }
+}
+
+// Public wrapper - normal gameplay uses full checking
+void gamelogic_update_game_state(GameLogic* logic) {
+    gamelogic_update_game_state_internal(logic, false);
 }
 
 // Check if player is computer
@@ -380,7 +401,7 @@ void gamelogic_set_callback(GameLogic* logic, void (*callback)(void)) {
 
 // Forward declarations
 static void make_move_internal(GameLogic* logic, Move* move);
-static void undo_move_internal(GameLogic* logic);
+static Move* undo_move_internal(GameLogic* logic, bool free_move);
 static char get_fen_char(Piece* p);
 // External safety checks (defined in gamelogic_safety.c)
 extern bool gamelogic_is_square_safe(GameLogic* logic, int r, int c, Player p);
@@ -432,7 +453,7 @@ bool gamelogic_perform_move(GameLogic* logic, Move* move) {
 
 void gamelogic_undo_move(GameLogic* logic) {
     if (!logic) return;
-    undo_move_internal(logic);
+    undo_move_internal(logic, true);
     if (!logic->isSimulation) {
         gamelogic_update_game_state(logic);
         if (logic->updateCallback) logic->updateCallback();
@@ -501,11 +522,21 @@ bool gamelogic_simulate_move_and_check_safety(GameLogic* logic, Move* m, Player 
 }
 
 // History access
-Move* gamelogic_get_last_move(GameLogic* logic) {
-    if (!logic) return NULL;
+Move gamelogic_get_last_move(GameLogic* logic) {
+    if (!logic) {
+        Move empty = {0};
+        empty.capturedPieceType = NO_PIECE;
+        empty.promotionPiece = NO_PROMOTION;
+        return empty;
+    }
     Stack* moveStack = (Stack*)logic->moveHistory;
-    if (!moveStack || !moveStack->top) return NULL;
-    return (Move*)moveStack->top->data;
+    if (!moveStack || !moveStack->top) {
+        Move empty = {0};
+        empty.capturedPieceType = NO_PIECE;
+        empty.promotionPiece = NO_PROMOTION;
+        return empty;
+    }
+    return *((Move*)moveStack->top->data);
 }
 
 int gamelogic_get_move_count(GameLogic* logic) {
@@ -514,17 +545,33 @@ int gamelogic_get_move_count(GameLogic* logic) {
     return moveStack->size;
 }
 
-Move* gamelogic_get_move_at(GameLogic* logic, int index) {
-    if (!logic || index < 0) return NULL;
-    Stack* moveStack = (Stack*)logic->moveHistory;
-    if (!moveStack || index >= moveStack->size) return NULL;
-    
-    int target = moveStack->size - 1 - index;
-    StackNode* current = moveStack->top;
-    for (int i = 0; i < target && current; i++) {
-        current = current->next;
+Move gamelogic_get_move_at(GameLogic* logic, int index) {
+    if (!logic || index < 0) {
+        Move empty = {0};
+        empty.capturedPieceType = NO_PIECE;
+        empty.promotionPiece = NO_PROMOTION;
+        return empty;
     }
-    return current ? (Move*)current->data : NULL;
+    Stack* moveStack = (Stack*)logic->moveHistory;
+    if (!moveStack || index >= moveStack->size) {
+        Move empty = {0};
+        empty.capturedPieceType = NO_PIECE;
+        empty.promotionPiece = NO_PROMOTION;
+        return empty;
+    }
+    
+    StackNode* current = moveStack->top;
+    int currentIdx = moveStack->size - 1;
+    while (current && currentIdx > index) {
+        current = current->next;
+        currentIdx--;
+    }
+    
+    if (current) return *((Move*)current->data);
+    Move empty = {0};
+    empty.capturedPieceType = NO_PIECE;
+    empty.promotionPiece = NO_PROMOTION;
+    return empty;
 }
 
 // Generate FEN string
@@ -590,8 +637,15 @@ void gamelogic_generate_fen(GameLogic* logic, char* fen, size_t fen_size) {
     // En passant
     if (logic->enPassantCol != -1) {
         const char* colParams = "abcdefgh";
-        int row = (logic->turn == PLAYER_WHITE) ? 2 : 5; // e3 or e6
-        int written = snprintf(ptr, remaining, " %c%d", colParams[logic->enPassantCol], 8 - row);
+        // En Passant target is behind the pawn that just moved 2 squares.
+        // It depends on who just moved (the opponent of current turn).
+        Player last_mover = (logic->turn == PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
+        
+        // If White moved e2e4 (last_mover=WHITE), target is e3 (Rank 3).
+        // If Black moved e7e5 (last_mover=BLACK), target is e6 (Rank 6).
+        int ep_rank = (last_mover == PLAYER_WHITE) ? 3 : 6; 
+        
+        int written = snprintf(ptr, remaining, " %c%d", colParams[logic->enPassantCol], ep_rank);
         ptr += written;
         remaining -= written;
     } else {
@@ -661,15 +715,30 @@ static void make_move_internal(GameLogic* logic, Move* move) {
     Piece* movingPiece = logic->board[r1][c1];
     if (!movingPiece) return;
     
+    move->isEnPassant = false;
+    move->isCastling = false;
+    move->rookFirstMove = false;
+    move->promotionPiece = NO_PROMOTION;
+
+    move->movedPieceType = movingPiece->type;
+    
     // Store attributes for undo
     move->prevEnPassantCol = (int8_t)logic->enPassantCol;
     move->prevCastlingRights = logic->castlingRights;
     move->prevHalfmoveClock = logic->halfmoveClock;
     
+    Piece* target = logic->board[r2][c2];
+
+    bool is_ep = (movingPiece->type == PIECE_PAWN &&
+                  c1 != c2 &&
+                  target == NULL &&
+                  logic->enPassantCol == c2);
+
     move->capturedPieceType = NO_PIECE;
-    if (logic->board[r2][c2]) {
-        move->capturedPieceType = logic->board[r2][c2]->type;
-        piece_free(logic->board[r2][c2]);
+
+    if (target) {
+        move->capturedPieceType = target->type;
+        piece_free(target);
         logic->board[r2][c2] = NULL;
         logic->halfmoveClock = 0;
     } else if (movingPiece->type == PIECE_PAWN) {
@@ -678,13 +747,14 @@ static void make_move_internal(GameLogic* logic, Move* move) {
         logic->halfmoveClock++;
     }
     
-    if (movingPiece->type == PIECE_PAWN && c1 != c2 && logic->board[r2][c2] == NULL) {
-        // En passant
+    if (is_ep) {
         move->isEnPassant = true;
         move->capturedPieceType = PIECE_PAWN;
         piece_free(logic->board[r1][c2]);
         logic->board[r1][c2] = NULL;
     }
+    
+
     
     move->firstMove = !movingPiece->hasMoved;
     movingPiece->hasMoved = true;
@@ -724,10 +794,12 @@ static void make_move_internal(GameLogic* logic, Move* move) {
         }
     }
     
+    PieceType movingPieceType = movingPiece->type;
+    
     logic->board[r2][c2] = movingPiece;
     logic->board[r1][c1] = NULL;
     
-    if (movingPiece->type == PIECE_PAWN && (r2 == 0 || r2 == 7)) {
+    if (movingPieceType == PIECE_PAWN && (r2 == 0 || r2 == 7)) {
         if (move->promotionPiece == NO_PROMOTION) move->promotionPiece = PIECE_QUEEN;
         Player owner = movingPiece->owner;
         piece_free(movingPiece);
@@ -735,7 +807,7 @@ static void make_move_internal(GameLogic* logic, Move* move) {
         logic->board[r2][c2]->hasMoved = true;
     }
     
-    if (movingPiece->type == PIECE_PAWN && abs(r1 - r2) == 2) {
+    if (movingPieceType == PIECE_PAWN && abs(r1 - r2) == 2) {
         logic->enPassantCol = c1;
     } else {
         logic->enPassantCol = -1;
@@ -757,11 +829,11 @@ static void make_move_internal(GameLogic* logic, Move* move) {
 }
 
 // Internal: Undo last move
-static void undo_move_internal(GameLogic* logic) {
-    if (!logic) return;
+static Move* undo_move_internal(GameLogic* logic, bool free_move) {
+    if (!logic) return NULL;
     
     Stack* moveStack = (Stack*)logic->moveHistory;
-    if (!moveStack || !moveStack->top) return;
+    if (!moveStack || !moveStack->top) return NULL;
     
     Move* lastMove = (Move*)stack_pop(moveStack);
     
@@ -774,10 +846,13 @@ static void undo_move_internal(GameLogic* logic) {
     
     Piece* movedPiece = logic->board[r2][c2];
     if (movedPiece) {
-        if (lastMove->promotionPiece != NO_PROMOTION) {
+        // BULLETPROOF: ONLY restore as pawn if this was actually a promotion move
+        // and the piece currently at (r2,c2) matches the promotion type.
+        if (lastMove->promotionPiece != NO_PROMOTION && movedPiece->type == lastMove->promotionPiece) {
             piece_free(movedPiece);
             logic->board[r1][c1] = piece_create(PIECE_PAWN, logic->turn);
         } else {
+            // Otherwise, it was just a normal move.
             logic->board[r1][c1] = movedPiece;
         }
         logic->board[r1][c1]->hasMoved = !lastMove->firstMove;
@@ -812,9 +887,13 @@ static void undo_move_internal(GameLogic* logic) {
     logic->enPassantCol = lastMove->prevEnPassantCol;
     logic->halfmoveClock = lastMove->prevHalfmoveClock;
     
-    move_free(lastMove);
+    if (free_move) {
+        move_free(lastMove);
+        lastMove = NULL;
+    }
     logic->currentHash = zobrist_compute(logic);
     logic->positionVersion++;
+    return lastMove;
 }
 
 GameMode gamelogic_get_game_mode(GameLogic* logic) {
@@ -841,6 +920,22 @@ static char get_fen_char(Piece* p) {
 
 // Load position from FEN string
 void gamelogic_load_fen(GameLogic* logic, const char* fen) {
+    if (!logic || !fen) return;
+
+    // Clear move history first
+    Stack* moveStack = (Stack*)logic->moveHistory;
+    if (moveStack) {
+        while (moveStack->top) {
+            Move* m = (Move*)stack_pop(moveStack);
+            move_free(m);
+        }
+    }
+    // Also clear cache as position is changing discontinuously
+    gamelogic_clear_cache(logic);
+    logic->cachedPieceRow = -1;
+    logic->cachedVersion = 0;
+    logic->positionVersion = 0;
+
     // Store as new start FEN (assuming load_fen acts as a setup)
     strncpy(logic->start_fen, fen, sizeof(logic->start_fen)-1);
     logic->start_fen[sizeof(logic->start_fen)-1] = '\0';
@@ -901,41 +996,48 @@ void gamelogic_load_fen(GameLogic* logic, const char* fen) {
     // Parse castling rights
     while (*ptr && *ptr == ' ') ptr++;
     
-    // Assume pieces haven't moved unless FEN says otherwise
-    // (This is a simplified approach, but better than skipping)
-    bool wk = false, wq = false, bk = false, bq = false;
+    bool wk_f = false, wq_f = false, bk_f = false, bq_f = false;
     if (*ptr && *ptr != '-') {
         while (*ptr && *ptr != ' ') {
-            if (*ptr == 'K') wk = true;
-            else if (*ptr == 'Q') wq = true;
-            else if (*ptr == 'k') bk = true;
-            else if (*ptr == 'q') bq = true;
+            if (*ptr == 'K') wk_f = true;
+            else if (*ptr == 'Q') wq_f = true;
+            else if (*ptr == 'k') bk_f = true;
+            else if (*ptr == 'q') bq_f = true;
             ptr++;
         }
     } else if (*ptr == '-') {
         ptr++;
     }
 
+    // Update castling rights in the logic struct
+    logic->castlingRights = 0;
+    if (wk_f) logic->castlingRights |= 1;
+    if (wq_f) logic->castlingRights |= 2;
+    if (bk_f) logic->castlingRights |= 4;
+    if (bq_f) logic->castlingRights |= 8;
+
     // Set hasMoved flags for kings and rooks based on castling rights
-    // White
+    // White King
     if (logic->board[7][4] && logic->board[7][4]->type == PIECE_KING) {
-        logic->board[7][4]->hasMoved = !(wk || wq);
+        logic->board[7][4]->hasMoved = !(wk_f || wq_f);
     }
+    // White Rooks
     if (logic->board[7][7] && logic->board[7][7]->type == PIECE_ROOK) {
-        logic->board[7][7]->hasMoved = !wk;
+        logic->board[7][7]->hasMoved = !wk_f;
     }
     if (logic->board[7][0] && logic->board[7][0]->type == PIECE_ROOK) {
-        logic->board[7][0]->hasMoved = !wq;
+        logic->board[7][0]->hasMoved = !wq_f;
     }
-    // Black
+    // Black King
     if (logic->board[0][4] && logic->board[0][4]->type == PIECE_KING) {
-        logic->board[0][4]->hasMoved = !(bk || bq);
+        logic->board[0][4]->hasMoved = !(bk_f || bq_f);
     }
+    // Black Rooks
     if (logic->board[0][7] && logic->board[0][7]->type == PIECE_ROOK) {
-        logic->board[0][7]->hasMoved = !bk;
+        logic->board[0][7]->hasMoved = !bk_f;
     }
     if (logic->board[0][0] && logic->board[0][0]->type == PIECE_ROOK) {
-        logic->board[0][0]->hasMoved = !bq;
+        logic->board[0][0]->hasMoved = !bq_f;
     }
     
     while (*ptr && *ptr == ' ') ptr++;
@@ -953,18 +1055,13 @@ void gamelogic_load_fen(GameLogic* logic, const char* fen) {
                 // FEN "3" -> Rank 3. In our 0-indexed board (0=Black/Top, 7=White/Bottom):
                 // Rank 1 is Row 7. Rank 8 is Row 0.
                 // Rank 3 is Row 5. Rank 6 is Row 2.
-                // If it's White's turn, en passant target must be Rank 6 (Row 2), meaning Black just moved double. 
-                // Wait. 
-                // If White to move, EP target is behind the Black pawn. Black pawn moved to Rank 5. EP Target is Rank 6? 
-                // Standard FEN:
-                // "e6" means Black just moved e7-e5. Target e6. White to move. Capture on e6.
-                // "e3" means White just moved e2-e4. Target e3. Black to move. Capture on e3.
+                // FEN "e6" means Black just moved e7-e5. Target e6. White to move.
+                // Row 2 is internal_row 2 (Rank 6). 7 - 5 = 2.
+                // Correct expectedRank for current turn
+                // White turn: target square MUST be on Rank 6 (internal row 2)
+                // Black turn: target square MUST be on Rank 3 (internal row 5)
+                int expectedRank = (logic->turn == PLAYER_WHITE) ? 2 : 5;
                 
-                int expectedRank = (logic->turn == PLAYER_WHITE) ? 5 : 2; // Rank 6 (row 2) or Rank 3 (row 5)
-                
-                // Let's map char '3' to rank index. '3' - '1' = 2.
-                // Our rows are: '8'->row 0. '1'->row 7.
-                // internal_row = 7 - (char_rank - '1').
                 int internal_row = 7 - epRank;
                 
                 if (internal_row == expectedRank) {
@@ -980,165 +1077,36 @@ void gamelogic_load_fen(GameLogic* logic, const char* fen) {
         logic->enPassantCol = -1;
     }
 
-    // Bump version for cache
+    // Parse clocks
+    while (*ptr && *ptr == ' ') ptr++;
+    if (*ptr && isdigit(*ptr)) {
+        logic->halfmoveClock = atoi(ptr);
+        while (*ptr && isdigit(*ptr)) ptr++;
+    }
+    while (*ptr && *ptr == ' ') ptr++;
+    if (*ptr && isdigit(*ptr)) {
+        logic->fullmoveNumber = atoi(ptr);
+    }
+
+    // Finalize state
+    logic->currentHash = zobrist_compute(logic);
     logic->positionVersion++;
     
-    // Update game state
-    gamelogic_update_game_state(logic);
+    // Update game status (skip expensive mate/stalemate checks to avoid corruption)
+    gamelogic_update_game_state_internal(logic, true);
 }
 
-static const char* get_san_piece_char(PieceType type) {
-    switch (type) {
-        case PIECE_KNIGHT: return "N";
-        case PIECE_BISHOP: return "B";
-        case PIECE_ROOK:   return "R";
-        case PIECE_QUEEN:  return "Q";
-        case PIECE_KING:   return "K";
-        default: return "";
-    }
+void gamelogic_get_move_uci(GameLogic* logic, Move* move, char* uci, size_t uci_size) {
+    if (!logic || !move || !uci || uci_size == 0) return;
+
+    // USER REQUEST: Use UCI notation only to ensure stability.
+    // This avoids all complex state manipulation (undo/simulation/check-detection)
+    // that was causing memory corruption issues.
+    move_to_uci(move, uci);
 }
 
-void gamelogic_get_move_san(GameLogic* logic, Move* move, char* san, size_t san_size) {
-    if (!logic || !move || !san || san_size == 0) return;
-
-    // Check if we need to temporarily revert the state
-    // (If the move passed is the one just played, we are in 'after' state, but need 'before' for SAN context)
-    bool was_simulation = logic->isSimulation;
-    bool needs_restore = false;
-    Move* restore_move = NULL;
-    
-    Move* last = gamelogic_get_last_move(logic);
-    if (last && move_equals(last, move)) {
-        // CRITICAL: We are about to UNDO the last move, which will pop it from history and FREE it.
-        // The 'move' pointer (which likely points to that history node) will become invalid.
-        // We MUST make a copy of the move to use for restoration (redo).
-        restore_move = move_copy(move);
-        
-        logic->isSimulation = true; // Suppress callbacks during revert
-        gamelogic_undo_move(logic);
-        logic->isSimulation = was_simulation;
-        needs_restore = true;
-    }
-
-    int r1 = move->from_sq / 8, c1 = move->from_sq % 8;
-    int r2 = move->to_sq / 8, c2 = move->to_sq % 8;
-
-    if (move->isCastling) {
-        if (c2 > c1) {
-            strncpy(san, "O-O", san_size);
-        } else {
-            strncpy(san, "O-O-O", san_size);
-        }
-    } else {
-        char* ptr = san;
-        size_t remaining = san_size - 1;
-
-        Piece* p = logic->board[r1][c1]; 
-        // Note: Fallback line removed because we ensure 'p' exists by reverting state if needed.
-        // If p is still null here, move is invalid for this state, but we handle gracefully.
-        PieceType type = p ? p->type : PIECE_PAWN;
-
-        if (type != PIECE_PAWN) {
-            const char* p_char = get_san_piece_char(type);
-            int written = snprintf(ptr, remaining, "%s", p_char);
-            ptr += written;
-            remaining -= written;
-
-            // Disambiguation
-            int count = 0;
-            // Only generate legal moves if p exists (valid state)
-            if (p) {
-                Move** legal_moves = gamelogic_get_all_legal_moves(logic, move->mover, &count);
-                bool need_file = false;
-                bool need_rank = false;
-                bool multiple = false;
-
-                for (int i = 0; i < count; i++) {
-                    Move* m = legal_moves[i];
-                    if (m->from_sq == move->from_sq) continue;
-                    
-                    // int mr1 = m->from_sq / 8, mc1 = m->from_sq % 8; // unused vars removed
-                    int mr2 = m->to_sq / 8, mc2 = m->to_sq % 8;
-
-                    if (mr2 == r2 && mc2 == c2) {
-                        Piece* mp = logic->board[m->from_sq / 8][m->from_sq % 8];
-                        if (mp && mp->type == type) {
-                            multiple = true;
-                            if ((m->from_sq % 8) != c1) need_file = true;
-                            else need_rank = true;
-                        }
-                    }
-                }
-                if (multiple) {
-                    if (need_file && remaining > 0) {
-                        *ptr++ = 'a' + c1;
-                        remaining--;
-                    }
-                    if (need_rank && remaining > 0) {
-                        *ptr++ = '8' - r1;
-                        remaining--;
-                    }
-                }
-                gamelogic_free_moves_array(legal_moves, count);
-            }
-        }
-
-        if (move->capturedPieceType != NO_PIECE) {
-            if (type == PIECE_PAWN) {
-                if (remaining > 0) {
-                    *ptr++ = 'a' + c1;
-                    remaining--;
-                }
-            }
-            if (remaining > 0) {
-                *ptr++ = 'x';
-                remaining--;
-            }
-        }
-
-        if (remaining >= 2) {
-            int written = snprintf(ptr, remaining, "%c%d", 'a' + c2, 8 - r2);
-            ptr += written;
-            remaining -= written;
-        }
-
-        if (move->promotionPiece != NO_PROMOTION) {
-            const char* promo_char = get_san_piece_char(move->promotionPiece);
-            if (remaining >= 2) {
-                int written = snprintf(ptr, remaining, "=%s", promo_char);
-                ptr += written;
-                remaining -= written;
-            }
-        }
-        *ptr = '\0';
-    }
-
-    // Add Check/Checkmate marks
-    // Force simulation to avoid hooks during check
-    logic->isSimulation = true;
-    gamelogic_perform_move(logic, move);
-    bool checkmate = gamelogic_is_checkmate(logic, logic->turn);
-    bool check = !checkmate && gamelogic_is_in_check(logic, logic->turn);
-    gamelogic_undo_move(logic);
-    logic->isSimulation = was_simulation;
-
-    if (checkmate) {
-        strncat(san, "#", san_size - strlen(san) - 1);
-    } else if (check) {
-        strncat(san, "+", san_size - strlen(san) - 1);
-    }
-
-    // Restore state if we reverted
-    if (needs_restore && restore_move) {
-        logic->isSimulation = true; // Suppress hooks
-        gamelogic_perform_move(logic, restore_move);
-        logic->isSimulation = was_simulation;
-        move_free(restore_move);
-    }
-}
-
-void gamelogic_load_from_san_moves(GameLogic* logic, const char* moves_san, const char* start_fen) {
-    if (!logic || !moves_san) return;
+void gamelogic_load_from_uci_moves(GameLogic* logic, const char* moves_uci, const char* start_fen) {
+    if (!logic || !moves_uci) return;
     
     // 1. Reset logic to starting position
     if (start_fen && start_fen[0] != '\0') {
@@ -1147,48 +1115,81 @@ void gamelogic_load_from_san_moves(GameLogic* logic, const char* moves_san, cons
          gamelogic_reset(logic);
     }
     
-    // 2. Tokenize SAN string (e.g., "e4 Nf3 O-O")
-    char* moves_copy = strdup(moves_san);
+    // 2. Tokenize UCI string (e.g., "e2e4 g1f3")
+    char* moves_copy = strdup(moves_uci);
     if (!moves_copy) return;
     
-    char* token = strtok(moves_copy, " ");
-    while (token) {
-        // Skip move numbers (e.g. "1.", "2.")
-        if (strchr(token, '.')) {
-            token = strtok(NULL, " ");
-            continue;
-        }
-
-        // Find matching move for this SAN among all legal moves
-        int count = 0;
-        Move** legal_moves = gamelogic_get_all_legal_moves(logic, logic->turn, &count);
+    char* cursor = moves_copy;
+    const char* delims = " \t\r\n";
+    
+    while (*cursor) {
+        // Skip delimiters
+        cursor += strspn(cursor, delims);
+        if (!*cursor) break;
         
-        Move* matched_move = NULL;
-        for (int i = 0; i < count; i++) {
-            char current_san[16];
-            gamelogic_get_move_san(logic, legal_moves[i], current_san, sizeof(current_san));
-            if (strcmp(current_san, token) == 0) {
-                matched_move = move_copy(legal_moves[i]);
-                break;
+        // Find token end
+        size_t len = strcspn(cursor, delims);
+        if (len > 0) {
+            cursor[len] = '\0';
+            char* token = cursor;
+            
+            // Find matching move for this UCI token among all legal moves
+            int count = 0;
+            Move** legal_moves = gamelogic_get_all_legal_moves(logic, logic->turn, &count);
+            
+            Move* matched_move = NULL;
+            for (int i = 0; i < count; i++) {
+                char current_uci[8];
+                move_to_uci(legal_moves[i], current_uci); // Helper we just added
+                if (strcmp(current_uci, token) == 0) {
+                    matched_move = move_copy(legal_moves[i]);
+                    break;
+                }
             }
+            
+            // Cleanup all generated legal moves
+            for (int i = 0; i < count; i++) move_free(legal_moves[i]);
+            if (legal_moves) free(legal_moves);
+            
+            if (matched_move) {
+                // Apply the move to the board
+                gamelogic_perform_move(logic, matched_move);
+                move_free(matched_move);
+            } else {
+                if(debug_mode) fprintf(stderr, "[Gamelogic] Replay: Could not match UCI move '%s' at ply %d\n", 
+                        token, ((Stack*)logic->moveHistory) ? ((Stack*)logic->moveHistory)->size : 0);
+                // Don't break automatically on error, maybe subsequent moves work? 
+                // But usually if one fails, the rest are invalid.
+                // Keeping original behavior: break
+                break; 
+            }
+            
+            cursor += len + 1;
         }
-        
-        // Cleanup all generated legal moves
-        for (int i = 0; i < count; i++) move_free(legal_moves[i]);
-        if (legal_moves) free(legal_moves);
-        
-        if (matched_move) {
-            // Apply the move to the board
-            gamelogic_perform_move(logic, matched_move);
-            move_free(matched_move);
-        } else {
-            fprintf(stderr, "[ERROR] Replay: Could not match SAN move '%s' at ply %d\n", 
-                    token, ((Stack*)logic->moveHistory) ? ((Stack*)logic->moveHistory)->size : 0);
-            break; 
-        }
-        
-        token = strtok(NULL, " ");
     }
     
     free(moves_copy);
+}
+
+void gamelogic_rebuild_history(GameLogic* logic, Move** moves, int count) {
+    if (!logic) return;
+    
+    // Clear existing history
+    Stack* s = (Stack*)logic->moveHistory;
+    if (s) {
+        while (s->top) {
+            Move* m = (Move*)stack_pop(s);
+            move_free(m);
+        }
+    }
+    
+    if (!moves || count <= 0) return;
+    
+    // Push new history (up to count)
+    for (int i = 0; i < count; i++) {
+        if (moves[i]) {
+            Move* copy = move_copy(moves[i]);
+            stack_push(s, copy);
+        }
+    }
 }

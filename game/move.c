@@ -1,3 +1,4 @@
+
 #include "move.h"
 #include "types.h"
 #include <stdlib.h>
@@ -7,6 +8,7 @@ Move* move_create(uint8_t from, uint8_t to) {
     if (m) {
         m->from_sq = from;
         m->to_sq = to;
+        m->movedPieceType = PIECE_PAWN;
         m->promotionPiece = NO_PROMOTION;
         m->capturedPieceType = NO_PIECE;
         m->isEnPassant = 0;
@@ -43,3 +45,35 @@ void move_free(Move* m) {
     }
 }
 
+void move_to_uci(Move* m, char* buf) {
+    if (!m || !buf) return;
+    
+    int r1 = m->from_sq / 8;
+    int c1 = m->from_sq % 8;
+    int r2 = m->to_sq / 8;
+    int c2 = m->to_sq % 8;
+    
+    // UCI: file (a-h), rank (1-8). 
+    // Internal: row 0 = Rank 8, row 7 = Rank 1.
+    // So 'rank' char is '8' - r.
+    
+    char* ptr = buf;
+    *ptr++ = 'a' + c1;
+    *ptr++ = '8' - r1;
+    *ptr++ = 'a' + c2;
+    *ptr++ = '8' - r2;
+    
+    if (m->promotionPiece != NO_PROMOTION) {
+        char pChar = ' ';
+        switch(m->promotionPiece) {
+            case PIECE_QUEEN: pChar = 'q'; break;
+            case PIECE_ROOK: pChar = 'r'; break;
+            case PIECE_BISHOP: pChar = 'b'; break;
+            case PIECE_KNIGHT: pChar = 'n'; break;
+            default: break;
+        }
+        if (pChar != ' ') *ptr++ = pChar;
+    }
+    
+    *ptr = '\0';
+}

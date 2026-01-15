@@ -118,14 +118,14 @@ $(OBJDIR)/sf_ai_engine.o: $(SRCDIR)/ai_engine.cpp | $(OBJDIR)
 	$(CXX) $(CXXFLAGS) $(SF_FLAGS) $(GTK_CFLAGS) -I$(SFDIR) -I$(SRCDIR) -c $< -o $@
 
 # Basic test executable (exclude test_suite.c and move_validation_test.c)
-TEST_OBJECTS = $(filter-out $(OBJDIR)/test_suite.o $(OBJDIR)/move_validation_test.o, $(GAME_OBJECTS))
+TEST_OBJECTS = $(filter-out $(OBJDIR)/test_suite.o $(OBJDIR)/move_validation_test.o $(OBJDIR)/test_extended.o, $(GAME_OBJECTS))
 
 $(TEST_TARGET): $(TEST_OBJECTS)
 	@echo "Linking $@..."
 	$(CC) $(CFLAGS) $^ -o $@
 
 # Test suite executable (exclude main_test.c and move_validation_test.c)
-TEST_SUITE_OBJECTS = $(filter-out $(OBJDIR)/main_test.o $(OBJDIR)/move_validation_test.o, $(GAME_OBJECTS))
+TEST_SUITE_OBJECTS = $(filter-out $(OBJDIR)/main_test.o $(OBJDIR)/move_validation_test.o $(OBJDIR)/test_extended.o, $(GAME_OBJECTS))
 
 $(OBJDIR)/test_suite.o: $(SRCDIR)/test_suite.c | $(OBJDIR)
 	@echo "Compiling $<..."
@@ -135,6 +135,22 @@ $(TEST_SUITE_TARGET): $(TEST_SUITE_OBJECTS)
 	@echo "Linking $@..."
 	$(CC) $(CFLAGS) $^ -o $@
 	@echo "Build complete! Run: $(TEST_TARGET) or $(TEST_SUITE_TARGET)"
+
+# Extended test suite (Regression tests)
+TEST_EXTENDED_TARGET = $(BUILDDIR)/test_extended.exe
+TEST_EXTENDED_OBJ = $(OBJDIR)/test_extended.o
+
+$(OBJDIR)/test_extended.o: $(SRCDIR)/test_extended.c | $(OBJDIR)
+	@echo "Compiling extended tests $<..."
+	$(CC) $(CFLAGS) -I$(SRCDIR) -c $< -o $@
+
+$(TEST_EXTENDED_TARGET): $(TEST_EXTENDED_OBJ) $(filter-out $(OBJDIR)/test_suite.o $(OBJDIR)/main_test.o $(OBJDIR)/move_validation_test.o, $(GAME_OBJECTS))
+	@echo "Linking $@..."
+	$(CC) $(CFLAGS) $^ -o $@
+
+test-extended: $(TEST_EXTENDED_TARGET)
+	@echo "Running Extended Regression Tests..."
+	./$(TEST_EXTENDED_TARGET)
 
 # Resource file for Windows icon
 RC_FILE = chess.rc
@@ -146,7 +162,7 @@ $(RES_OBJ): $(RC_FILE) assets/images/icon/icon.ico | $(OBJDIR)
 	windres $(RC_FILE) -O coff -o $(RES_OBJ)
 
 # GUI executable (links game + GUI + GTK4)
-GAME_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/main_test.o $(OBJDIR)/test_suite.o $(OBJDIR)/move_validation_test.o, $(GAME_OBJECTS))
+GAME_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/main_test.o $(OBJDIR)/test_suite.o $(OBJDIR)/move_validation_test.o $(OBJDIR)/test_extended.o, $(GAME_OBJECTS))
 GUI_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/gui_icon_test.o, $(GUI_OBJECTS))
 
 # Force all dependencies to be built before linking
@@ -215,15 +231,6 @@ test-repro: $(GAME_OBJECTS)
 	@echo "Running reproduction test..."
 	./$(REPRO_TARGET)
 
-# SAN Check Test
-SAN_TEST_TARGET = $(BUILDDIR)/repro_check_san.exe
-
-test-san: $(GAME_OBJECTS)
-	@echo "Building SAN check test..."
-	$(CC) $(CFLAGS) -I. -I$(SRCDIR) repro_check_san.c $(filter-out $(OBJDIR)/test_suite.o $(OBJDIR)/main_test.o $(OBJDIR)/move_validation_test.o, $(GAME_OBJECTS)) -o $(SAN_TEST_TARGET)
-	@echo "Running SAN check test..."
-	./$(SAN_TEST_TARGET)
-
 # AI Stress Test
 AI_STRESS_TARGET = $(BUILDDIR)/ai_stress_test.exe
 
@@ -247,4 +254,4 @@ test-ai-stress: $(AI_STRESS_GAME_OBJS) $(AI_STRESS_GUI_OBJS) $(SF_OBJECTS) $(AI_
 	./$(AI_STRESS_TARGET)
 
 # Phony targets
-.PHONY: all all-tests clean test test-suite gui test-svg test-focus test-repro test-san test-ai-stress
+.PHONY: all all-tests clean test test-suite gui test-svg test-focus test-ai-stress

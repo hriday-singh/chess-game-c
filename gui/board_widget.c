@@ -19,7 +19,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 // Board widget state
 typedef struct {

@@ -19,8 +19,7 @@
 #include <fcntl.h>
 #endif
 
-static bool debug_mode = true;
-const uint64_t ENGINE_MAGIC = 0xACE11EUL;
+static bool debug_mode = false;
 
 using namespace Stockfish;
 
@@ -35,7 +34,6 @@ static void log_ram_usage(const char* context) {
 }
 
 struct EngineHandle {
-    uint64_t magic;
     bool is_internal;
     std::atomic<bool> running{false};
     
@@ -57,9 +55,6 @@ struct EngineHandle {
     gint stdout_pipe;
     GIOChannel* out_channel;
     std::thread reader_thread;
-
-    EngineHandle() : magic(ENGINE_MAGIC) {}
-    ~EngineHandle() { magic = 0; }
 };
 
 // Internal streambufs
@@ -118,7 +113,7 @@ static void internal_engine_main(EngineHandle* handle) {
         Position::init();
     });
 
-    if (debug_mode) fprintf(stderr, "[Engine Internal] Starting internal engine loop...\n");
+    if (debug_mode) fprintf(stderr, "[AI Engine Internal] Starting internal engine loop...\n");
 
     EngineInputBuf input_buf(handle);
     EngineOutputBuf output_buf(handle);
@@ -173,7 +168,7 @@ extern "C" {
 
 EngineHandle* ai_engine_init_internal(void) {
     log_ram_usage("Internal: Before Init");
-    if (debug_mode) fprintf(stderr, "[Engine] init_internal called.\n");
+    if (debug_mode) fprintf(stderr, "[AI Engine] init_internal called.\n");
     EngineHandle* h = new EngineHandle();
     h->is_internal = true;
     h->running = true;
@@ -184,7 +179,7 @@ EngineHandle* ai_engine_init_internal(void) {
 
 EngineHandle* ai_engine_init_external(const char* binary_path) {
     log_ram_usage("External: Before Init");
-    if (debug_mode) fprintf(stderr, "[Engine] init_external called: %s\n", binary_path ? binary_path : "NULL");
+    if (debug_mode) fprintf(stderr, "[AI Engine] init_external called: %s\n", binary_path ? binary_path : "NULL");
     if (!binary_path) return nullptr;
 
     EngineHandle* h = new EngineHandle();
@@ -221,7 +216,7 @@ void ai_engine_cleanup(EngineHandle* handle) {
     const char* label = handle->is_internal ? "Internal: Before Cleanup" : "External: Before Cleanup";
     log_ram_usage(label);
 
-    if (debug_mode) fprintf(stderr, "[Engine] cleanup called (Internal=%d)\n", handle->is_internal);
+    if (debug_mode) fprintf(stderr, "[AI Engine] cleanup called (Internal=%d)\n", handle->is_internal);
 
     ai_engine_send_command(handle, "quit");
     handle->running = false;
@@ -253,13 +248,9 @@ void ai_engine_cleanup(EngineHandle* handle) {
 
 void ai_engine_send_command(EngineHandle* handle, const char* command) {
     if (!handle) return;
-    if (handle->magic != ENGINE_MAGIC) {
-        fprintf(stderr, "[Engine CRITICAL] send_command: Invalid handle %p (magic=0x%llx)\n", handle, handle->magic);
-        return;
-    }
     if (!command) return;
 
-    if (debug_mode) printf("[Engine] Sending command: %s\n", command);
+    if (debug_mode) printf("[AI Engine] Sending command: %s\n", command);
 
     if (handle->is_internal) {
         std::lock_guard<std::mutex> lock(handle->input_mutex);

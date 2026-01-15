@@ -15,7 +15,7 @@ typedef struct ReplayController {
     AppState* app_state;
     
     // Move Data
-    char* full_san_history; // Copy of the full SAN string for the match
+    char* full_uci_history; // Copy of the full UCI string for the match
     Move** moves;           // Array of deep-copied moves for playback
     int total_moves;        // Total number of moves in the match
     int current_ply;        // Current ply index (0 to total_moves)
@@ -39,7 +39,7 @@ void replay_controller_free(ReplayController* self);
 // Core Functionality
 // Load a match into the replay controller (populates internal state)
 // start_fen can be NULL or empty for standard start
-void replay_controller_load_match(ReplayController* self, const char* san_moves, const char* start_fen);
+void replay_controller_load_match(ReplayController* self, const char* moves_uci, const char* start_fen);
 void replay_controller_start(ReplayController* self); // Enter replay mode, reset to start
 void replay_controller_exit(ReplayController* self);  // Exit replay mode
 

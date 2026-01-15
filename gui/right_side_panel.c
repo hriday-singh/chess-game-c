@@ -1,7 +1,7 @@
 #include "right_side_panel.h"
 #include <string.h>
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 typedef struct {
     RightSidePanel* panel;
@@ -45,8 +45,6 @@ static GtkWidget* create_move_label(RightSidePanel* panel, const char* text, int
     return btn;
 }
 
-#define PIECE_NONE ((PieceType)6)
-
 static void draw_piece_history_icon(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
     if (!gtk_widget_get_realized(GTK_WIDGET(area)) || !gtk_widget_get_visible(GTK_WIDGET(area)) || width <= 1 || height <= 1) return;
     PieceIconData* data = (PieceIconData*)user_data;
@@ -67,9 +65,9 @@ static void draw_piece_history_icon(GtkDrawingArea* area, cairo_t* cr, int width
     cairo_restore(cr);
 }
 
-static GtkWidget* create_move_cell_contents(RightSidePanel* panel, PieceType type, Player owner, const char* san, int ply_index) {
+static GtkWidget* create_move_cell_contents(RightSidePanel* panel, PieceType type, Player owner, const char* uci, int ply_index) {
     // Single button acting as the pill
-    GtkWidget* btn = create_move_label(panel, san, ply_index);
+    GtkWidget* btn = create_move_label(panel, uci, ply_index);
     gtk_widget_set_sensitive(btn, panel->interactive);
     
     // Create a box inside the button to hold Icon + Text
@@ -77,8 +75,7 @@ static GtkWidget* create_move_cell_contents(RightSidePanel* panel, PieceType typ
     gtk_widget_set_halign(btn_box, GTK_ALIGN_CENTER);
     
     // Piece Icon (if any)
-    // if (type != PIECE_NONE && type != PIECE_PAWN) {
-    if (type !=PIECE_NONE) {
+    if (type != NO_PIECE) {
         GtkWidget* icon = gtk_drawing_area_new();
         gtk_widget_set_size_request(icon, 32, 32); // Even larger icons for better visibility
         gtk_widget_set_valign(icon, GTK_ALIGN_CENTER);
@@ -92,18 +89,13 @@ static GtkWidget* create_move_cell_contents(RightSidePanel* panel, PieceType typ
         gtk_box_append(GTK_BOX(btn_box), icon);
     }
     
-    // The label from create_move_label is technically the button's child label
-    // But create_move_label returns a button with a label already.
-    // We need to retrieve that label, unparent it (or create new one) and put it in our box.
-    // Simpler: Just make a new label here and set the button child to our box.
-    
-    GtkWidget* lbl = gtk_label_new(san);
-    gtk_widget_add_css_class(lbl, "move-text-label"); // reuse or new class
+    GtkWidget* lbl = gtk_label_new(uci);
+    gtk_widget_add_css_class(lbl, "move-text-label"); 
     gtk_box_append(GTK_BOX(btn_box), lbl);
     
     gtk_button_set_child(GTK_BUTTON(btn), btn_box);
     
-    return btn; // Return the button directly, no outer box needed
+    return btn; 
 }
 
 // on_nav_btn_clicked removed - buttons moved to InfoPanel
@@ -138,9 +130,9 @@ static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int
         white_ratio = (panel->current_eval > 0) ? 1.0 : 0.0;
     } else {
         double val = panel->current_eval;
-        if (val > 5.0) val = 5.0;
-        if (val < -5.0) val = -5.0;
-        white_ratio = 0.5 + (val / 10.0);
+        if (val > 10.0) val = 10.0;
+        if (val < -10.0) val = -10.0;
+        white_ratio = 0.5 + (val / 20.0);
     }
     
     // flipped=true means Black is at bottom, W at top.
@@ -229,6 +221,7 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     panel->current_eval = 0.0;
     panel->viewed_ply = -1;
     panel->total_plies = 0;
+    panel->last_highlighted_ply = -1; // For O(1) unhighlighting
     panel->interactive = true;
     panel->last_feedback_ply = -1; // Initialize new member
 
@@ -495,6 +488,7 @@ void right_side_panel_truncate_history(RightSidePanel* panel, int ply_index) {
     // and remove anything >= ply_index
     
     panel->total_plies = ply_index;
+    panel->last_highlighted_ply = -1; // Reset for safety after truncate
     
     // Traverse rows and clear or remove
     int current_ply = 0;
@@ -573,19 +567,13 @@ void right_side_panel_sync_config(RightSidePanel* panel, const void* config) {
 
 // right_side_panel_set_nav_visible removed
 
-void right_side_panel_add_san_move(RightSidePanel* panel, const char* san, int move_number, Player turn) {
+void right_side_panel_add_uci_move(RightSidePanel* panel, const char* uci, PieceType p_type, int move_number, Player turn) {
     if (!panel) return;
     
     int ply_index = (move_number - 1) * 2 + (turn == PLAYER_WHITE ? 0 : 1);
     
-    // Determine piece type from SAN
-    PieceType p_type = PIECE_PAWN;
-    if (san[0] == 'N') p_type = PIECE_KNIGHT;
-    else if (san[0] == 'B') p_type = PIECE_BISHOP;
-    else if (san[0] == 'R') p_type = PIECE_ROOK;
-    else if (san[0] == 'Q') p_type = PIECE_QUEEN;
-    else if (san[0] == 'K') p_type = PIECE_KING;
-    else if (san[0] == 'O') p_type = PIECE_KING; // Castling
+    // PieceType is now passed in explicitly because UCI (e.g. "e2e4") 
+    // does not contain piece information like SAN (e.g. "Nf3") did.
     
     panel->total_plies = ply_index + 1;
     panel->viewed_ply = ply_index;
@@ -605,7 +593,7 @@ void right_side_panel_add_san_move(RightSidePanel* panel, const char* san, int m
         gtk_widget_add_css_class(w_cell, "move-cell-v2");
         gtk_widget_set_hexpand(w_cell, TRUE);
         
-        GtkWidget* w_contents = create_move_cell_contents(panel, p_type, PLAYER_WHITE, san, ply_index);
+        GtkWidget* w_contents = create_move_cell_contents(panel, p_type, PLAYER_WHITE, uci, ply_index);
         gtk_widget_set_hexpand(w_contents, TRUE);
         gtk_widget_set_halign(w_contents, GTK_ALIGN_FILL);
         gtk_box_append(GTK_BOX(w_cell), w_contents);
@@ -623,7 +611,7 @@ void right_side_panel_add_san_move(RightSidePanel* panel, const char* san, int m
             GtkWidget* row_box = gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(last_row));
             GtkWidget* b_cell = gtk_widget_get_last_child(row_box);
             if (b_cell) {
-                GtkWidget* b_contents = create_move_cell_contents(panel, p_type, PLAYER_BLACK, san, ply_index);
+                GtkWidget* b_contents = create_move_cell_contents(panel, p_type, PLAYER_BLACK, uci, ply_index);
                 gtk_widget_set_hexpand(b_contents, TRUE);
                 gtk_widget_set_halign(b_contents, GTK_ALIGN_FILL);
                 gtk_box_append(GTK_BOX(b_cell), b_contents);
@@ -637,28 +625,38 @@ void right_side_panel_add_san_move(RightSidePanel* panel, const char* san, int m
     gtk_adjustment_set_value(adj, gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj));
 }
 
-void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_number, Player turn) {
+void right_side_panel_add_move(RightSidePanel* panel, Move move, int m_num, Player p) {
     if (!panel) return;
     
-    int ply_index = (move_number - 1) * 2 + (turn == PLAYER_WHITE ? 0 : 1);
+    int ply_index = (m_num - 1) * 2 + (p == PLAYER_WHITE ? 0 : 1);
+    PieceType p_type = move.movedPieceType;
     
+    if (debug_mode) {
+        printf("[RightSidePanel] add_move: ply=%d, m_num=%d, turn=%d, p_type=%d (moved)\n", 
+               ply_index, m_num, p, p_type);
+    }
+
     if (ply_index < panel->total_plies) {
         right_side_panel_truncate_history(panel, ply_index);
     }
     
-    char san[16];
-    gamelogic_get_move_san(panel->logic, move, san, sizeof(san));
+    char uci[16];
+    gamelogic_get_move_uci(panel->logic, &move, uci, sizeof(uci));
     
+    if (debug_mode) {
+        printf("[RightSidePanel] add_move: UCI generated: '%s'\n", uci);
+    }
+
     panel->total_plies = ply_index + 1;
     panel->viewed_ply = ply_index;
     
-    if (turn == PLAYER_WHITE) {
+    if (p == PLAYER_WHITE) {
         GtkWidget* row_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
         gtk_widget_add_css_class(row_box, "move-history-row-v2");
         
         // Col 1: Move Number (Fixed width via CSS)
         char num_buf[16];
-        snprintf(num_buf, sizeof(num_buf), "%d.", move_number);
+        snprintf(num_buf, sizeof(num_buf), "%d.", m_num);
         GtkWidget* num_lbl = gtk_label_new(num_buf);
         gtk_widget_add_css_class(num_lbl, "move-number-v2");
         gtk_label_set_xalign(GTK_LABEL(num_lbl), 1.0);
@@ -669,13 +667,7 @@ void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_numbe
         gtk_widget_add_css_class(w_cell, "move-cell-v2");
         gtk_widget_set_hexpand(w_cell, TRUE);
         
-        PieceType p_type = PIECE_PAWN;
-        int r2 = move->to_sq / 8, c2 = move->to_sq % 8;
-        if (panel->logic->board[r2][c2]) {
-            p_type = panel->logic->board[r2][c2]->type;
-        }
-        
-        GtkWidget* w_contents = create_move_cell_contents(panel, p_type, PLAYER_WHITE, san, ply_index);
+        GtkWidget* w_contents = create_move_cell_contents(panel, p_type, PLAYER_WHITE, uci, ply_index);
         gtk_widget_set_hexpand(w_contents, TRUE);
         gtk_widget_set_halign(w_contents, GTK_ALIGN_FILL);
         gtk_box_append(GTK_BOX(w_cell), w_contents);
@@ -694,12 +686,7 @@ void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_numbe
             GtkWidget* row_box = gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(last_row));
             GtkWidget* b_cell = gtk_widget_get_last_child(row_box);
             if (b_cell) {
-                PieceType p_type = PIECE_PAWN;
-                int r2 = move->to_sq / 8, c2 = move->to_sq % 8;
-                if (panel->logic->board[r2][c2]) {
-                    p_type = panel->logic->board[r2][c2]->type;
-                }
-                GtkWidget* b_contents = create_move_cell_contents(panel, p_type, PLAYER_BLACK, san, ply_index);
+                GtkWidget* b_contents = create_move_cell_contents(panel, p_type, PLAYER_BLACK, uci, ply_index);
                 gtk_widget_set_hexpand(b_contents, TRUE);
                 gtk_widget_set_halign(b_contents, GTK_ALIGN_FILL);
                 gtk_box_append(GTK_BOX(b_cell), b_contents);
@@ -713,95 +700,70 @@ void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_numbe
     gtk_adjustment_set_value(adj, gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj));
 }
 
+static void set_pill_active(RightSidePanel* panel, int ply_index, bool active) {
+    if (ply_index < 0) return;
+    int row_idx = ply_index / 2;
+    int col_idx = ply_index % 2; // 0 for White, 1 for Black
+
+    GtkWidget* row_widget = GTK_WIDGET(gtk_list_box_get_row_at_index(GTK_LIST_BOX(panel->history_list), row_idx));
+    if (!row_widget) return;
+
+    GtkWidget* row_box = gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(row_widget));
+    if (!row_box) return;
+
+    // row_box children: [num_lbl, w_cell, b_cell]
+    GtkWidget* num_lbl = gtk_widget_get_first_child(row_box);
+    GtkWidget* cell = num_lbl ? gtk_widget_get_next_sibling(num_lbl) : NULL; // w_cell
+    if (col_idx == 1 && cell) {
+        cell = gtk_widget_get_next_sibling(cell); // b_cell
+    }
+
+    if (cell) {
+        GtkWidget* btn = gtk_widget_get_first_child(cell);
+        if (btn && GTK_IS_BUTTON(btn)) {
+            if (active) {
+                gtk_widget_add_css_class(btn, "active");
+                gtk_widget_add_css_class(row_box, "active-row");
+                gtk_widget_queue_draw(btn);
+            } else {
+                gtk_widget_remove_css_class(btn, "active");
+                // Only remove row highlight if the OTHER pill in this row isn't active
+                // (Actually, usually only one is active at a time, but to be safe:)
+                gtk_widget_remove_css_class(row_box, "active-row");
+            }
+        }
+    }
+}
+
 void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index) {
-    if (debug_mode) printf("[RightSidePanel] right_side_panel_highlight_ply called with ply_index=%d\n", ply_index);
     if (!panel) return;
 
     // During replay: do NOT allow anyone to clear highlight
     if (panel->replay_lock && ply_index < 0) {
-        if (debug_mode) printf("[RightSidePanel] replay_lock active, ignoring clear highlight\n");
         return;
     }
 
-    // Track last intended ply (useful for re-applying)
-    panel->locked_ply = ply_index;
-    panel->viewed_ply = ply_index;
-
-    GtkWidget* row = gtk_widget_get_first_child(panel->history_list);
-    int row_count = 0;
-
-    while (row) {
-        row_count++;
-
-        GtkWidget* row_box = gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(row));
-        if (!row_box) {
-            if (debug_mode) printf("[RightSidePanel] Row %d: No row_box found\n", row_count);
-            row = gtk_widget_get_next_sibling(row);
-            continue;
-        }
-
-        // Always clear row highlight
-        gtk_widget_remove_css_class(row_box, "active-row");
-
-        // Walk to w_cell then b_cell
-        GtkWidget* num_lbl = gtk_widget_get_first_child(row_box);
-        GtkWidget* child = num_lbl ? gtk_widget_get_next_sibling(num_lbl) : NULL; // w_cell
-
-        for (int i = 0; i < 2; i++) {
-            if (!child) {
-                if (debug_mode) printf("[RightSidePanel] Row %d, cell %d: No child\n", row_count, i);
-                break;
-            }
-
-            GtkWidget* btn = gtk_widget_get_first_child(child); // button OR NULL
-            if (!btn) {
-                if (debug_mode) printf("[RightSidePanel] Row %d, cell %d: No btn in cell\n", row_count, i);
-                child = gtk_widget_get_next_sibling(child);
-                continue;
-            }
-
-            if (!GTK_IS_BUTTON(btn)) {
-                if (debug_mode) {
-                    printf("[RightSidePanel] Row %d, cell %d: First child is not a button (type=%s)\n",
-                           row_count, i, G_OBJECT_TYPE_NAME(btn));
-                }
-                child = gtk_widget_get_next_sibling(child);
-                continue;
-            }
-
-            // Always clear pill highlight first
-            gtk_widget_remove_css_class(btn, "active");
-
-            int p_idx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "ply-index"));
-            if (debug_mode) {
-                gboolean has_class = gtk_widget_has_css_class(btn, "move-text-btn");
-                printf("[RightSidePanel] Row %d, cell %d: Found button with ply-index=%d (looking for %d), has move-text-btn=%d\n",
-                       row_count, i, p_idx, ply_index, has_class);
-            }
-
-            // If caller wants "no highlight", do only clearing
-            if (ply_index >= 0 && p_idx == ply_index) {
-                gtk_widget_add_css_class(btn, "active");
-                gtk_widget_add_css_class(row_box, "active-row");
-
-                // Force redraw to avoid 1-frame flash issues
-                gtk_widget_queue_draw(btn);
-                gtk_widget_queue_draw(row_box);
-
-                if (debug_mode) printf("[RightSidePanel] ✓ Highlighting ply %d\n", ply_index);
-            }
-
-            child = gtk_widget_get_next_sibling(child); // next cell
-        }
-
-        row = gtk_widget_get_next_sibling(row);
+    // Performance OPTIMIZATION: O(1) update instead of O(N) traversal
+    // 1. Unhighlight previous
+    if (panel->last_highlighted_ply >= 0) {
+        set_pill_active(panel, panel->last_highlighted_ply, false);
     }
+
+    // 2. Highlight new
+    if (ply_index >= 0) {
+        set_pill_active(panel, ply_index, true);
+    }
+
+    panel->last_highlighted_ply = ply_index;
+    panel->viewed_ply = ply_index;
+    panel->locked_ply = ply_index;
 }
 
 void right_side_panel_clear_history(RightSidePanel* panel) {
     if (!panel) return;
     panel->total_plies = 0;
     panel->viewed_ply = -1;
+    panel->last_highlighted_ply = -1;
     GtkWidget* child;
     while ((child = gtk_widget_get_first_child(panel->history_list)) != NULL) {
         gtk_list_box_remove(GTK_LIST_BOX(panel->history_list), child);

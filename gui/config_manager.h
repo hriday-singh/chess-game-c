@@ -119,7 +119,7 @@ typedef struct {
     char result[16];        // "1-0", "0-1", "1/2-1/2", "*"
     char result_reason[64]; // "Checkmate", "Stalemate", "Reset", "Incomplete"
     int move_count;
-    char* moves_san;        // Allocated string of moves "1. e4 e5 2. Nf3 ..."
+    char* moves_uci;        // Allocated string of moves "e2e4 e7e5 g1f3 ..."
     char start_fen[256];
     char final_fen[256];
 } MatchHistoryEntry;
@@ -139,7 +139,7 @@ MatchHistoryEntry* match_history_find_by_id(const char* id);
 // Delete a match by ID
 void match_history_delete(const char* id);
 
-// Free memory for a match entry (especially moves_san)
+// Free memory for a match entry (especially moves_uci)
 void match_history_free_entry(MatchHistoryEntry* entry);
 
 // Get the list of historical matches

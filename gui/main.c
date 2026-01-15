@@ -1,19 +1,17 @@
 #include <gtk/gtk.h>
 #include <gdk/gdk.h>
+#include "../game/move.h"
 #include "config_manager.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
-#include <gio/gio.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
-#include <stdint.h>
 #include <time.h>
 #include "theme_manager.h"
 #ifdef _WIN32
 #include <windows.h>
 #endif
 #include "gamelogic.h"
-#include "move.h"
 #include "board_widget.h"
 #include "info_panel.h"
 #include "sound_engine.h"
@@ -255,51 +253,20 @@ static void record_match_history(AppState* state, const char* reason) {
         strncpy(entry.result, "*", 15);
     }
 
-    // SAN Generation using Simulation (to ensure correct context for checking/disambiguation)
-    GString* moves_str = g_string_new("");
+    // Start FEN
+    snprintf(entry.start_fen, sizeof(entry.start_fen), "%s", state->logic->start_fen);
     
-    // Create a temporary logic instance to replay the game
-    GameLogic* temp_logic = gamelogic_create();
-    if (temp_logic) {
-        // Load the starting position
-        if (state->logic->start_fen[0] != '\0') {
-            gamelogic_load_fen(temp_logic, state->logic->start_fen);
-        } else {
-            gamelogic_reset(temp_logic);
-        }
-        
-        // Suppress callbacks during simulation
-        temp_logic->isSimulation = true;
-        
-        for (int i = 0; i < plies; i++) {
-            if (i % 2 == 0) g_string_append_printf(moves_str, "%d. ", (i/2)+1);
-            
-            Move* historical_move = gamelogic_get_move_at(state->logic, i);
-            if (historical_move) {
-                // Create a copy to perform on temp logic (so we don't mess up history pointer)
-                // Actually we just need the coords.
-                Move* temp_move = move_copy(historical_move);
-                
-                // IMPORTANT: We must ensure the 'mover' and other basic fields are set
-                // But move_copy copies everything.
-                // gamelogic_perform_move ignores 'capturedPieceType' etc and re-calculates.
-                
-                char san[32];
-                gamelogic_get_move_san(temp_logic, temp_move, san, sizeof(san));
-                g_string_append_printf(moves_str, "%s ", san);
-                
-                // Apply move to temp logic to advance state
-                gamelogic_perform_move(temp_logic, temp_move);
-                
-                move_free(temp_move);
-            }
-        }
-        gamelogic_free(temp_logic);
-    } else {
-        // Fallback (should rarely happen)
-        printf("[ERROR] Failed to create temp logic for SAN generation\n");
+    // UCI Generation
+    GString* uci_str = g_string_new("");
+    for (int i = 0; i < plies; i++) {
+        if (uci_str->len > 0) g_string_append_c(uci_str, ' ');
+        Move historical_move = gamelogic_get_move_at(state->logic, i);
+        char uci[8];
+        move_to_uci(&historical_move, uci);
+        g_string_append(uci_str, uci);
     }
-    entry.moves_san = moves_str->str;
+    entry.moves_uci = uci_str->str;
+
     entry.move_count = plies;
     
     // Capture Start FEN
@@ -308,7 +275,7 @@ static void record_match_history(AppState* state, const char* reason) {
     gamelogic_generate_fen(state->logic, entry.final_fen, sizeof(entry.final_fen));
 
     match_history_add(&entry);
-    g_string_free(moves_str, TRUE);
+    g_string_free(uci_str, TRUE);
     state->match_saved = true;
 }
 
@@ -326,12 +293,17 @@ static void update_ui_callback(void) {
         }
 
         // AUTO-SAVE Match History on result
+        // Note: gamelogic_update_game_state already set isGameOver and statusMessage
         if (!state->match_saved && !state->tutorial.step && state->logic->gameMode != GAME_MODE_PUZZLE) {
-            bool mate = gamelogic_is_checkmate(state->logic, state->logic->turn);
-            bool stalemate = gamelogic_is_stalemate(state->logic, state->logic->turn);
-            if (mate) record_match_history(state, "Checkmate");
-            else if (stalemate) record_match_history(state, "Stalemate");
-            else record_match_history(state, "Game Over");
+            // Use the status message to determine the result type
+            const char* status = state->logic->statusMessage;
+            if (strstr(status, "Checkmate")) {
+                record_match_history(state, "Checkmate");
+            } else if (strstr(status, "Stalemate")) {
+                record_match_history(state, "Stalemate");
+            } else {
+                record_match_history(state, "Game Over");
+            }
         }
     }
     
@@ -343,13 +315,15 @@ static void update_ui_callback(void) {
     // Update Right Side Panel
     if (state->gui.right_side_panel) {
         int count = gamelogic_get_move_count(state->logic);
-        Move* last = gamelogic_get_last_move(state->logic);
-        if (last) {
+        if (count > 0) {
+            Move m = gamelogic_get_last_move(state->logic);
+            char uci[32];
+            gamelogic_get_move_uci(state->logic, &m, uci, sizeof(uci));
             int m_num = (count + 1) / 2;
             Player p = (count % 2 == 1) ? PLAYER_WHITE : PLAYER_BLACK;
             // This now handles truncation automatically if we are in the past
             if (!state->is_replaying) {
-                right_side_panel_add_move(state->gui.right_side_panel, last, m_num, p);
+                right_side_panel_add_move(state->gui.right_side_panel, m, m_num, p);
             }
         } else if (count == 0) {
             right_side_panel_clear_history(state->gui.right_side_panel);
@@ -431,7 +405,7 @@ static void sync_live_analysis(AppState* state) {
         right_side_panel_sync_config(state->gui.right_side_panel, cfg);
     }
 
-    if (!cfg || !cfg->enable_live_analysis || (state->logic && state->logic->isGameOver)) {
+    if (!cfg || !cfg->enable_live_analysis || (state->logic && state->logic->isGameOver) || state->is_replaying) {
         ai_controller_stop_analysis(state->ai_controller, false);
         return;
     }
@@ -825,12 +799,13 @@ static gboolean on_window_close_request(GtkWindow* window, gpointer user_data) {
 
 // Callback from BoardWidget (before human move execution)
 static void on_board_before_move(const char* move_uci, void* user_data) {
+    (void)move_uci;
     AppState* state = (AppState*)user_data;
     if (state && state->ai_controller && state->logic) {
         // Only mark if it's currently a human turn. 
         // This prevents the AI move execution from triggering a "human move" snapshot.
         if (!state->is_replaying && !gamelogic_is_computer(state->logic, state->logic->turn)) {
-            ai_controller_mark_human_move_begin(state->ai_controller, move_uci);
+            ai_controller_mark_human_move_begin(state->ai_controller);
         }
     }
 }
@@ -892,7 +867,7 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
     // 4. Load Match (Controller will trigger UI updates which now find initialized widgets)
     state->is_replaying = true;
     state->replay_match_id = g_strdup(match_id);
-    replay_controller_load_match(state->replay_controller, entry->moves_san, entry->start_fen);
+    replay_controller_load_match(state->replay_controller, entry->moves_uci, entry->start_fen);
     
     // 5. Update Side Panel visuals
     if (state->gui.right_side_panel) {

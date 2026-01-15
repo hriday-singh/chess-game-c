@@ -2,7 +2,7 @@
 #define RIGHT_SIDE_PANEL_H
 
 #include <gtk/gtk.h>
-#include "gamelogic.h"  
+#include "gamelogic.h"
 #include "theme_data.h"
 
 // Navigation callbacks
@@ -49,6 +49,7 @@ struct _RightSidePanel {
     bool is_mate;
     int viewed_ply;
     int total_plies;
+    int last_highlighted_ply; // NEW: For O(1) unhighlighting
     bool interactive;
     int last_feedback_ply; 
     bool flipped; // New member
@@ -73,8 +74,8 @@ void right_side_panel_set_analysis_visible(RightSidePanel* panel, bool visible);
 void right_side_panel_sync_config(RightSidePanel* panel, const void* config); // Using void* to avoid circular dependency, cast in .c
 void right_side_panel_set_flipped(RightSidePanel* panel, bool flipped); // New
 
-void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_number, Player turn);
-void right_side_panel_add_san_move(RightSidePanel* panel, const char* san, int move_number, Player turn);
+void right_side_panel_add_move(RightSidePanel* panel, Move move, int m_num, Player p);
+void right_side_panel_add_uci_move(RightSidePanel* panel, const char* uci, PieceType p_type, int move_number, Player turn);
 void right_side_panel_clear_history(RightSidePanel* panel);
 void right_side_panel_set_current_move(RightSidePanel* panel, int move_index);
 void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index);

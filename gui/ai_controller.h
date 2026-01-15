@@ -18,12 +18,6 @@ typedef struct {
     int mate_distance;    // Positive = White mates, Negative = Black mates
     const char* best_move;
 
-    // NEW: Win/Draw/Loss predictor for eval bar (for chosen analysis side)
-    Player analysis_side; // PLAYER_WHITE or PLAYER_BLACK
-    double win_prob;      // 0..1
-    double draw_prob;     // 0..1
-    double loss_prob;     // 0..1
-
     // Rating / Toast Info (NULL if no rating update)
     const char* rating_label;   // Best/Excellent/Good/Inaccuracy/Mistake/Blunder
     const char* rating_reason;
@@ -78,10 +72,7 @@ void ai_controller_set_rating_pending(AiController* controller, bool pending);
 bool ai_controller_start_analysis(AiController* controller, bool use_custom, const char* custom_path);
 void ai_controller_stop_analysis(AiController* controller, bool free_engine);
 
-// NEW: Choose which side your eval bar is predicting for (WDL is relative to this side)
-void ai_controller_set_analysis_side(AiController* controller, Player side);
-
-// UPDATED: Mark beginning of a human move + pass the played move in UCI (e2e4, e7e8q, etc.)
-void ai_controller_mark_human_move_begin(AiController* controller, const char* played_move_uci);
+// Mark beginning of a human move
+void ai_controller_mark_human_move_begin(AiController* controller);
 
 #endif // AI_CONTROLLER_H

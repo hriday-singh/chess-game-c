@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UCI Game Replay</title>
+
+  <!-- chessboard.js CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css"/>
+
+  <style>
+    :root { --gap: 12px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 16px; }
+    .wrap { display: grid; grid-template-columns: 420px 1fr; gap: 18px; align-items: start; }
+    @media (max-width: 960px){ .wrap { grid-template-columns: 1fr; } }
+    #board { width: 420px; max-width: 95vw; }
+    textarea { width: 100%; min-height: 140px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .panel { border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
+    .row { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
+    button { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; background: #f7f7f7; cursor: pointer; }
+    button:hover { background: #eee; }
+    button:disabled { cursor: not-allowed; opacity: 0.55; }
+    input[type="range"] { width: min(640px, 100%); }
+    .muted { color: #666; font-size: 0.92rem; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .moves { max-height: 360px; overflow: auto; padding: 8px; border: 1px solid #eee; border-radius: 8px; }
+    .moves button { border: none; background: transparent; padding: 4px 6px; border-radius: 6px; }
+    .moves button:hover { background: #f0f0f0; }
+    .moves .active { background: #dfefff; }
+    .err { color: #b00020; white-space: pre-wrap; }
+    .ok { color: #0b6b0b; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 960px){ .grid2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h2>UCI Game Replay</h2>
+  <p class="muted">
+    Paste UCI moves (space/newline separated), click <b>Load</b>, then navigate with buttons or slider.
+    Example: <span class="mono">e2e4 e7e5 g1f3 b8c6</span> &nbsp; Promotion: <span class="mono">e7e8q</span>
+  </p>
+
+  <div class="wrap">
+    <div class="panel">
+      <div id="board"></div>
+      <div style="height: 10px"></div>
+
+      <div class="row">
+        <button id="btnFirst" title="First (start position)">⏮</button>
+        <button id="btnPrev" title="Previous move">◀</button>
+        <button id="btnNext" title="Next move">▶</button>
+        <button id="btnLast" title="Last position">⏭</button>
+        <button id="btnFlip" title="Flip board">Flip</button>
+      </div>
+
+      <div style="height: 10px"></div>
+      <div class="row">
+        <input id="plySlider" type="range" min="0" max="0" value="0" />
+        <div class="mono" id="plyLabel">Ply: 0 / 0</div>
+      </div>
+
+      <div style="height: 10px"></div>
+      <div class="grid2">
+        <div>
+          <div class="muted">FEN</div>
+          <div class="mono" id="fenBox" style="word-break: break-word;"></div>
+        </div>
+        <div>
+          <div class="muted">Last move</div>
+          <div class="mono" id="lastMoveBox">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="row" style="justify-content: space-between;">
+        <div><b>Input</b></div>
+        <div class="row">
+          <button id="btnLoad">Load</button>
+          <button id="btnClear">Clear</button>
+          <button id="btnExample">Example</button>
+        </div>
+      </div>
+
+      <div style="height: 10px"></div>
+      <textarea id="uciInput" spellcheck="false" placeholder="Paste UCI moves here..."></textarea>
+
+      <div style="height: 10px"></div>
+      <div class="muted">Status</div>
+      <div id="status" class="mono"></div>
+      <div id="errors" class="err"></div>
+
+      <div style="height: 14px"></div>
+      <div class="row" style="justify-content: space-between;">
+        <div><b>Move list</b> <span class="muted">(click to jump)</span></div>
+        <div class="muted mono" id="counts">0 moves</div>
+      </div>
+      <div style="height: 8px"></div>
+      <div class="moves" id="moveList"></div>
+    </div>
+  </div>
+
+  <!-- IMPORTANT: chessboard.js depends on jQuery -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+
+  <!-- Use UMD chess.js that defines global `Chess` (NO "export" in file) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+  <!-- chessboard.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+
+  <script>
+    function tokenizeUci(text){
+      return (text || "").trim().split(/\s+/).filter(Boolean);
+    }
+
+    function uciToMoveObj(uci){
+      if (!uci || uci.length < 4) return null;
+      const from = uci.slice(0,2);
+      const to = uci.slice(2,4);
+      const prom = (uci.length >= 5) ? uci[4].toLowerCase() : undefined;
+      const obj = { from, to };
+      if (prom && "qrbn".includes(prom)) obj.promotion = prom;
+      return obj;
+    }
+
+    const chess = new Chess();
+    let board = null;
+
+    let timeline = [{ fen: chess.fen(), uci: null, san: null }];
+    let currentPly = 0;
+    let orientation = 'white';
+
+    const el = {
+      uciInput: document.getElementById('uciInput'),
+      status: document.getElementById('status'),
+      errors: document.getElementById('errors'),
+      moveList: document.getElementById('moveList'),
+      counts: document.getElementById('counts'),
+      plySlider: document.getElementById('plySlider'),
+      plyLabel: document.getElementById('plyLabel'),
+      fenBox: document.getElementById('fenBox'),
+      lastMoveBox: document.getElementById('lastMoveBox'),
+      btnFirst: document.getElementById('btnFirst'),
+      btnPrev: document.getElementById('btnPrev'),
+      btnNext: document.getElementById('btnNext'),
+      btnLast: document.getElementById('btnLast'),
+      btnFlip: document.getElementById('btnFlip'),
+      btnLoad: document.getElementById('btnLoad'),
+      btnClear: document.getElementById('btnClear'),
+      btnExample: document.getElementById('btnExample'),
+    };
+
+    function setStatusOk(msg){ el.status.innerHTML = `<span class="ok">${msg}</span>`; }
+    function setStatusMuted(msg){ el.status.innerHTML = `<span class="muted">${msg}</span>`; }
+    function setErrors(msg){ el.errors.textContent = msg || ""; }
+
+    function initBoard(){
+	  board = Chessboard('board', {
+		position: 'start',
+		draggable: false,
+		orientation,
+		pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+	  });
+	  render();
+	}
+
+
+    function rebuildMoveList(){
+      el.moveList.innerHTML = "";
+      const moves = timeline.slice(1);
+      el.counts.textContent = `${moves.length} moves`;
+
+      for (let i = 0; i < moves.length; i++){
+        const ply = i + 1;
+        const item = moves[i];
+
+        const btn = document.createElement('button');
+        btn.className = "mono";
+        btn.dataset.ply = ply;
+
+        const moveNo = Math.floor((ply + 1) / 2);
+        const isWhiteMove = (ply % 2 === 1);
+        const prefix = isWhiteMove ? `${moveNo}. ` : "";
+        btn.textContent = `${prefix}${item.san || item.uci || "?"}`;
+
+        btn.addEventListener('click', () => gotoPly(ply));
+        el.moveList.appendChild(btn);
+        el.moveList.appendChild(document.createTextNode(" "));
+      }
+      highlightActiveMove();
+    }
+
+    function highlightActiveMove(){
+      el.moveList.querySelectorAll('button').forEach(b => {
+        const ply = parseInt(b.dataset.ply, 10);
+        b.classList.toggle('active', ply === currentPly);
+      });
+    }
+
+    function setNavEnabled(){
+      const last = timeline.length - 1;
+      el.btnFirst.disabled = currentPly === 0;
+      el.btnPrev.disabled  = currentPly === 0;
+      el.btnNext.disabled  = currentPly === last;
+      el.btnLast.disabled  = currentPly === last;
+
+      el.plySlider.min = 0;
+      el.plySlider.max = last;
+      el.plySlider.value = currentPly;
+      el.plyLabel.textContent = `Ply: ${currentPly} / ${last}`;
+    }
+
+    function render(){
+      const node = timeline[currentPly];
+      if (!node) return;
+      if (board) board.position(node.fen, false);
+
+      el.fenBox.textContent = node.fen;
+      el.lastMoveBox.textContent = (currentPly === 0)
+        ? "—"
+        : `${node.san || node.uci || "?"} (${node.uci || "?"})`;
+
+      setNavEnabled();
+      highlightActiveMove();
+    }
+
+    function gotoPly(ply){
+      currentPly = Math.max(0, Math.min(ply, timeline.length - 1));
+      render();
+    }
+
+    function resetTimeline(){
+      chess.reset();
+      timeline = [{ fen: chess.fen(), uci: null, san: null }];
+      currentPly = 0;
+      rebuildMoveList();
+      render();
+    }
+
+    function loadUciGame(){
+      const moves = tokenizeUci(el.uciInput.value);
+      resetTimeline();
+      setErrors("");
+
+      if (!moves.length){
+        setStatusMuted("No moves provided.");
+        return;
+      }
+
+      chess.reset();
+      const errs = [];
+      timeline = [{ fen: chess.fen(), uci: null, san: null }];
+
+      for (let i = 0; i < moves.length; i++){
+        const uci = moves[i];
+        const obj = uciToMoveObj(uci);
+        if (!obj){
+          errs.push(`Move ${i+1}: invalid token "${uci}"`);
+          break;
+        }
+        const played = chess.move(obj);
+        if (!played){
+          errs.push(
+            `Move ${i+1}: illegal in this position: "${uci}"\n` +
+            `FEN before move: ${chess.fen()}\n` +
+            `Turn: ${chess.turn() === 'w' ? 'White' : 'Black'}`
+          );
+          break;
+        }
+        timeline.push({ fen: chess.fen(), uci, san: played.san });
+      }
+
+      if (errs.length){
+        setErrors(errs.join("\n\n"));
+        setStatusMuted("Loaded partially due to errors.");
+      } else {
+        setStatusOk(`Loaded ${moves.length} moves.`);
+      }
+
+      currentPly = 0;
+      rebuildMoveList();
+      render();
+    }
+
+    el.btnFirst.addEventListener('click', () => gotoPly(0));
+    el.btnPrev.addEventListener('click',  () => gotoPly(currentPly - 1));
+    el.btnNext.addEventListener('click',  () => gotoPly(currentPly + 1));
+    el.btnLast.addEventListener('click',  () => gotoPly(timeline.length - 1));
+
+    el.btnFlip.addEventListener('click', () => {
+      orientation = (orientation === 'white') ? 'black' : 'white';
+      if (board) board.orientation(orientation);
+    });
+
+    el.plySlider.addEventListener('input', (e) => gotoPly(parseInt(e.target.value, 10)));
+
+    el.btnLoad.addEventListener('click', loadUciGame);
+
+    el.btnClear.addEventListener('click', () => {
+      el.uciInput.value = "";
+      resetTimeline();
+      setStatusMuted("Cleared.");
+      setErrors("");
+    });
+
+    el.btnExample.addEventListener('click', () => {
+      el.uciInput.value = "e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1 f8e7";
+      loadUciGame();
+    });
+
+    initBoard();
+    setStatusMuted("Paste UCI moves and click Load.");
+  </script>
+</body>
+</html>

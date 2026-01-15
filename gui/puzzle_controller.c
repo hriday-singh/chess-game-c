@@ -80,13 +80,13 @@ void puzzle_controller_check_move(AppState* state) {
         return;
     }
 
-    // Get the last move
-    Move* last_move = gamelogic_get_last_move(state->logic);
-    if (last_move) {
+    int count = gamelogic_get_move_count(state->logic);
+    Move last_move = gamelogic_get_last_move(state->logic);
+    if (count > 0) {
         // Convert to UCI format (e.g., "e2e4" or "e7e8q" for promotion)
         char move_uci[32]; 
-        int r1 = last_move->from_sq / 8, c1 = last_move->from_sq % 8;
-        int r2 = last_move->to_sq / 8, c2 = last_move->to_sq % 8;
+        int r1 = last_move.from_sq / 8, c1 = last_move.from_sq % 8;
+        int r2 = last_move.to_sq / 8, c2 = last_move.to_sq % 8;
         snprintf(move_uci, sizeof(move_uci), "%c%d%c%d",
             'a' + c1, 8 - r1,
             'a' + c2, 8 - r2);

@@ -94,9 +94,9 @@ static void extract_json_moves(const char* json, GtkEditable* target) {
             if (!end) break;
             
             size_t len = end - start;
-            if (strlen(buffer) + len + 2 < sizeof(buffer)) {
-                strncat(buffer, start, len);
-                strcat(buffer, " ");
+            size_t current_len = strlen(buffer);
+            if (current_len + len + 2 < sizeof(buffer)) {
+                snprintf(buffer + current_len, sizeof(buffer) - current_len, "%.*s ", (int)len, start);
             }
             pos = end + 1;
         }
@@ -236,11 +236,23 @@ static void on_play_clicked(GtkButton* btn, gpointer user_data) {
     const char* solution_moves[MAX_PUZZLE_MOVES];
     for(int i=0; i<MAX_PUZZLE_MOVES; i++) solution_moves[i] = NULL;
     
-    char* token = strtok(moves_copy, " ,"); // Space or comma
+    char* cursor = moves_copy;
+    const char* delims = " ,";
     int move_idx = 0;
-    while (token && move_idx < MAX_PUZZLE_MOVES) {
-        solution_moves[move_idx++] = token;
-        token = strtok(NULL, " ,");
+    
+    while (*cursor && move_idx < MAX_PUZZLE_MOVES) {
+        // Skip delimiters
+        cursor += strspn(cursor, delims);
+        if (!*cursor) break;
+        
+        // Find end of token
+        size_t len = strcspn(cursor, delims);
+        if (len > 0) {
+            // Null-terminate in place (safe since we own moves_copy)
+            cursor[len] = '\0';
+            solution_moves[move_idx++] = cursor;
+            cursor += len + 1;
+        }
     }
     
     // Create Puzzle struct

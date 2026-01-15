@@ -151,6 +151,12 @@ typedef struct {
         GtkWidget* speed_label;
         GtkWidget* anim_check;
         GtkWidget* sfx_check;
+        
+        // Replay specific capture boxes
+        GtkWidget* black_label;
+        GtkWidget* white_label;
+        GtkWidget* white_captures_box;
+        GtkWidget* black_captures_box;
     } replay_ui;
     
     GCallback replay_exit_callback;
@@ -346,11 +352,29 @@ static void update_captured_pieces(InfoPanel* panel) {
         child = next;
     }
 
+    if (panel->replay_ui.white_captures_box) {
+        child = gtk_widget_get_first_child(panel->replay_ui.white_captures_box);
+        while (child) {
+            GtkWidget* next = gtk_widget_get_next_sibling(child);
+            gtk_box_remove(GTK_BOX(panel->replay_ui.white_captures_box), child);
+            child = next;
+        }
+    }
+
     child = gtk_widget_get_first_child(panel->black_captures_box);
     while (child) {
         GtkWidget* next = gtk_widget_get_next_sibling(child);
         gtk_box_remove(GTK_BOX(panel->black_captures_box), child);
         child = next;
+    }
+
+    if (panel->replay_ui.black_captures_box) {
+         child = gtk_widget_get_first_child(panel->replay_ui.black_captures_box);
+         while (child) {
+             GtkWidget* next = gtk_widget_get_next_sibling(child);
+             gtk_box_remove(GTK_BOX(panel->replay_ui.black_captures_box), child);
+             child = next;
+         }
     }
     
     // Add white captures (pieces captured by white = black pieces) - max 7 pieces
@@ -363,6 +387,11 @@ static void update_captured_pieces(InfoPanel* panel) {
             if (count < 6) {
                 GtkWidget* widget = create_piece_widget(panel, current->type, PLAYER_BLACK);
                 gtk_box_append(GTK_BOX(panel->white_captures_box), widget);
+                
+                if (panel->replay_ui.white_captures_box) {
+                    GtkWidget* r_widget = create_piece_widget(panel, current->type, PLAYER_BLACK);
+                    gtk_box_append(GTK_BOX(panel->replay_ui.white_captures_box), r_widget);
+                }
                 count++;
             }
             current = current->next;
@@ -374,6 +403,12 @@ static void update_captured_pieces(InfoPanel* panel) {
             GtkWidget* plus_label = gtk_label_new(buffer);
             gtk_widget_add_css_class(plus_label, "capture-count");
             gtk_box_append(GTK_BOX(panel->white_captures_box), plus_label);
+            
+            if (panel->replay_ui.white_captures_box) {
+                GtkWidget* r_plus = gtk_label_new(buffer);
+                gtk_widget_add_css_class(r_plus, "capture-count");
+                gtk_box_append(GTK_BOX(panel->replay_ui.white_captures_box), r_plus);
+            }
         }
     }
     
@@ -387,6 +422,11 @@ static void update_captured_pieces(InfoPanel* panel) {
             if (count < 6) {
                 GtkWidget* widget = create_piece_widget(panel, current->type, PLAYER_WHITE);
                 gtk_box_append(GTK_BOX(panel->black_captures_box), widget);
+                
+                if (panel->replay_ui.black_captures_box) {
+                    GtkWidget* r_widget = create_piece_widget(panel, current->type, PLAYER_WHITE);
+                    gtk_box_append(GTK_BOX(panel->replay_ui.black_captures_box), r_widget);
+                }
                 count++;
             }
             current = current->next;
@@ -398,6 +438,12 @@ static void update_captured_pieces(InfoPanel* panel) {
             GtkWidget* plus_label = gtk_label_new(buffer);
             gtk_widget_add_css_class(plus_label, "capture-count");
             gtk_box_append(GTK_BOX(panel->black_captures_box), plus_label);
+            
+            if (panel->replay_ui.black_captures_box) {
+                GtkWidget* r_plus = gtk_label_new(buffer);
+                gtk_widget_add_css_class(r_plus, "capture-count");
+                gtk_box_append(GTK_BOX(panel->replay_ui.black_captures_box), r_plus);
+            }
         }
     }
     
@@ -564,23 +610,41 @@ static void update_captured_labels(InfoPanel* panel) {
         snprintf(black_text, sizeof(black_text), "Captured by Black: +%d", diff);
         gtk_label_set_text(GTK_LABEL(panel->black_label), black_text);
         gtk_widget_add_css_class(panel->black_label, "captured-score-black");
+        
+        if (panel->replay_ui.black_label) {
+            gtk_label_set_text(GTK_LABEL(panel->replay_ui.black_label), black_text);
+            gtk_widget_add_css_class(panel->replay_ui.black_label, "captured-score-black");
+        }
     } else {
         // Black is not ahead, show nothing
         gtk_label_set_text(GTK_LABEL(panel->black_label), "Captured by Black:");
+        if (panel->replay_ui.black_label) {
+             gtk_label_set_text(GTK_LABEL(panel->replay_ui.black_label), "Captured by Black:");
+             gtk_widget_remove_css_class(panel->replay_ui.black_label, "captured-score-black");
+        }
     }
     
     char white_text[128];
     // Reset classes
     gtk_widget_remove_css_class(panel->white_label, "captured-score-white");
+    if (panel->replay_ui.white_label) gtk_widget_remove_css_class(panel->replay_ui.white_label, "captured-score-white");
 
     if (point_diff > 0) {
         // White is ahead
         snprintf(white_text, sizeof(white_text), "Captured by White: +%d", point_diff);
         gtk_label_set_text(GTK_LABEL(panel->white_label), white_text);
         gtk_widget_add_css_class(panel->white_label, "captured-score-white");
+        
+        if (panel->replay_ui.white_label) {
+            gtk_label_set_text(GTK_LABEL(panel->replay_ui.white_label), white_text);
+            gtk_widget_add_css_class(panel->replay_ui.white_label, "captured-score-white");
+        }
     } else {
         // White is not ahead, show nothing
         gtk_label_set_text(GTK_LABEL(panel->white_label), "Captured by White:");
+        if (panel->replay_ui.white_label) {
+             gtk_label_set_text(GTK_LABEL(panel->replay_ui.white_label), "Captured by White:");
+        }
     }
 }
 
@@ -2038,6 +2102,32 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     
     gtk_box_append(GTK_BOX(panel->replay_ui.box), game_status_label);
     g_object_set_data(G_OBJECT(panel->replay_ui.box), "game-status-label", game_status_label);
+
+    // Replay Graveyard
+    GtkWidget* replay_graveyard = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_set_margin_top(replay_graveyard, 10);
+    
+    // Black captures (pieces captured by black) 
+    panel->replay_ui.black_label = gtk_label_new("Captured by Black:");
+    gtk_widget_set_halign(panel->replay_ui.black_label, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(replay_graveyard), panel->replay_ui.black_label);
+    
+    panel->replay_ui.black_captures_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_widget_add_css_class(panel->replay_ui.black_captures_box, "capture-box");
+    gtk_widget_add_css_class(panel->replay_ui.black_captures_box, "capture-box-for-white-pieces");
+    gtk_box_append(GTK_BOX(replay_graveyard), panel->replay_ui.black_captures_box);
+    
+    // White captures
+    panel->replay_ui.white_label = gtk_label_new("Captured by White:");
+    gtk_widget_set_halign(panel->replay_ui.white_label, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(replay_graveyard), panel->replay_ui.white_label);
+    
+    panel->replay_ui.white_captures_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+    gtk_widget_add_css_class(panel->replay_ui.white_captures_box, "capture-box");
+    gtk_widget_add_css_class(panel->replay_ui.white_captures_box, "capture-box-for-black-pieces");
+    gtk_box_append(GTK_BOX(replay_graveyard), panel->replay_ui.white_captures_box);
+    
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), replay_graveyard);
 
     // separator
     GtkWidget* sep2 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
