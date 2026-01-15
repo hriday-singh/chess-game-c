@@ -35,6 +35,11 @@ typedef struct {
     bool useDots;       // Show dots for legal moves (Chess.com style)
     bool animationsEnabled;
     bool dragMode;      // true = drag-and-drop, false = click-to-move
+    // Last move highlight (yellow squares)
+    int lastMoveFromRow;
+    int lastMoveFromCol;
+    int lastMoveToRow;
+    int lastMoveToCol;
     // Drag state
     bool isDragging;        // True only if actually dragging (mouse moved while holding)
     bool dragPrepared;      // True if button pressed on piece (but mouse hasn't moved yet)
@@ -212,12 +217,21 @@ static bool is_square_in_check(BoardWidget* board, int r, int c) {
 
 // Check if square is part of last move
 static bool is_last_move_square(BoardWidget* board, int r, int c) {
-    Move* lastMove = gamelogic_get_last_move(board->logic);
-    if (!lastMove) return false;
-    int startRow = lastMove->from_sq / 8, startCol = lastMove->from_sq % 8;
-    int endRow = lastMove->to_sq / 8, endCol = lastMove->to_sq % 8;
-    return ((r == startRow && c == startCol) ||
-            (r == endRow && c == endCol));
+    int fromRow = board->lastMoveFromRow;
+    int fromCol = board->lastMoveFromCol;
+    int toRow = board->lastMoveToRow;
+    int toCol = board->lastMoveToCol;
+
+    // Use BoardWidget's lastMove fields for manual override (e.g. during replay animation PRE-completion)
+    // If no manual override is set, fallback to logic's actual last move
+    // Only use BoardWidget's explicit lastMove fields.
+    // We do NOT fallback to logic here because during Replay mode, 
+    // the logic's history stack remains full (end of game) while the board state is at the start (Move 0),
+    // causing incorrect highlights if we fallback.
+    if (fromRow == -1) return false;
+
+    return ((r == fromRow && c == fromCol) ||
+            (r == toRow && c == toCol));
 }
 
 // Helper to render move to UCI string (e.g. "e2e4")
@@ -1359,6 +1373,10 @@ GtkWidget* board_widget_new(GameLogic* logic) {
     board->grid = NULL;
     board->selectedRow = -1;
     board->selectedCol = -1;
+    board->lastMoveFromRow = -1;
+    board->lastMoveFromCol = -1;
+    board->lastMoveToRow = -1;
+    board->lastMoveToCol = -1;
     board->validMoves = NULL;
     board->validMovesCount = 0;
     board->useDots = true;  // Default: show dots (Chess.com style)
@@ -1507,17 +1525,19 @@ void board_widget_reset_selection(GtkWidget* board_widget) {
     if (board) {
         board->selectedRow = -1;
         board->selectedCol = -1;
-        // Clear valid moves
-        if (board->validMoves) {
-            for (int i = 0; i < board->validMovesCount; i++) {
-                if (board->validMoves[i]) {
-                    move_free(board->validMoves[i]);
-                }
-            }
-            free(board->validMoves);
-            board->validMoves = NULL;
-            board->validMovesCount = 0;
-        }
+        free_valid_moves(board);
+        refresh_board(board);
+    }
+}
+
+// Set last move for yellow highlight (for replay mode)
+void board_widget_set_last_move(GtkWidget* board_widget, int fromRow, int fromCol, int toRow, int toCol) {
+    BoardWidget* board = find_board_data(board_widget);
+    if (board) {
+        board->lastMoveFromRow = fromRow;
+        board->lastMoveFromCol = fromCol;
+        board->lastMoveToRow = toRow;
+        board->lastMoveToCol = toCol;
         refresh_board(board);
     }
 }

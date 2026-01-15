@@ -300,7 +300,7 @@ static const char *CSS_STRUCTURAL =
 
     /* -------------------- Panels / cards -------------------- */
     ".info-panel { background-color: @panel_bg; color: @panel_fg; border-right: 1px solid @border_color; border-radius: 0 0 0 12px; }\n"
-    ".info-label-title { font-weight: 700; color: @dim_label; }\n"
+    ".info-label-title { font-weight: 700; color: @panel_fg; }\n"
     ".info-label-value { font-size: 1.1em; font-weight: 600; color: @panel_fg; }\n"
 
     ".card { background-color: @card_bg; border: 1px solid @border_color; border-radius: 10px; }\n"
@@ -396,7 +396,8 @@ static const char *CSS_STRUCTURAL =
 
 
     /* -------------------- Buttons -------------------- */
-    "button:not(.titlebutton):not(.window-control):not(.ai-icon-button):not(.image-button):not(.success-action):not(.destructive-action):not(.suggested-action):not(.promotion-button) {\n"
+    // "button:not(.titlebutton):not(.window-control):not(.ai-icon-button):not(.image-button):not(.success-action):not(.destructive-action):not(.suggested-action):not(.promotion-button) {\n"
+    "button:not(.titlebutton):not(.window-control):not(.ai-icon-button):not(.image-button):not(.success-action):not(.destructive-action):not(.suggested-action):not(.promotion-button):not(.move-text-btn) {\n"
     "  background-color: @button_bg;\n"
     "  background-image: none;\n"
     "  color: @button_fg;\n"
@@ -590,6 +591,17 @@ static const char *CSS_STRUCTURAL =
     "  border-radius: 8px;\n"
     "  margin-bottom: 8px;\n"
     "  padding: 0;\n"
+    "  transition: all 0.15s ease;\n"
+    "}\n"
+    "button.move-text-btn:hover {\n"
+    "  background: alpha(@base_accent, 0.15);\n"
+    "}\n"
+    "button.move-text-btn.active,\n"
+    "button.move-text-btn.active:hover {\n"
+    "  background-color: @accent_color;\n"
+    "  color: @accent_fg;\n"
+    "  font-weight: 800;\n"
+    "  border-color: @accent_color;\n"
     "}\n"
     ".match-row:hover { background-color: alpha(@button_hover, 0.4); }\n"
     ".match-row label { color: @fg_color; }\n"
@@ -597,6 +609,34 @@ static const char *CSS_STRUCTURAL =
     /* -------------------- Transparent overlay (particles) -------------------- */
     "window.transparent-overlay { background: transparent; box-shadow: none; border: none; }\n"
     "window.transparent-overlay > widget { background: transparent; }\n"
+    
+    /* -------------------- Standard Components -------------------- */
+    "separator { background-color: alpha(@border_color, 0.6); min-height: 1px; min-width: 1px; }\n"
+    
+    "checkbutton { color: @fg_color; }\n"
+    "checkbutton:checked check { background-color: @accent_color; color: @accent_fg; border-color: @accent_color; }\n"
+    "checkbutton:hover check { border-color: @accent_color; }\n"
+    
+    /* -------------------- Media / Replay Buttons -------------------- */
+    "button.media-button {\n"
+    "  background: transparent;\n"
+    "  border: 1px solid alpha(@border_color, 0.8);\n"
+    "  border-radius: 6px;\n"
+    "  color: @fg_color;\n"
+    "  padding: 6px;\n"
+    "  transition: all 0.2s ease;\n"
+    "}\n"
+    "button.media-button:hover {\n"
+    "  background: alpha(@accent_color, 0.08);\n"
+    "  border-color: @accent_color;\n"
+    "  color: @accent_color;\n"
+    "}\n"
+    "button.media-button:active {\n"
+    "  background: alpha(@accent_color, 0.15);\n"
+    "}\n"
+    "button.media-button:disabled { opacity: 0.3; border-color: @border_color; }\n"
+    "button.media-button.suggested-action { background: @accent_color; color: @accent_fg; border-color: @accent_color; }\n"
+    "button.media-button.suggested-action:hover { background: shade(@accent_color, 1.1); }\n"
 
     /* -------------------- Dark Mode Button (Accent Mapping) -------------------- */
     ".dark-mode-button, .accent-color-proxy { color: @accent_color; }\n"
@@ -630,7 +670,7 @@ static const char *CSS_STRUCTURAL =
     " .move-cell-v2 { padding: 4px; min-width: 110px; transition: background 0.15s; border-right: 1px solid alpha(@border_color, 0.05); }\n"
     " .move-text-btn { border: 1px solid alpha(@border_color, 0.2); background: alpha(@fg_color, 0.02); border-radius: 20px; padding: 2px 8px; margin: 4px; color: @fg_color; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 14px; transition: all 0.25s; min-height: 32px; }\n"
     " .move-text-btn:hover { background: alpha(@accent_color, 0.15); color: @accent_color; transform: translateY(-1px); border-color: alpha(@accent_color, 0.3); }\n"
-    " .move-text-btn.active { background: @accent_color; color: @bg_color; font-weight: 800; box-shadow: 0 4px 12px alpha(@accent_color, 0.4); border-color: @accent_color; }\n"
+    " .move-text-btn.active { background: @accent_color; color: @accent_fg; font-weight: 800; box-shadow: 0 4px 12px alpha(@accent_color, 0.6); border-color: @accent_color; }\n"
     
     " .nav-footer-v4 { padding: 10px; border-top: 1px solid @border_color; background: alpha(@bg_color, 0.1); }\n"
     " .nav-btn-v4 { border: none; background: transparent; opacity: 0.5; color: @fg_color; transition: opacity 0.2s; border-radius: 6px; }\n"
@@ -694,7 +734,13 @@ static const char *CSS_STRUCTURAL =
     ".nav-footer-v2 { padding: 4px; border-top: 1px solid rgba(0,0,0,0.05); background: rgba(0,0,0,0.01); }\n"
     ".nav-btn-v2 { padding: 4px 8px; font-size: 1.1rem; background: transparent; border: none; opacity: 0.7; }\n"
     ".nav-btn-v2:hover { opacity: 1.0; background: rgba(0,0,0,0.05); }\n"
-    ".nav-btn-v2:disabled { opacity: 0.2; }\n";
+    ".nav-btn-v2:disabled { opacity: 0.2; }\n"
+
+    // ---------- Extra changes for move history row active state ----------
+    " .move-history-row-v2.active-row { background-color: alpha(@accent_color, 0.12); border-radius: 10px; }\n"
+    " .move-history-row-v2.active-row .move-number-v2 { background-color: alpha(@accent_color, 0.25); color: @accent_fg; }\n"
+    " .move-history-row-v2.active-row .move-cell-v2 { background-color: alpha(@accent_color, 0.10); }\n";
+
 
 
 static void update_provider(void) {

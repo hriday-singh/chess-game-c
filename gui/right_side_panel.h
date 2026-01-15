@@ -40,6 +40,9 @@ struct _RightSidePanel {
     
     GtkWidget* w_lbl; // Rail label W
     GtkWidget* b_lbl; // Rail label B
+
+    bool replay_lock;      // if true, ignore highlight clears
+    int  locked_ply;       // last ply we want highlighted (optional)
     
     // State
     double current_eval;
@@ -78,5 +81,7 @@ void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index);
 void right_side_panel_refresh(RightSidePanel* panel);
 
 void right_side_panel_set_nav_callback(RightSidePanel* panel, RightSidePanelNavCallback callback, gpointer user_data);
+
+void right_side_panel_set_replay_lock(RightSidePanel* panel, bool locked);
 
 #endif // RIGHT_SIDE_PANEL_H

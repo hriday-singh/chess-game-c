@@ -207,7 +207,8 @@ static void record_match_history(AppState* state, const char* reason) {
     // User requested: games that ended with some result OR matches that went over 5 pairs (10 plies)
     if (state->is_replaying) return;
     bool is_result = (strcmp(reason, "Checkmate") == 0 || strcmp(reason, "Stalemate") == 0);
-    if (!is_result && strcmp(reason, "Reset") == 0 && plies < 10) return;
+    // Generalize 10-ply (5 pairs) rule for ALL non-result saves (Reset, Shutdown, etc.)
+    if (!is_result && plies < 10) return;
 
     MatchHistoryEntry entry = {0};
     snprintf(entry.id, sizeof(entry.id), "m_%ld", (long)time(NULL));
@@ -367,7 +368,11 @@ static void update_ui_callback(void) {
 
         right_side_panel_set_interactive(state->gui.right_side_panel, !is_live_match);
         // right_side_panel_set_nav_visible(state->gui.right_side_panel, !should_hide_nav); // Removed
-        right_side_panel_highlight_ply(state->gui.right_side_panel, count - 1);
+        
+        // Suppress highlight updates during replay (controller handles it)
+        if (!state->is_replaying) {
+            right_side_panel_highlight_ply(state->gui.right_side_panel, count - 1);
+        }
     }
 
     // 5. Board Grid Refresh
@@ -474,7 +479,7 @@ static void on_game_reset(gpointer user_data) {
         state->ai_trigger_id = 0;
     }
     // Save history if significant plies
-    if (!state->match_saved && !state->tutorial.step && state->logic->gameMode != GAME_MODE_PUZZLE) {
+    if (!state->match_saved && !state->tutorial.step && state->logic->gameMode != GAME_MODE_PUZZLE && !state->is_replaying) {
         record_match_history(state, "Reset");
     }
 
@@ -879,22 +884,19 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
         state->replay_controller = replay_controller_new(state->logic, state);
     }
 
-    // 3. Load Match
+    // 3. Update UI for replay mode (Must happen BEFORE loading so lazy-init happens)
+    if (state->gui.info_panel) {
+        info_panel_show_replay_controls(state->gui.info_panel, TRUE);
+    }
+    
+    // 4. Load Match (Controller will trigger UI updates which now find initialized widgets)
     state->is_replaying = true;
     state->replay_match_id = g_strdup(match_id);
     replay_controller_load_match(state->replay_controller, entry->moves_san, entry->start_fen);
     
-    // 4. Update UI for replay mode
-    // Hiding live analysis UI during replay
+    // 5. Update Side Panel visuals
     if (state->gui.right_side_panel) {
-        // Just enforce visibility, the controller loaded the moves into the panel
-        // right_side_panel_set_nav_visible(state->gui.right_side_panel, TRUE); // Removed
         right_side_panel_set_analysis_visible(state->gui.right_side_panel, FALSE);
-    }
-    
-    // Show Replay UI in InfoPanel
-    if (state->gui.info_panel) {
-        info_panel_show_replay_controls(state->gui.info_panel, TRUE);
     }
 
     // Disable board interaction and clear any selection
@@ -934,6 +936,9 @@ static void on_exit_replay(GSimpleAction* action, GVariant* parameter, gpointer 
 
     // Mark match as saved to prevent on_game_reset from saving the replay
     state->match_saved = true;
+
+    // Clear yellow highlights from replay
+    board_widget_set_last_move(state->gui.board, -1, -1, -1, -1);
 
     // Reset game to initial state
     on_game_reset(state);

@@ -22,6 +22,9 @@ void board_widget_refresh(GtkWidget* board_widget);
 // Reset selection (clear selected piece)
 void board_widget_reset_selection(GtkWidget* board_widget);
 
+// Set last move for yellow highlight (for replay mode)
+void board_widget_set_last_move(GtkWidget* board_widget, int fromRow, int fromCol, int toRow, int toCol);
+
 // Set board orientation (flip board for black's perspective)
 void board_widget_set_flipped(GtkWidget* board_widget, bool flipped);
 

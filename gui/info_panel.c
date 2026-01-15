@@ -9,6 +9,8 @@
 #include <glib.h>
 #include <stdlib.h>
 
+static bool debug_mode = false;
+
 // Simple list for captured pieces
 typedef struct PieceTypeNode {
     PieceType type;
@@ -2007,25 +2009,50 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     GtkWidget* title = gtk_label_new("REPLAY MODE");
     PangoAttrList* attrs = pango_attr_list_new();
     pango_attr_list_insert(attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
-    pango_attr_list_insert(attrs, pango_attr_size_new(16 * PANGO_SCALE));
+    pango_attr_list_insert(attrs, pango_attr_size_new(18 * PANGO_SCALE));
     gtk_label_set_attributes(GTK_LABEL(title), attrs);
     pango_attr_list_unref(attrs);
     gtk_widget_set_halign(title, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_bottom(title, 10);
     gtk_box_append(GTK_BOX(panel->replay_ui.box), title);
+
+    // Separator
+    GtkWidget* sep1 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_bottom(sep1, 15);
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), sep1);
     
+    // Game Status Label (White's Turn, Checkmate, etc.)
+    GtkWidget* game_status_label = gtk_label_new("");
+    gtk_label_set_wrap(GTK_LABEL(game_status_label), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(game_status_label), 20);
+    
+    PangoAttrList* status_attrs = pango_attr_list_new();
+    pango_attr_list_insert(status_attrs, pango_attr_size_new(16 * PANGO_SCALE));
+    pango_attr_list_insert(status_attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
+    gtk_label_set_attributes(GTK_LABEL(game_status_label), status_attrs);
+    pango_attr_list_unref(status_attrs);
+    
+    gtk_widget_set_halign(game_status_label, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(game_status_label, FALSE);
+    gtk_widget_set_margin_bottom(game_status_label, 15);
+    
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), game_status_label);
+    g_object_set_data(G_OBJECT(panel->replay_ui.box), "game-status-label", game_status_label);
+
+    // separator
+    GtkWidget* sep2 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_top(sep2, 15);
+    gtk_widget_set_margin_bottom(sep2, 10);
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), sep2);
+
+    gtk_widget_set_margin_bottom(panel->replay_ui.box, 10);
+
     // Status (Move Count)
     // Style: Monospace, large, centered
     panel->replay_ui.status_label = gtk_label_new("Move: 0 / 0");
     gtk_widget_add_css_class(panel->replay_ui.status_label, "info-label-value");
-    gtk_widget_set_margin_bottom(panel->replay_ui.status_label, 5);
+    gtk_widget_set_margin_bottom(panel->replay_ui.status_label, 15); // Extra space before media controls
     gtk_box_append(GTK_BOX(panel->replay_ui.box), panel->replay_ui.status_label);
-    
-    // Game Status Label (White's Turn, Checkmate, etc.)
-    GtkWidget* game_status_label = gtk_label_new("");
-    gtk_widget_add_css_class(game_status_label, "dim-label");
-    gtk_widget_set_margin_bottom(game_status_label, 10);
-    gtk_box_append(GTK_BOX(panel->replay_ui.box), game_status_label);
-    g_object_set_data(G_OBJECT(panel->replay_ui.box), "game-status-label", game_status_label);
     
     // Media Control Row
     GtkWidget* media_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -2081,7 +2108,7 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     gtk_widget_set_halign(speed_box, GTK_ALIGN_FILL);
     
     panel->replay_ui.speed_label = gtk_label_new("Playback Speed: 1.0x");
-    gtk_widget_add_css_class(panel->replay_ui.speed_label, "dim-label");
+    gtk_widget_add_css_class(panel->replay_ui.speed_label, "info-label-title");
     gtk_widget_set_halign(panel->replay_ui.speed_label, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(speed_box), panel->replay_ui.speed_label);
     
@@ -2090,7 +2117,11 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     g_signal_connect(panel->replay_ui.speed_scale, "value-changed", G_CALLBACK(on_replay_speed_changed), panel);
     gtk_box_append(GTK_BOX(speed_box), panel->replay_ui.speed_scale);
     
+    gtk_widget_set_margin_bottom(speed_box, 10); // Spacing before separator
     gtk_box_append(GTK_BOX(panel->replay_ui.box), speed_box);
+    
+    // Bottom Separator
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     
     // Visual Toggles
     GtkWidget* toggles_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
@@ -2115,8 +2146,10 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     
     gtk_box_append(GTK_BOX(panel->replay_ui.box), toggles_box);
     
-    // Actions Separator
-    gtk_box_append(GTK_BOX(panel->replay_ui.box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+    // Bottom Separator before actions
+    GtkWidget* sep3 = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_top(sep3, 5);
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), sep3);
     
     // Action Buttons
     panel->replay_ui.start_here_btn = gtk_button_new_with_label("Play From Here");
@@ -2128,6 +2161,7 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     panel->replay_ui.exit_btn = gtk_button_new_with_label("Exit Replay");
     gtk_widget_add_css_class(panel->replay_ui.exit_btn, "destructive-action");
     g_signal_connect(panel->replay_ui.exit_btn, "clicked", G_CALLBACK(on_replay_exit_clicked), panel);
+    gtk_widget_set_margin_top(panel->replay_ui.exit_btn, 12); // More breathing room
     gtk_box_append(GTK_BOX(panel->replay_ui.box), panel->replay_ui.exit_btn);
     
     // Add to scroll content
@@ -2137,12 +2171,25 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
 void info_panel_update_replay_status(GtkWidget* info_panel, int current_ply, int total_plies) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
     if (!panel || !panel->replay_ui.status_label) return;
+    if(debug_mode) {
+        printf("info_panel_update_replay_status: current_ply=%d, total_plies=%d\n", current_ply, total_plies);
+    }
     
-    int move_num = (current_ply + 1) / 2;
-    int total_moves = (total_plies + 1) / 2;
+    // Show move count as plies (total individual moves), not pairs
+    // current_ply is 0-indexed internally but represents "moves made"
+    // When current_ply = 0, we're at start (0 moves made)
+    // When current_ply = 7, we've made 7 moves
     char buf[64];
-    snprintf(buf, sizeof(buf), "Move: %d / %d", move_num, total_moves);
+    snprintf(buf, sizeof(buf), "Move: %d / %d", current_ply, total_plies);
     gtk_label_set_text(GTK_LABEL(panel->replay_ui.status_label), buf);
+    
+    // Update game status label
+    GtkWidget* game_status_label = g_object_get_data(G_OBJECT(panel->replay_ui.box), "game-status-label");
+    if (game_status_label && panel->logic) {
+        // Use the centralized status message which handles Checkmate, Stalemate, Turn, etc.
+        const char* msg = gamelogic_get_status_message(panel->logic);
+        gtk_label_set_text(GTK_LABEL(game_status_label), msg ? msg : "");
+    }
     
     // Also update buttons sensitivity/icon states if needed provided we have references
     // E.g. disable Back if current_ply == 0

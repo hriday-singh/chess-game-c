@@ -224,5 +224,27 @@ test-san: $(GAME_OBJECTS)
 	@echo "Running SAN check test..."
 	./$(SAN_TEST_TARGET)
 
+# AI Stress Test
+AI_STRESS_TARGET = $(BUILDDIR)/ai_stress_test.exe
+
+# Objects needed for AI stress test (game logic + AI components)
+AI_STRESS_GAME_OBJS = $(filter-out $(OBJDIR)/main_test.o $(OBJDIR)/test_suite.o $(OBJDIR)/move_validation_test.o, $(GAME_OBJECTS))
+AI_STRESS_GUI_OBJS = $(OBJDIR)/gui_ai_controller.o $(OBJDIR)/gui_ai_dialog.o $(OBJDIR)/gui_config_manager.o $(OBJDIR)/gui_theme_manager.o $(OBJDIR)/gui_gui_utils.o
+AI_STRESS_TEST_OBJ = $(OBJDIR)/ai_stress_test.o
+
+# Compile the stress test C file
+$(AI_STRESS_TEST_OBJ): ai_stress_test.c | $(OBJDIR)
+	@echo "Compiling AI stress test..."
+	$(CC) $(CFLAGS) $(GTK_CFLAGS) -I. -I$(SRCDIR) -I$(GUIDIR) -c ai_stress_test.c -o $(AI_STRESS_TEST_OBJ)
+
+test-ai-stress: $(AI_STRESS_GAME_OBJS) $(AI_STRESS_GUI_OBJS) $(SF_OBJECTS) $(AI_STRESS_TEST_OBJ) | $(BUILDDIR)
+	@echo "Linking AI stress test (with real AI controller)..."
+	@echo "  Game objects: $(words $(AI_STRESS_GAME_OBJS)) files"
+	@echo "  GUI objects: $(words $(AI_STRESS_GUI_OBJS)) files"
+	@echo "  Stockfish objects: $(words $(SF_OBJECTS)) files"
+	$(CXX) $(CXXFLAGS) $(AI_STRESS_TEST_OBJ) $(AI_STRESS_GAME_OBJS) $(AI_STRESS_GUI_OBJS) $(SF_OBJECTS) -o $(AI_STRESS_TARGET) $(GTK_LIBS)
+	@echo "Running AI stress test..."
+	./$(AI_STRESS_TARGET)
+
 # Phony targets
-.PHONY: all all-tests clean test test-suite gui test-svg test-focus test-repro test-san
+.PHONY: all all-tests clean test test-suite gui test-svg test-focus test-repro test-san test-ai-stress

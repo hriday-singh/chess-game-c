@@ -1,6 +1,8 @@
 #include "right_side_panel.h"
 #include <string.h>
 
+static bool debug_mode = true;
+
 typedef struct {
     RightSidePanel* panel;
     PieceType type;
@@ -26,6 +28,11 @@ static void on_nav_btn_clicked(GtkButton* btn, gpointer user_data) {
     }
 }
 
+void right_side_panel_set_replay_lock(RightSidePanel* panel, bool locked) {
+    if (!panel) return;
+    panel->replay_lock = locked;
+    if (!locked) panel->locked_ply = -1;
+}
 
 static GtkWidget* create_move_label(RightSidePanel* panel, const char* text, int ply_index) {
     GtkWidget* btn = gtk_button_new_with_label(text);
@@ -467,18 +474,12 @@ void right_side_panel_set_interactive(RightSidePanel* panel, bool interactive) {
         GtkWidget* b_cell = gtk_widget_get_next_sibling(w_cell);
         
         if (w_cell) {
-            GtkWidget* w_hbox = gtk_widget_get_first_child(w_cell);
-            if (w_hbox) {
-                GtkWidget* w_btn = gtk_widget_get_last_child(w_hbox);
-                if (w_btn && GTK_IS_BUTTON(w_btn)) gtk_widget_set_sensitive(w_btn, interactive);
-            }
+            GtkWidget* w_btn = gtk_widget_get_first_child(w_cell);
+            if (w_btn && GTK_IS_BUTTON(w_btn)) gtk_widget_set_sensitive(w_btn, interactive);
         }
         if (b_cell) {
-            GtkWidget* b_hbox = gtk_widget_get_first_child(b_cell);
-            if (b_hbox) {
-                GtkWidget* b_btn = gtk_widget_get_last_child(b_hbox);
-                if (b_btn && GTK_IS_BUTTON(b_btn)) gtk_widget_set_sensitive(b_btn, interactive);
-            }
+            GtkWidget* b_btn = gtk_widget_get_first_child(b_cell);
+            if (b_btn && GTK_IS_BUTTON(b_btn)) gtk_widget_set_sensitive(b_btn, interactive);
         }
         row = gtk_widget_get_next_sibling(row);
     }
@@ -713,32 +714,86 @@ void right_side_panel_add_move(RightSidePanel* panel, Move* move, int move_numbe
 }
 
 void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index) {
+    if (debug_mode) printf("[RightSidePanel] right_side_panel_highlight_ply called with ply_index=%d\n", ply_index);
     if (!panel) return;
+
+    // During replay: do NOT allow anyone to clear highlight
+    if (panel->replay_lock && ply_index < 0) {
+        if (debug_mode) printf("[RightSidePanel] replay_lock active, ignoring clear highlight\n");
+        return;
+    }
+
+    // Track last intended ply (useful for re-applying)
+    panel->locked_ply = ply_index;
     panel->viewed_ply = ply_index;
-    
-    // Traverse all rows and their labels to set the 'active' class
+
     GtkWidget* row = gtk_widget_get_first_child(panel->history_list);
+    int row_count = 0;
+
     while (row) {
+        row_count++;
+
         GtkWidget* row_box = gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(row));
-        GtkWidget* child = gtk_widget_get_first_child(row_box); // num_lbl
-        child = gtk_widget_get_next_sibling(child); // w_cell
-        
+        if (!row_box) {
+            if (debug_mode) printf("[RightSidePanel] Row %d: No row_box found\n", row_count);
+            row = gtk_widget_get_next_sibling(row);
+            continue;
+        }
+
+        // Always clear row highlight
+        gtk_widget_remove_css_class(row_box, "active-row");
+
+        // Walk to w_cell then b_cell
+        GtkWidget* num_lbl = gtk_widget_get_first_child(row_box);
+        GtkWidget* child = num_lbl ? gtk_widget_get_next_sibling(num_lbl) : NULL; // w_cell
+
         for (int i = 0; i < 2; i++) {
-            if (!child) break;
-            if (child) {
-                GtkWidget* hbox = gtk_widget_get_first_child(child);
-                GtkWidget* lbl = hbox ? gtk_widget_get_last_child(hbox) : NULL;
-                if (lbl && GTK_IS_BUTTON(lbl)) {
-                    int p_idx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(lbl), "ply-index"));
-                    if (p_idx == ply_index) {
-                        gtk_widget_add_css_class(lbl, "active");
-                    } else {
-                        gtk_widget_remove_css_class(lbl, "active");
-                    }
-                }
+            if (!child) {
+                if (debug_mode) printf("[RightSidePanel] Row %d, cell %d: No child\n", row_count, i);
+                break;
             }
+
+            GtkWidget* btn = gtk_widget_get_first_child(child); // button OR NULL
+            if (!btn) {
+                if (debug_mode) printf("[RightSidePanel] Row %d, cell %d: No btn in cell\n", row_count, i);
+                child = gtk_widget_get_next_sibling(child);
+                continue;
+            }
+
+            if (!GTK_IS_BUTTON(btn)) {
+                if (debug_mode) {
+                    printf("[RightSidePanel] Row %d, cell %d: First child is not a button (type=%s)\n",
+                           row_count, i, G_OBJECT_TYPE_NAME(btn));
+                }
+                child = gtk_widget_get_next_sibling(child);
+                continue;
+            }
+
+            // Always clear pill highlight first
+            gtk_widget_remove_css_class(btn, "active");
+
+            int p_idx = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(btn), "ply-index"));
+            if (debug_mode) {
+                gboolean has_class = gtk_widget_has_css_class(btn, "move-text-btn");
+                printf("[RightSidePanel] Row %d, cell %d: Found button with ply-index=%d (looking for %d), has move-text-btn=%d\n",
+                       row_count, i, p_idx, ply_index, has_class);
+            }
+
+            // If caller wants "no highlight", do only clearing
+            if (ply_index >= 0 && p_idx == ply_index) {
+                gtk_widget_add_css_class(btn, "active");
+                gtk_widget_add_css_class(row_box, "active-row");
+
+                // Force redraw to avoid 1-frame flash issues
+                gtk_widget_queue_draw(btn);
+                gtk_widget_queue_draw(row_box);
+
+                if (debug_mode) printf("[RightSidePanel] ✓ Highlighting ply %d\n", ply_index);
+            }
+
             child = gtk_widget_get_next_sibling(child); // next cell
         }
+
         row = gtk_widget_get_next_sibling(row);
     }
 }
@@ -816,5 +871,10 @@ void right_side_panel_refresh(RightSidePanel* panel) {
     if (panel->adv_rail) gtk_widget_queue_draw(panel->adv_rail);
     if (panel->history_list) {
         refresh_history_icons_recursive(panel->history_list);
+    }
+
+    // If locked and we have a valid ply, re-apply active class
+    if (panel->replay_lock && panel->locked_ply >= 0) {
+        right_side_panel_highlight_ply(panel, panel->locked_ply);
     }
 }

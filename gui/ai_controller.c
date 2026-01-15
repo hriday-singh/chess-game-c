@@ -20,12 +20,14 @@ static bool debug_mode = true;
 ---------------------------- */
 
 static int clamp_i(int x, int lo, int hi) {
+    if (debug_mode) printf("[AI Helper] clamp_i: x=%d, lo=%d, hi=%d\n", x, lo, hi);
     if (x < lo) return lo;
     if (x > hi) return hi;
     return x;
 }
 
 static double clamp_d(double x, double lo, double hi) {
+    if (debug_mode) printf("[AI Helper] clamp_d: x=%.2f, lo=%.2f, hi=%.2f\n", x, lo, hi);
     if (x < lo) return lo;
     if (x > hi) return hi;
     return x;
@@ -33,12 +35,16 @@ static double clamp_d(double x, double lo, double hi) {
 
 /* Convert White-perspective cp to "side perspective" cp */
 static int side_perspective_cp(Player side, int cp_white) {
-    return (side == PLAYER_WHITE) ? cp_white : -cp_white;
+    int result = (side == PLAYER_WHITE) ? cp_white : -cp_white;
+    if (debug_mode) printf("[AI Helper] side_perspective_cp: side=%d, cp_white=%d => %d\n", side, cp_white, result);
+    return result;
 }
 
 /* Convert eval to mover perspective (mover known by color who just moved) */
 static int mover_perspective_eval(bool white_moved, int cp_white) {
-    return white_moved ? cp_white : -cp_white;
+    int result = white_moved ? cp_white : -cp_white;
+    if (debug_mode) printf("[AI Helper] mover_perspective_eval: white_moved=%d, cp_white=%d => %d\n", white_moved, cp_white, result);
+    return result;
 }
 
 /* ---------------------------
@@ -48,6 +54,8 @@ static int mover_perspective_eval(bool white_moved, int cp_white) {
 ---------------------------- */
 static void eval_to_wdl(Player analysis_side, bool is_mate, int mate_dist_white, int score,
                        double* out_w, double* out_d, double* out_l) {
+    if (debug_mode) printf("[AI WDL] eval_to_wdl: analysis_side=%d, is_mate=%d, mate_dist=%d, score=%d\n", 
+                           analysis_side, is_mate, mate_dist_white, score);
     double w = 0.0, d = 0.0, l = 0.0;
 
     if (is_mate) {
@@ -56,6 +64,8 @@ static void eval_to_wdl(Player analysis_side, bool is_mate, int mate_dist_white,
         bool side_wins = (analysis_side == PLAYER_WHITE) ? white_mating : !white_mating;
         if (side_wins) { w = 1.0; d = 0.0; l = 0.0; }
         else { w = 0.0; d = 0.0; l = 1.0; }
+        if (debug_mode) printf("[AI WDL] Mate detected: white_mating=%d, side_wins=%d => w=%.2f, d=%.2f, l=%.2f\n", 
+                               white_mating, side_wins, w, d, l);
         *out_w = w; *out_d = d; *out_l = l;
         return;
     }
@@ -65,17 +75,20 @@ static void eval_to_wdl(Player analysis_side, bool is_mate, int mate_dist_white,
 
     /* Clamp extreme cp for probability stability */
     cp = clamp_i(cp, -2000, 2000);
+    if (debug_mode) printf("[AI WDL] Clamped cp=%d\n", cp);
 
     /* Logistic win probability; k chosen to feel reasonable in chess UI */
     /* cp=0 => ~0.5, cp=200 => ~0.69, cp=400 => ~0.83, cp=800 => ~0.96 */
     const double k = 0.004;
 
     double p_win = 1.0 / (1.0 + exp(-k * (double)cp));
+    if (debug_mode) printf("[AI WDL] p_win (logistic)=%.4f\n", p_win);
 
     /* Draw probability heuristic: highest near equal, declines with large advantage */
     /* At cp=0: ~0.30 ; at cp=400: ~0.12 ; at cp=800: ~0.05 */
     double abs_cp = fabs((double)cp);
     double p_draw = 0.30 * exp(-abs_cp / 400.0);
+    if (debug_mode) printf("[AI WDL] p_draw (heuristic)=%.4f\n", p_draw);
 
     /* Normalize: allocate win/loss around draw */
     double p_nodraw = 1.0 - p_draw;
@@ -91,11 +104,13 @@ static void eval_to_wdl(Player analysis_side, bool is_mate, int mate_dist_white,
     double s = p_win_adj + p_draw + p_loss_adj;
     if (s <= 1e-9) {
         w = 0.5; d = 0.0; l = 0.5;
+        if (debug_mode) printf("[AI WDL] Numeric issue, using defaults\n");
     } else {
         w = p_win_adj / s;
         d = p_draw / s;
         l = p_loss_adj / s;
     }
+    if (debug_mode) printf("[AI WDL] Final WDL: w=%.4f, d=%.4f, l=%.4f\n", w, d, l);
 
     *out_w = w; *out_d = d; *out_l = l;
 }
@@ -176,10 +191,14 @@ struct _AiController {
     GMutex fen_mutex;
     char last_analysis_fen[256];
 
+    /* Generation tracking to prevent stale callbacks */
+    guint64 generation;
+
     /* Thread management & Communication */
     GAsyncQueue* move_queue;
     GThread* internal_listener;
     GThread* custom_listener;
+    GThread* curr_think_thread;
     bool listener_running;
 
     /* Throttling */
@@ -219,6 +238,7 @@ typedef struct {
     int mate_distance;
     int depth;
     char* best_move_uci;
+    guint64 generation;
 } AiDispatchData;
 
 /* ---------------------------
@@ -226,10 +246,14 @@ typedef struct {
 ---------------------------- */
 static void drain_engine_output(EngineHandle* engine) {
     if (!engine) return;
+    if (debug_mode) printf("[AI Engine] Draining engine output...\n");
+    int count = 0;
     char* resp;
     while ((resp = ai_engine_try_get_response(engine)) != NULL) {
+        count++;
         ai_engine_free_response(resp);
     }
+    if (debug_mode) printf("[AI Engine] Drained %d responses\n", count);
 }
 
 /* Forward Declarations */
@@ -239,17 +263,25 @@ static gpointer ai_engine_listener_thread(gpointer user_data);
    Listener management
 ---------------------------- */
 static void ensure_listener(AiController* controller, EngineHandle* engine, bool is_custom) {
-    if (!controller || !engine) return;
+    if (!controller || !engine) {
+        if (debug_mode) printf("[AI Listener] ensure_listener: NULL controller or engine\n");
+        return;
+    }
 
     GThread** slot = is_custom ? &controller->custom_listener : &controller->internal_listener;
-    if (slot && *slot != NULL) return;
+    if (slot && *slot != NULL) {
+        if (debug_mode) printf("[AI Listener] Listener already exists for %s engine\n", is_custom ? "custom" : "internal");
+        return;
+    }
 
+    if (debug_mode) printf("[AI Listener] Creating new listener for %s engine\n", is_custom ? "custom" : "internal");
     AiListenerData* data = g_new0(AiListenerData, 1);
     data->controller = controller;
     data->engine = engine;
 
     char* name = is_custom ? "ai-custom-listener" : "ai-internal-listener";
     *slot = g_thread_new(name, ai_engine_listener_thread, data);
+    if (debug_mode) printf("[AI Listener] Listener thread started: %s\n", name);
 }
 
 /* ---------------------------
@@ -264,6 +296,7 @@ static bool parse_uci_info_line(const char* line, ParsedInfo* out) {
     memset(out, 0, sizeof(*out));
 
     if (strncmp(line, "info ", 5) != 0) return false;
+    if (debug_mode) printf("[AI Parse] Parsing UCI info line: %s\n", line);
 
     /* Default multipv = 1 if not present */
     out->multipv = 1;
@@ -331,6 +364,8 @@ static bool parse_uci_info_line(const char* line, ParsedInfo* out) {
     }
 
     out->valid = true;
+    if (debug_mode) printf("[AI Parse] Parsed: multipv=%d, depth=%d, is_mate=%d, score_stm=%d, pv=%s\n",
+                           out->multipv, out->depth, out->is_mate, out->score_stm, out->pv_first_move);
     return true;
 }
 
@@ -417,7 +452,11 @@ static gboolean dispatch_eval_update(gpointer user_data) {
 
     AiController* ctrl = data->controller;
 
-    if (!ctrl || ctrl->destroyed) {
+    if (!ctrl || ctrl->destroyed || data->generation != ctrl->generation) {
+        if (debug_mode && data->generation != ctrl->generation) {
+           printf("[AI Controller] Discarding eval update from stale generation %llu (current %llu)\n", 
+                  data->generation, ctrl ? ctrl->generation : 0);
+        }
         g_free(data->fen);
         g_free(data->best_move_uci);
         g_free(data);
@@ -722,7 +761,8 @@ typedef struct {
     char* bestmove;
     AiMoveReadyCallback callback;
     gpointer user_data;
-    guint64 gen;
+    guint64 think_gen;
+    guint64 ctrl_gen;
 } AiResultData;
 
 static int g_ai_move_delay_ms = 250;
@@ -732,8 +772,14 @@ static gboolean apply_ai_move_idle(gpointer user_data) {
     if (!result) return FALSE;
 
     AiController* controller = result->controller;
-    if (!controller || controller->destroyed || !controller->logic) goto cleanup;
-    if (result->gen != controller->think_gen) goto cleanup;
+    if (!controller || controller->destroyed || !controller->logic || result->ctrl_gen != controller->generation) {
+        if (debug_mode && result->ctrl_gen != controller->generation) {
+            printf("[AI Controller] Discarding move result from stale generation %llu (current %llu)\n", 
+                   result->ctrl_gen, controller ? controller->generation : 0);
+        }
+        goto cleanup;
+    }
+    if (result->think_gen != controller->think_gen) goto cleanup;
 
     char current_fen[256];
     gamelogic_generate_fen(controller->logic, current_fen, sizeof(current_fen));
@@ -792,39 +838,52 @@ static gpointer ai_think_thread(gpointer user_data) {
     AiTaskData* data = (AiTaskData*)user_data;
     AiController* controller = data->controller;
 
+    if (debug_mode) printf("[AI Think] Thread started, gen=%llu\n", data->gen);
+    if (debug_mode) printf("[AI Think] FEN: %s\n", data->fen);
+    if (debug_mode) printf("[AI Think] Params: depth=%d, move_time=%d\n", data->params.depth, data->params.move_time_ms);
+
     char pos_cmd[512];
     snprintf(pos_cmd, sizeof(pos_cmd), "position fen %s", data->fen);
 
     if (data->nnue_enabled && data->nnue_path) {
+        if (debug_mode) printf("[AI Think] Enabling NNUE: %s\n", data->nnue_path);
         ai_engine_set_option(data->engine, "Use NNUE", "true");
         ai_engine_set_option(data->engine, "EvalFile", data->nnue_path);
     }
 
+    if (debug_mode) printf("[AI Think] Sending stop command\n");
     ai_engine_send_command(data->engine, "stop");
     
     // Drain queue for THIS engine just in case
     // Note: This is simpler now that listeners are constant
+    int drained = 0;
     while (g_async_queue_length(controller->move_queue) > 0) {
         char* old = g_async_queue_try_pop(controller->move_queue);
-        if (old) g_free(old);
+        if (old) { g_free(old); drained++; }
     }
+    if (debug_mode && drained > 0) printf("[AI Think] Drained %d old moves from queue\n", drained);
 
+    if (debug_mode) printf("[AI Think] Sending position: %s\n", pos_cmd);
     ai_engine_send_command(data->engine, pos_cmd);
 
     char go_cmd[128];
     if (data->params.depth > 0) snprintf(go_cmd, sizeof(go_cmd), "go depth %d", data->params.depth);
     else snprintf(go_cmd, sizeof(go_cmd), "go movetime %d", data->params.move_time_ms);
     
+    if (debug_mode) printf("[AI Think] Sending go command: %s\n", go_cmd);
     ai_engine_send_command(data->engine, go_cmd);
 
     // Wait for bestmove via QUEUE
     char* bestmove_str = NULL;
     gint64 timeout = (data->params.move_time_ms > 0) ? (data->params.move_time_ms + 5000) * 1000 : 30000000;
     
+    if (debug_mode) printf("[AI Think] Waiting for bestmove (timeout=%lld us)...\n", timeout);
     bestmove_str = g_async_queue_timeout_pop(controller->move_queue, timeout);
 
     /* stale generation guard */
     if (!controller || controller->destroyed || data->gen != controller->think_gen) {
+        if (debug_mode) printf("[AI Think] Stale generation or destroyed, aborting (gen=%llu, current=%llu)\n", 
+                               data->gen, controller ? controller->think_gen : 0);
         if (bestmove_str) g_free(bestmove_str);
         g_free(data->fen);
         g_free(data->nnue_path);
@@ -833,20 +892,25 @@ static gpointer ai_think_thread(gpointer user_data) {
     }
 
     if (bestmove_str && strncmp(bestmove_str, "bestmove ", 9) == 0) {
+        if (debug_mode) printf("[AI Think] Received bestmove: %s\n", bestmove_str);
         AiResultData* result = g_new0(AiResultData, 1);
         result->controller = controller;
         result->fen = data->fen;
         result->bestmove = g_strdup(bestmove_str + 9);
         result->callback = data->callback;
         result->user_data = data->user_data;
-        result->gen = data->gen;
+        result->think_gen = data->gen;
+        result->ctrl_gen = controller->generation;
 
+        if (debug_mode) printf("[AI Think] Scheduling move application (delay=%dms, move=%s)\n", 
+                               g_ai_move_delay_ms, result->bestmove);
         g_free(bestmove_str);
         g_free(data->nnue_path);
         g_free(data);
 
         g_timeout_add(g_ai_move_delay_ms, apply_ai_move_idle, result);
     } else {
+        if (debug_mode) printf("[AI Think] No valid bestmove received (timeout or invalid response)\n");
         if (controller && !controller->destroyed && data->gen == controller->think_gen) {
             controller->ai_thinking = false;
         }
@@ -856,6 +920,7 @@ static gpointer ai_think_thread(gpointer user_data) {
         g_free(data);
     }
 
+    if (debug_mode) printf("[AI Think] Thread exiting\n");
     return NULL;
 }
 
@@ -868,7 +933,11 @@ static void update_rating_snapshot_from_multipv(AiController* controller) {
     if (!controller) return;
 
     ParsedInfo* p1 = &controller->mp[0];
-    if (!p1->valid) return;
+    if (!p1->valid) {
+        if (debug_mode) printf("[AI Rating Snapshot] multipv1 not valid, skipping\n");
+        return;
+    }
+    if (debug_mode) printf("[AI Rating Snapshot] Updating from multipv1: depth=%d, score=%d\n", p1->depth, p1->score_stm);
 
     int score1_white = 0, mate1_white = 0;
     bool is_mate1 = false;
@@ -897,6 +966,7 @@ static void update_rating_snapshot_from_multipv(AiController* controller) {
     snap.second_move_uci[0] = '\0';
 
     if (controller->multipv_n >= 2 && controller->mp[1].valid) {
+        if (debug_mode) printf("[AI Rating Snapshot] multipv2 available\n");
         ParsedInfo* p2 = &controller->mp[1];
         int score2_white = 0, mate2_white = 0;
         bool is_mate2 = false;
@@ -907,10 +977,13 @@ static void update_rating_snapshot_from_multipv(AiController* controller) {
 
         snap.second_mover_eval = mover_perspective_eval(white_to_move, s2);
         if (p2->pv_first_move[0]) g_strlcpy(snap.second_move_uci, p2->pv_first_move, sizeof(snap.second_move_uci));
+        if (debug_mode) printf("[AI Rating Snapshot] second_move=%s, second_eval=%d\n", snap.second_move_uci, snap.second_mover_eval);
     }
 
     snap.valid = true;
 
+    if (debug_mode) printf("[AI Rating Snapshot] Snapshot complete: best=%s, best_eval=%d, second=%s, second_eval=%d\n",
+                           snap.best_move_uci, snap.best_mover_eval, snap.second_move_uci, snap.second_mover_eval);
     g_mutex_lock(&controller->fen_mutex);
     controller->latest_unthrottled_snapshot = snap;
     g_mutex_unlock(&controller->fen_mutex);
@@ -921,6 +994,7 @@ static void parse_info_line(AiController* controller, char* line) {
 
     ParsedInfo parsed;
     if (!parse_uci_info_line(line, &parsed)) return;
+    if (debug_mode) printf("[AI Analysis] Parsed info: multipv=%d, depth=%d\n", parsed.multipv, parsed.depth);
 
     int mpv = parsed.multipv;
     if (mpv < 1) mpv = 1;
@@ -955,7 +1029,12 @@ static void parse_info_line(AiController* controller, char* line) {
     int throttle_ms = ANALYSIS_THROTTLE_MS;
     gint64 throttle_us = (gint64)throttle_ms * 1000;
 
-    if (!urgent && (now - controller->last_dispatch_time) < throttle_us) return;
+    if (!urgent && (now - controller->last_dispatch_time) < throttle_us) {
+        if (debug_mode) printf("[AI Analysis] Throttling dispatch (not urgent, time since last=%.1fms)\n", 
+                               (now - controller->last_dispatch_time) / 1000.0);
+        return;
+    }
+    if (debug_mode) printf("[AI Analysis] Dispatching eval update (urgent=%d, score=%d, mate=%d)\n", urgent, score_white, is_mate);
 
     controller->last_dispatch_time = now;
     controller->last_dispatch_score = score_white;
@@ -972,6 +1051,7 @@ static void parse_info_line(AiController* controller, char* line) {
     data->mate_distance = mate_dist_white;
     data->depth = parsed.depth;
     if (parsed.pv_first_move[0]) data->best_move_uci = g_strdup(parsed.pv_first_move);
+    data->generation = controller->generation;
 
     g_idle_add(dispatch_eval_update, data);
 }
@@ -982,17 +1062,21 @@ static gpointer ai_engine_listener_thread(gpointer user_data) {
     EngineHandle* engine = data->engine;
 
     if (debug_mode) printf("[AI Listener] Started persistent listener for engine %p\n", engine);
+    int response_count = 0;
 
     while (controller && controller->listener_running && !controller->destroyed) {
         char* response = ai_engine_try_get_response(engine);
+        if (response) response_count++;
         if (response) {
             if (strncmp(response, "info ", 5) == 0) {
                 // Analysis output
                 if (controller->analysis_engine == engine && controller->analysis_running) {
+                    if (debug_mode && response_count % 50 == 0) printf("[AI Listener] Processed %d responses\n", response_count);
                     parse_info_line(controller, response);
                 }
             } else if (strncmp(response, "bestmove ", 9) == 0) {
                 // Search result - push to queue for whichever thread is waiting
+                if (debug_mode) printf("[AI Listener] Received bestmove, pushing to queue: %s\n", response);
                 g_async_queue_push(controller->move_queue, g_strdup(response));
             }
             ai_engine_free_response(response);
@@ -1010,11 +1094,15 @@ static gpointer ai_engine_listener_thread(gpointer user_data) {
    Public API
 ---------------------------- */
 AiController* ai_controller_new(GameLogic* logic, AiDialog* ai_dialog) {
-    if (!logic || !ai_dialog) return NULL;
+    if (!logic) return NULL;
+    static guint64 global_gen = 0;
 
     AiController* controller = g_new0(AiController, 1);
     controller->logic = logic;
     controller->ai_dialog = ai_dialog;
+    controller->generation = ++global_gen;
+
+    if (debug_mode) printf("[AI Controller] New: logic=%p, ai_dialog=%p, generation=%llu\n", logic, ai_dialog, controller->generation);
 
     controller->move_queue = g_async_queue_new_full(g_free);
     controller->listener_running = true;
@@ -1025,6 +1113,10 @@ AiController* ai_controller_new(GameLogic* logic, AiDialog* ai_dialog) {
     /* defaults */
     controller->multipv_n = 3;
     memset(controller->mp, 0, sizeof(controller->mp));
+    
+    /* Initialize mutex */
+    g_mutex_init(&controller->fen_mutex);
+    if (debug_mode) printf("[AI Controller] Mutex initialized\n");
 
     return controller;
 }
@@ -1051,12 +1143,18 @@ void ai_controller_free(AiController* controller) {
     if (controller->custom_listener) {
         g_thread_join(controller->custom_listener);
     }
+    if (controller->curr_think_thread) {
+        if (debug_mode) printf("[AI Controller] Joining think thread...\n");
+        g_thread_join(controller->curr_think_thread);
+        controller->curr_think_thread = NULL;
+    }
 
     if (controller->move_queue) {
         g_async_queue_unref(controller->move_queue);
     }
 
     g_mutex_clear(&controller->fen_mutex);
+    if (debug_mode) printf("[AI Controller] Freed generation %llu\n", controller->generation);
     g_free(controller);
 }
 
@@ -1066,7 +1164,12 @@ void ai_controller_request_move(AiController* controller,
                                 const char* custom_path,
                                 AiMoveReadyCallback callback,
                                 gpointer user_data) {
-    if (!controller || controller->ai_thinking) return;
+    if (!controller || controller->ai_thinking) {
+        if (debug_mode) printf("[AI Controller] request_move: already thinking or NULL controller\n");
+        return;
+    }
+    if (debug_mode) printf("[AI Controller] request_move: use_custom=%d, depth=%d, time=%d\n", 
+                           use_custom, params.depth, params.move_time_ms);
 
     char* fen = g_malloc0(256);
     gamelogic_generate_fen(controller->logic, fen, 256);
@@ -1112,8 +1215,13 @@ void ai_controller_request_move(AiController* controller,
     if (nn_path) data->nnue_path = g_strdup(nn_path);
     data->nnue_enabled = nnue_enabled;
 
-    GThread* thread = g_thread_new("ai-think", ai_think_thread, data);
-    g_thread_unref(thread);
+    /* Clean up any old think thread reference if it finished (it unrefs itself if detached, but we won't detach) */
+    if (controller->curr_think_thread) {
+        // Technically we can't join here because it might be busy, but since it's one-at-a-time...
+        // For simplicity, just overwrite. But better to manage properly.
+    }
+
+    controller->curr_think_thread = g_thread_new("ai-think", ai_think_thread, data);
 }
 
 void ai_controller_stop(AiController* controller) {
@@ -1130,8 +1238,12 @@ void ai_controller_stop(AiController* controller) {
 bool ai_controller_start_analysis(AiController* controller, bool use_custom, const char* custom_path) {
     if (!controller) return false;
 
+    if (debug_mode) printf("[AI Analysis] start_analysis: use_custom=%d, path=%s\n", 
+                           use_custom, custom_path ? custom_path : "(null)");
+
     AppConfig* cfg = config_get();
     if (!cfg || !cfg->enable_live_analysis || (controller->logic && controller->logic->isGameOver)) {
+        if (debug_mode) printf("[AI Analysis] Analysis disabled or game over\n");
         if (controller->analysis_running) ai_controller_stop_analysis(controller, false);
         return false;
     }
@@ -1167,6 +1279,7 @@ bool ai_controller_start_analysis(AiController* controller, bool use_custom, con
     /* If already analyzing same position, do nothing */
     if (can_reuse_engine) {
         if (strcmp(controller->last_analysis_fen, current_fen) == 0 && controller->analysis_running) {
+            if (debug_mode) printf("[AI Analysis] Already analyzing same position, skipping\n");
             return true;
         }
     }
@@ -1225,9 +1338,11 @@ bool ai_controller_start_analysis(AiController* controller, bool use_custom, con
     char pos_cmd[512];
     snprintf(pos_cmd, sizeof(pos_cmd), "position fen %s", current_fen);
 
+    if (debug_mode) printf("[AI Analysis] Stopping previous analysis\n");
     ai_engine_send_command(controller->analysis_engine, "stop");
     drain_engine_output(controller->analysis_engine);
 
+    if (debug_mode) printf("[AI Analysis] Starting infinite analysis: %s\n", pos_cmd);
     ai_engine_send_command(controller->analysis_engine, pos_cmd);
     ai_engine_send_command(controller->analysis_engine, "go infinite");
 
@@ -1237,9 +1352,11 @@ bool ai_controller_start_analysis(AiController* controller, bool use_custom, con
 void ai_controller_stop_analysis(AiController* controller, bool free_engine) {
     if (!controller) return;
 
+    if (debug_mode) printf("[AI Analysis] stop_analysis: free_engine=%d\n", free_engine);
     controller->analysis_running = false;
 
     if (controller->analysis_engine) {
+        if (debug_mode) printf("[AI Analysis] Sending stop command to engine\n");
         ai_engine_send_command(controller->analysis_engine, "stop");
     }
 
@@ -1301,6 +1418,8 @@ void ai_controller_set_analysis_side(AiController* controller, Player side) {
 
 void ai_controller_mark_human_move_begin(AiController* controller, const char* played_move_uci) {
     if (!controller) return;
+    if (debug_mode) printf("[AI Controller] mark_human_move_begin: played_move=%s\n", 
+                           played_move_uci ? played_move_uci : "(null)");
 
     /* Prefer unthrottled snapshot; fallback to current snapshot */
     g_mutex_lock(&controller->fen_mutex);

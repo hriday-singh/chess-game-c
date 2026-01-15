@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+static bool debug_mode = true;
+
 // Forward decl for internal timer
 static gboolean replay_timer_callback(gpointer user_data);
 
@@ -135,10 +137,12 @@ void replay_controller_load_match(ReplayController* self, const char* san_moves,
     g_string_free(clean_moves, TRUE);
     
     // Initialize highlighting to first move (ply 0)
-    if (self->app_state && self->app_state->gui.right_side_panel && self->total_moves > 0) {
-        right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, 0);
+    if (self->app_state && self->app_state->gui.right_side_panel) {
+        right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, -1);
     }
     
+    // Update UI immediately to show correct move count
+    if(debug_mode) printf("[ReplayController] Updating UI\n");
     replay_ui_update(self);
 }
 
@@ -151,9 +155,12 @@ void replay_controller_start(ReplayController* self) {
         gamelogic_reset(self->logic);
     }
     if (self->app_state) {
+         board_widget_reset_selection(self->app_state->gui.board);
+         board_widget_set_last_move(self->app_state->gui.board, -1, -1, -1, -1); // Clear highlights at start
          board_widget_refresh(self->app_state->gui.board);
          if (self->app_state->gui.right_side_panel) {
-             right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, -1);
+            int hl = (self->current_ply > 0) ? (self->current_ply - 1) : -1;
+             right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, hl);
          }
     }
     replay_ui_update(self);
@@ -163,18 +170,21 @@ void replay_controller_exit(ReplayController* self) {
     if (!self) return;
     replay_controller_pause(self);
     // Cleanup is handled by caller usually setting is_replaying = false
+    if (self->app_state && self->app_state->gui.right_side_panel) {
+        right_side_panel_set_replay_lock(self->app_state->gui.right_side_panel, false);
+    }
 }
 
 void replay_controller_play(ReplayController* self) {
     if (!self || self->is_playing) return;
-    
-    // If at end, wrap to start? No, just stop or stay.
+
+    if (self->app_state && self->app_state->gui.right_side_panel) {
+        right_side_panel_set_replay_lock(self->app_state->gui.right_side_panel, true);
+    }
+
+    // If at end, restart from beginning
     if (self->current_ply >= self->total_moves) {
-        // Option: Auto-restart? Or just do nothing.
-        // Let's restart if at end?
-        // replay_controller_seek(self, 0); 
-        // User prefers manual control likely.
-        return;
+        replay_controller_start(self);
     }
     
     self->is_playing = true;
@@ -190,7 +200,11 @@ void replay_controller_play(ReplayController* self) {
 
 void replay_controller_pause(ReplayController* self) {
     if (!self || !self->is_playing) return;
-    
+
+    if (self->app_state && self->app_state->gui.right_side_panel) {
+        right_side_panel_set_replay_lock(self->app_state->gui.right_side_panel, false);
+    }
+ 
     self->is_playing = false;
     if (self->timer_id > 0) {
         g_source_remove(self->timer_id);
@@ -212,7 +226,7 @@ bool replay_controller_is_playing(ReplayController* self) {
 
 void replay_controller_set_speed(ReplayController* self, int ms) {
     if (!self) return;
-    if (ms < 250) ms = 250; // Limit
+    if (ms < 350) ms = 350; // Minimum speed limit
     if (ms > 5000) ms = 5000;
     
     self->speed_ms = ms;
@@ -247,10 +261,20 @@ void replay_controller_next(ReplayController* self) {
         replay_controller_pause(self);
     }
     
-    // Update Sync
-    if (self->app_state && self->app_state->gui.right_side_panel) {
-        right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, self->current_ply - 1);
+    // Clear board selection/highlights
+    if (self->app_state && self->app_state->gui.board) {
+        board_widget_reset_selection(self->app_state->gui.board);
+        // Set yellow highlight for the move we just made
+        if (next_move) {
+            int fromRow = next_move->from_sq / 8, fromCol = next_move->from_sq % 8;
+            int toRow = next_move->to_sq / 8, toCol = next_move->to_sq % 8;
+            board_widget_set_last_move(self->app_state->gui.board, fromRow, fromCol, toRow, toCol);
+        }
     }
+    
+    // Update Sync
+    int hl = (self->current_ply > 0) ? (self->current_ply - 1) : -1;
+    right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, hl);
     replay_ui_update(self);
 }
 
@@ -258,6 +282,20 @@ void replay_controller_prev(ReplayController* self) {
     if (self->current_ply <= 0) return;
     
     self->current_ply--;
+    if (self->app_state) {
+        board_widget_reset_selection(self->app_state->gui.board);
+        // Set yellow highlight for position we are GOING to
+        if (self->current_ply > 0 && self->moves && self->current_ply <= self->total_moves) {
+            Move* currentMove = self->moves[self->current_ply - 1];
+            int fromRow = currentMove->from_sq / 8, fromCol = currentMove->from_sq % 8;
+            int toRow = currentMove->to_sq / 8, toCol = currentMove->to_sq % 8;
+            board_widget_set_last_move(self->app_state->gui.board, fromRow, fromCol, toRow, toCol);
+        } else {
+            // At start, clear highlights
+            board_widget_set_last_move(self->app_state->gui.board, -1, -1, -1, -1);
+        }
+    }
+
     if (self->snapshots) {
         gamelogic_restore_snapshot(self->logic, &self->snapshots[self->current_ply]);
     } else {
@@ -267,7 +305,8 @@ void replay_controller_prev(ReplayController* self) {
     if (self->app_state) {
         board_widget_refresh(self->app_state->gui.board);
         if (self->app_state->gui.right_side_panel) {
-            right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, self->current_ply - 1);
+            int hl = (self->current_ply > 0) ? (self->current_ply - 1) : -1;
+            right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, hl);
         }
     }
     replay_ui_update(self);
@@ -280,6 +319,20 @@ void replay_controller_seek(ReplayController* self, int ply) {
     
     replay_controller_pause(self);
     
+    if (self->app_state) {
+        board_widget_reset_selection(self->app_state->gui.board);
+        // Set yellow highlight for position we are GOING to
+        if (ply > 0 && self->moves && ply <= self->total_moves) {
+            Move* currentMove = self->moves[ply - 1];
+            int fromRow = currentMove->from_sq / 8, fromCol = currentMove->from_sq % 8;
+            int toRow = currentMove->to_sq / 8, toCol = currentMove->to_sq % 8;
+            board_widget_set_last_move(self->app_state->gui.board, fromRow, fromCol, toRow, toCol);
+        } else {
+            // At start, clear highlights
+            board_widget_set_last_move(self->app_state->gui.board, -1, -1, -1, -1);
+        }
+    }
+
     if (self->snapshots) {
         gamelogic_restore_snapshot(self->logic, &self->snapshots[ply]);
         self->current_ply = ply;
@@ -302,7 +355,8 @@ void replay_controller_seek(ReplayController* self, int ply) {
     if (self->app_state) {
         board_widget_refresh(self->app_state->gui.board);
         if (self->app_state->gui.right_side_panel) {
-            right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, self->current_ply - 1);
+            int hl = (self->current_ply > 0) ? (self->current_ply - 1) : -1;
+            right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, hl);
         }
     }
     replay_ui_update(self);

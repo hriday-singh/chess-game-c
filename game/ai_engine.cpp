@@ -19,7 +19,8 @@
 #include <fcntl.h>
 #endif
 
-static bool debug_mode = false;
+static bool debug_mode = true;
+const uint64_t ENGINE_MAGIC = 0xACE11EUL;
 
 using namespace Stockfish;
 
@@ -34,6 +35,7 @@ static void log_ram_usage(const char* context) {
 }
 
 struct EngineHandle {
+    uint64_t magic;
     bool is_internal;
     std::atomic<bool> running{false};
     
@@ -55,6 +57,9 @@ struct EngineHandle {
     gint stdout_pipe;
     GIOChannel* out_channel;
     std::thread reader_thread;
+
+    EngineHandle() : magic(ENGINE_MAGIC) {}
+    ~EngineHandle() { magic = 0; }
 };
 
 // Internal streambufs
@@ -94,6 +99,7 @@ protected:
             current_line.clear();
             handle->output_cv.notify_all();
         } else {
+            std::lock_guard<std::mutex> lock(buf_mutex);
             current_line += (char)c;
         }
         return c;
@@ -101,6 +107,7 @@ protected:
 private:
     EngineHandle* handle;
     std::string current_line;
+    std::mutex buf_mutex;
 };
 
 static void internal_engine_main(EngineHandle* handle) {
@@ -245,7 +252,14 @@ void ai_engine_cleanup(EngineHandle* handle) {
 }
 
 void ai_engine_send_command(EngineHandle* handle, const char* command) {
-    if (!handle || !command) return;
+    if (!handle) return;
+    if (handle->magic != ENGINE_MAGIC) {
+        fprintf(stderr, "[Engine CRITICAL] send_command: Invalid handle %p (magic=0x%llx)\n", handle, handle->magic);
+        return;
+    }
+    if (!command) return;
+
+    if (debug_mode) printf("[Engine] Sending command: %s\n", command);
 
     if (handle->is_internal) {
         std::lock_guard<std::mutex> lock(handle->input_mutex);
