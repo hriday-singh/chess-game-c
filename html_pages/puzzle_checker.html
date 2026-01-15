@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Robust Chess Puzzle Validator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <style>
+        :root { --bg: #f8f9fa; --pass: #d4edda; --pass-text: #155724; --fail: #f8d7da; --fail-text: #721c24; }
+        body { font-family: sans-serif; padding: 20px; background: var(--bg); display: flex; gap: 20px; height: 95vh; box-sizing: border-box; }
+        .column { flex: 1; display: flex; flex-direction: column; }
+        textarea { flex: 1; padding: 15px; border: 1px solid #ccc; border-radius: 5px; font-family: monospace; resize: none; font-size: 12px; }
+        .output { flex: 1; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 5px; padding: 10px; }
+        button { padding: 15px; margin-bottom: 10px; background: #007bff; color: white; border: none; font-size: 16px; cursor: pointer; border-radius: 5px; }
+        button:hover { background: #0056b3; }
+        
+        .card { border: 1px solid #eee; padding: 10px; margin-bottom: 10px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .card.pass { background-color: white; border-left: 5px solid #28a745; }
+        .card.fail { background-color: white; border-left: 5px solid #dc3545; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .title { font-weight: bold; font-size: 1.1em; }
+        .badge { padding: 3px 8px; border-radius: 4px; font-size: 0.8em; font-weight: bold; text-transform: uppercase; }
+        .badge-pass { background: var(--pass); color: var(--pass-text); }
+        .badge-fail { background: var(--fail); color: var(--fail-text); }
+        .meta { font-family: monospace; font-size: 0.85em; color: #666; margin-top: 5px; word-break: break-all; }
+        .error { color: #dc3545; font-weight: bold; margin-top: 5px; font-size: 0.9em; }
+        .success-msg { color: #28a745; font-size: 0.9em; margin-top: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="column">
+    <h3>1. Paste C Code</h3>
+    <textarea id="input" placeholder="Paste static const Puzzle builtin_puzzles[] here..."></textarea>
+    <button onclick="processPuzzles()">Validate Puzzles</button>
+</div>
+
+<div class="column">
+    <h3>2. Validation Report</h3>
+    <div id="output" class="output">Ready to validate...</div>
+</div>
+
+<script>
+    // 1. ROBUST PARSER
+    // Instead of matching the whole block, we match the sequential fields.
+    // This ignores the nesting of curly braces.
+    function parseSourceCode(text) {
+        // Remove C-style comments to clean up the text
+        const cleanText = text.replace(/\/\/[^\n]*/g, '');
+        
+        const puzzles = [];
+        // Regex looks for .title, then .fen, then .solution_moves in sequence
+        // [^;]+ matches everything until the end of the line or next field roughly
+        const regex = /\.title\s*=\s*"([^"]+)"[^]*?\.fen\s*=\s*"([^"]+)"[^]*?\.solution_moves\s*=\s*\{([^}]+)\}/g;
+        
+        let match;
+        while ((match = regex.exec(cleanText)) !== null) {
+            const rawMoves = match[3];
+            // Split moves by comma, strip quotes and whitespace
+            const moves = rawMoves.split(',')
+                .map(m => m.replace(/["\s\n]/g, ''))
+                .filter(m => m.length > 0);
+
+            puzzles.push({
+                title: match[1],
+                fen: match[2],
+                moves: moves
+            });
+        }
+        return puzzles;
+    }
+
+    // 2. VALIDATION LOGIC
+    function validate(p, index) {
+        const result = { id: index + 1, title: p.title, fen: p.fen, errors: [], passed: false, info: "" };
+        const chess = new Chess();
+
+        // A. Check FEN Syntax
+        const validObj = chess.validate_fen(p.fen);
+        if (!validObj.valid) {
+            result.errors.push("Invalid FEN: " + validObj.error);
+            return result;
+        }
+
+        // B. Load Board
+        if (!chess.load(p.fen)) {
+            result.errors.push("Chess.js refused to load position (Illegal setup).");
+            return result;
+        }
+
+        // C. Check Immediate Mate
+        if (chess.in_checkmate()) {
+            result.errors.push("Illegal Start: Position is ALREADY Checkmate.");
+            return result;
+        }
+
+        // D. Simulate Moves
+        for (let i = 0; i < p.moves.length; i++) {
+            const moveStr = p.moves[i];
+            
+            // Convert C string "e2e4" to object {from: 'e2', to: 'e4'}
+            const fromSq = moveStr.substring(0, 2);
+            const toSq = moveStr.substring(2, 4);
+            const promo = moveStr.length === 5 ? moveStr.substring(4, 5) : undefined;
+
+            const move = chess.move({ from: fromSq, to: toSq, promotion: promo });
+
+            if (move === null) {
+                // Generate a helpful error message
+                const turn = chess.turn() === 'w' ? "White" : "Black";
+                const piece = chess.get(fromSq);
+                const pieceType = piece ? piece.type : "Empty Square";
+                result.errors.push(`Illegal Move ${i+1} (${moveStr}): ${turn} to move. Square ${fromSq} contains ${pieceType}. Target ${toSq}.`);
+                return result;
+            }
+        }
+
+        // E. Check End State
+        if (chess.in_checkmate()) {
+            result.passed = true;
+            result.info = "Ends in Checkmate";
+        } else if (chess.in_check()) {
+            // Some puzzles just end in material win, not mate
+            result.passed = true;
+            result.info = "Ends in Check (Material Win?)";
+        } else if (chess.in_draw()) {
+            result.errors.push("Ends in Draw/Stalemate.");
+        } else {
+            result.passed = true;
+            result.info = "Legal sequence (Quiet finish)";
+        }
+
+        return result;
+    }
+
+    function processPuzzles() {
+        const text = document.getElementById('input').value;
+        const out = document.getElementById('output');
+        
+        if (!text) { out.innerHTML = "Please paste code."; return; }
+
+        const puzzles = parseSourceCode(text);
+        if (puzzles.length === 0) {
+            out.innerHTML = `<div style="color:red">No puzzles found. The parser expects fields in this order: .title, .fen, .solution_moves.</div>`;
+            return;
+        }
+
+        let html = `<div>Found <strong>${puzzles.length}</strong> puzzles.</div><br>`;
+
+        puzzles.forEach((p, i) => {
+            const res = validate(p, i);
+            const cls = res.errors.length === 0 ? 'pass' : 'fail';
+            const badge = res.errors.length === 0 ? 'PASS' : 'FAIL';
+            const badgeCls = res.errors.length === 0 ? 'badge-pass' : 'badge-fail';
+
+            html += `
+            <div class="card ${cls}">
+                <div class="header">
+                    <span class="title">${res.id}. ${res.title}</span>
+                    <span class="badge ${badgeCls}">${badge}</span>
+                </div>
+                <div class="meta">${res.fen}</div>
+                <div class="meta" style="color:#444">Moves: ${p.moves.join(', ')}</div>
+                
+                ${res.errors.map(e => `<div class="error">❌ ${e}</div>`).join('')}
+                ${res.info ? `<div class="success-msg">✅ ${res.info}</div>` : ''}
+            </div>
+            `;
+        });
+
+        out.innerHTML = html;
+    }
+</script>
+
+</body>
+</html>

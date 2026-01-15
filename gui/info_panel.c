@@ -139,7 +139,7 @@ typedef struct {
     struct {
         GtkWidget* box;
         GtkWidget* play_pause_btn;
-        GtkWidget* stop_btn;
+        // Stop button removed
         GtkWidget* prev_btn;
         GtkWidget* next_btn;
         GtkWidget* start_btn;
@@ -151,6 +151,9 @@ typedef struct {
         GtkWidget* speed_label;
         GtkWidget* anim_check;
         GtkWidget* sfx_check;
+        
+        // Playback slider
+        GtkWidget* playback_slider;
         
         // Replay specific capture boxes
         GtkWidget* black_label;
@@ -166,7 +169,7 @@ typedef struct {
 
 // Replay UI Callbacks
 static void on_replay_play_pause_clicked(GtkButton* btn, gpointer user_data);
-static void on_replay_stop_clicked(GtkButton* btn, gpointer user_data);
+// Stop callback removed
 static void on_replay_speed_changed(GtkRange* range, gpointer user_data);
 static void on_replay_start_here_clicked(GtkButton* btn, gpointer user_data);
 static void on_replay_prev_clicked(GtkButton* btn, gpointer user_data);
@@ -174,6 +177,7 @@ static void on_replay_next_clicked(GtkButton* btn, gpointer user_data);
 static void on_replay_start_clicked(GtkButton* btn, gpointer user_data);
 static void on_replay_end_clicked(GtkButton* btn, gpointer user_data);
 static void on_replay_exit_clicked(GtkButton* btn, gpointer user_data);
+static void on_replay_slider_value_changed(GtkRange* range, gpointer user_data);
 
 // Forward declarations
 static GtkWidget* create_piece_widget(InfoPanel* panel, PieceType type, Player owner);
@@ -343,7 +347,7 @@ static void update_captured_pieces(InfoPanel* panel) {
     // Get captured pieces from game logic
     gamelogic_get_captured_pieces(panel->logic, PLAYER_WHITE, panel->white_captures);
     gamelogic_get_captured_pieces(panel->logic, PLAYER_BLACK, panel->black_captures);
-    
+
     // Clear the capture boxes (GtkBox) - remove all children
     GtkWidget* child = gtk_widget_get_first_child(panel->white_captures_box);
     while (child) {
@@ -925,7 +929,7 @@ static void on_game_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_
         if (toplevel) {
             GtkApplication* app = gtk_window_get_application(GTK_WINDOW(toplevel));
             if (app && G_IS_ACTION_GROUP(app)) {
-                g_action_group_activate_action(G_ACTION_GROUP(app), "puzzles", NULL);
+                g_action_group_activate_action(G_ACTION_GROUP(app), "open-puzzles", NULL);
             } else {
                 printf("[InfoPanel] ERROR: Application not valid for launching puzzles!\n");
             }
@@ -1026,8 +1030,7 @@ static void info_panel_destroy(GtkWidget* widget, gpointer user_data) {
     }
 }
 
-// Forward declaration for click handler
-static void on_puzzle_list_click(GtkGestureClick* gesture, int n_press, double x, double y, gpointer user_data);
+// Forward declaration removed (unused)
 
 GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* theme) {
     InfoPanel* panel = (InfoPanel*)calloc(1, sizeof(InfoPanel));
@@ -1084,16 +1087,35 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(desc_scroll), panel->puzzle_ui.desc_label);
     
     gtk_box_append(GTK_BOX(panel->puzzle_ui.box), desc_scroll);
+
+    // Separator
+    gtk_box_append(GTK_BOX(panel->puzzle_ui.box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     
     panel->puzzle_ui.status_label = gtk_label_new("");
     gtk_widget_set_margin_bottom(panel->puzzle_ui.status_label, 10);
+    gtk_widget_set_margin_top(panel->puzzle_ui.status_label, 10);
+    // Style status label
+    PangoAttrList* status_attrs = pango_attr_list_new();
+    pango_attr_list_insert(status_attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
+    pango_attr_list_insert(status_attrs, pango_attr_size_new(12 * PANGO_SCALE));
+    gtk_label_set_attributes(GTK_LABEL(panel->puzzle_ui.status_label), status_attrs);
+    pango_attr_list_unref(status_attrs);
+    
+    // Ensure text wraps instead of expanding width
+    gtk_label_set_wrap(GTK_LABEL(panel->puzzle_ui.status_label), TRUE);
+    gtk_label_set_max_width_chars(GTK_LABEL(panel->puzzle_ui.status_label), 25);
+    
     gtk_box_append(GTK_BOX(panel->puzzle_ui.box), panel->puzzle_ui.status_label);
     
+    // Separator
+    gtk_box_append(GTK_BOX(panel->puzzle_ui.box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+
     // Puzzle List (Embedded)
     panel->puzzle_ui.puzzle_scroll = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(panel->puzzle_ui.puzzle_scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_widget_set_size_request(panel->puzzle_ui.puzzle_scroll, -1, 250); // Fixed height for list
     gtk_widget_set_vexpand(panel->puzzle_ui.puzzle_scroll, FALSE);
+    gtk_widget_set_margin_top(panel->puzzle_ui.puzzle_scroll, 10);
     gtk_box_append(GTK_BOX(panel->puzzle_ui.box), panel->puzzle_ui.puzzle_scroll);
     
     panel->puzzle_ui.puzzle_list_box = gtk_list_box_new();
@@ -1101,15 +1123,27 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_widget_add_css_class(panel->puzzle_ui.puzzle_list_box, "sidebar");
     gtk_list_box_set_activate_on_single_click(GTK_LIST_BOX(panel->puzzle_ui.puzzle_list_box), TRUE);
     
-    // Gesture removed to prevent double-activation (listbox handles default click)
-    // Re-adding a robust click handler to ensure activation works even if listbox misses it
-    GtkGesture* puzzle_click_gesture = gtk_gesture_click_new();
-    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(puzzle_click_gesture), 0);
-    g_signal_connect(puzzle_click_gesture, "released", G_CALLBACK(on_puzzle_list_click), panel->puzzle_ui.puzzle_list_box);
-    gtk_widget_add_controller(panel->puzzle_ui.puzzle_list_box, GTK_EVENT_CONTROLLER(puzzle_click_gesture));
+    // Gesture removed to prevent double-activation and GTK critical errors.
+    // relying on gtk_list_box_set_activate_on_single_click(..., TRUE)
     
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(panel->puzzle_ui.puzzle_scroll), panel->puzzle_ui.puzzle_list_box);
     
+    // Visual Toggles for Puzzle Mode
+    GtkWidget* puz_visuals = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_widget_set_margin_top(puz_visuals, 10);
+    
+    GtkWidget* puz_anim_check = gtk_check_button_new_with_label("Enable Animations");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(puz_anim_check), config_get()->enable_animations);
+    g_signal_connect(puz_anim_check, "toggled", G_CALLBACK(on_animations_toggled), panel);
+    gtk_box_append(GTK_BOX(puz_visuals), puz_anim_check);
+    
+    GtkWidget* puz_sfx_check = gtk_check_button_new_with_label("Enable SFX");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(puz_sfx_check), config_get()->enable_sfx);
+    g_signal_connect(puz_sfx_check, "toggled", G_CALLBACK(on_sfx_toggled), panel);
+    gtk_box_append(GTK_BOX(puz_visuals), puz_sfx_check);
+    
+    gtk_box_append(GTK_BOX(panel->puzzle_ui.box), puz_visuals);
+
     GtkWidget* puz_btns = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
     gtk_widget_set_halign(puz_btns, GTK_ALIGN_CENTER);
     gtk_widget_set_margin_top(puz_btns, 10);
@@ -1180,6 +1214,22 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     gtk_box_append(GTK_BOX(panel->tutorial_ui.box), panel->tutorial_ui.instruction_label);
 
     // Tutorial Buttons (Reset and Exit)
+    // Visual Toggles for Tutorial Mode
+    GtkWidget* tut_visuals = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_widget_set_margin_top(tut_visuals, 10);
+    
+    GtkWidget* tut_anim_check = gtk_check_button_new_with_label("Enable Animations");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(tut_anim_check), config_get()->enable_animations);
+    g_signal_connect(tut_anim_check, "toggled", G_CALLBACK(on_animations_toggled), panel);
+    gtk_box_append(GTK_BOX(tut_visuals), tut_anim_check);
+    
+    GtkWidget* tut_sfx_check = gtk_check_button_new_with_label("Enable SFX");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(tut_sfx_check), config_get()->enable_sfx);
+    g_signal_connect(tut_sfx_check, "toggled", G_CALLBACK(on_sfx_toggled), panel);
+    gtk_box_append(GTK_BOX(tut_visuals), tut_sfx_check);
+    
+    gtk_box_append(GTK_BOX(panel->tutorial_ui.box), tut_visuals);
+
     GtkWidget* tut_btns = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
     gtk_widget_set_halign(tut_btns, GTK_ALIGN_CENTER);
     gtk_widget_set_margin_top(tut_btns, 15);
@@ -1735,28 +1785,26 @@ void info_panel_add_puzzle_to_list(GtkWidget* info_panel, const char* title, int
 // Forward declaration
 static void on_puzzle_list_row_activated(GtkListBox* box, GtkListBoxRow* row, gpointer user_data);
 
-static void on_puzzle_list_click(GtkGestureClick* gesture, int n_press, double x, double y, gpointer user_data) {
-    (void)gesture; (void)n_press; (void)x;
-    GtkListBox* box = GTK_LIST_BOX(user_data);
-    if (!box) return;
+void info_panel_set_puzzle_list_callback(GtkWidget* info_panel, GCallback on_selected, gpointer user_data) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (!panel || !panel->puzzle_ui.puzzle_list_box) return;
+
+    // Store callback and data on the list box itself so the internal handler can find it
+    g_object_set_data(G_OBJECT(panel->puzzle_ui.puzzle_list_box), "on-selected-cb", (gpointer)on_selected);
+    g_object_set_data(G_OBJECT(panel->puzzle_ui.puzzle_list_box), "on-selected-data", user_data);
     
-    GtkListBoxRow* row = gtk_list_box_get_row_at_y(box, (int)y);
-    if (row) {
-        // Manually trigger activation
-        gtk_list_box_select_row(box, row);
-        on_puzzle_list_row_activated(box, row, NULL);
-    }
+    // Connect internal handler (ensure single connection)
+    g_signal_handlers_disconnect_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL);
+    g_signal_connect(panel->puzzle_ui.puzzle_list_box, "row-activated", G_CALLBACK(on_puzzle_list_row_activated), NULL);
 }
+
 
 void info_panel_highlight_puzzle(GtkWidget* info_panel, int index) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
     if (!panel || !panel->puzzle_ui.puzzle_list_box) return;
-
     
     // Block signals to prevent recursion!
-    if (g_signal_handlers_disconnect_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL) > 0) {
-        g_signal_handlers_block_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL);
-    }
+    g_signal_handlers_block_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL);
 
     // Loop through rows to find matching index
     GtkWidget* child = gtk_widget_get_first_child(panel->puzzle_ui.puzzle_list_box);
@@ -1810,10 +1858,9 @@ static void on_puzzle_list_row_activated(GtkListBox* box, GtkListBoxRow* row, gp
         GtkWidget* child = gtk_list_box_row_get_child(row);
         if (child && G_IS_OBJECT(child)) {
             gpointer idx_ptr = g_object_get_data(G_OBJECT(child), "puzzle-index");
-            if (idx_ptr != NULL) {
-                 int idx = GPOINTER_TO_INT(idx_ptr);
-                 callback(idx, cb_data);
-            }
+            // Direct cast handles NULL (0) correctly as index 0
+            int idx = GPOINTER_TO_INT(idx_ptr);
+            callback(idx, cb_data);
         }
     }
 }
@@ -1852,18 +1899,6 @@ void info_panel_set_tutorial_callbacks(GtkWidget* info_panel, GCallback on_reset
         g_signal_handlers_disconnect_by_func(panel->tutorial_ui.exit_btn, on_exit, user_data);
         g_signal_connect(panel->tutorial_ui.exit_btn, "clicked", on_exit, user_data);
     }
-}
-
-void info_panel_set_puzzle_list_callback(GtkWidget* info_panel, GCallback on_selected, gpointer user_data) {
-    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
-    if (!panel || !panel->puzzle_ui.puzzle_list_box) return;
-
-    // Store callback and data on the listbox itself
-    g_object_set_data(G_OBJECT(panel->puzzle_ui.puzzle_list_box), "on-selected-cb", (gpointer)on_selected);
-    g_object_set_data(G_OBJECT(panel->puzzle_ui.puzzle_list_box), "on-selected-data", user_data);
-    
-    g_signal_handlers_disconnect_by_func(panel->puzzle_ui.puzzle_list_box, on_puzzle_list_row_activated, NULL);
-    g_signal_connect(panel->puzzle_ui.puzzle_list_box, "row-activated", G_CALLBACK(on_puzzle_list_row_activated), NULL);
 }
 
 void info_panel_set_game_mode(GtkWidget* info_panel, GameMode mode) {
@@ -1956,26 +1991,7 @@ static void on_replay_play_pause_clicked(GtkButton* btn, gpointer user_data) {
     }
 }
 
-static void on_replay_stop_clicked(GtkButton* btn, gpointer user_data) {
-    (void)user_data; (void)btn;
-    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
-    if (!root) return;
-    
-    AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
-    // Stop = Pause + Reset to Start (or just Pause?)
-    // User requested "Stop". In replay context, usually means Stop & Reset or just hard stop.
-    // Let's do Pause.
-    if (state && state->replay_controller) {
-        replay_controller_pause(state->replay_controller);
-        // Reset visuals of Play button if needed
-        // But we need reference to play button.
-        InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(root), "info-panel-data");
-        if (panel && panel->replay_ui.play_pause_btn) {
-            gtk_button_set_icon_name(GTK_BUTTON(panel->replay_ui.play_pause_btn), "media-playback-start-symbolic");
-            gtk_widget_add_css_class(panel->replay_ui.play_pause_btn, "suggested-action");
-        }
-    }
-}
+// Stop button callback removed
 
 static void on_replay_prev_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn; (void)user_data;
@@ -2056,6 +2072,23 @@ static void on_replay_start_here_clicked(GtkButton* btn, gpointer user_data) {
     if (state && state->replay_controller) {
         Player turn = gamelogic_get_turn(state->logic);
         replay_controller_start_from_here(state->replay_controller, GAME_MODE_PVC, turn);
+    }
+}
+
+static void on_replay_slider_value_changed(GtkRange* range, gpointer user_data) {
+    (void)user_data;
+
+    // We need to find the AppState to get the controller. 
+    // Since panel doesn't store AppState directly but the widget hierarchy does:
+    GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(range), GTK_TYPE_SCROLLED_WINDOW);
+    if (!root) return;
+
+    AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
+    if (state && state->replay_controller) {
+        int target_ply = (int)gtk_range_get_value(range);
+        // Only seek if we are not currently updating (handled by signal blocking in update_status, 
+        // but good to be safe if we had a way to check, though signal blocking is enough).
+        replay_controller_seek(state->replay_controller, target_ply);
     }
 }
 
@@ -2141,8 +2174,17 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     // Style: Monospace, large, centered
     panel->replay_ui.status_label = gtk_label_new("Move: 0 / 0");
     gtk_widget_add_css_class(panel->replay_ui.status_label, "info-label-value");
-    gtk_widget_set_margin_bottom(panel->replay_ui.status_label, 15); // Extra space before media controls
+    gtk_widget_set_margin_bottom(panel->replay_ui.status_label, 5); // Reduced margin
     gtk_box_append(GTK_BOX(panel->replay_ui.box), panel->replay_ui.status_label);
+    
+    // Playback Slider
+    panel->replay_ui.playback_slider = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, 0, 100, 1);
+    gtk_scale_set_draw_value(GTK_SCALE(panel->replay_ui.playback_slider), FALSE); // Value shown in label
+    gtk_widget_set_margin_start(panel->replay_ui.playback_slider, 10);
+    gtk_widget_set_margin_end(panel->replay_ui.playback_slider, 10);
+    gtk_widget_set_margin_bottom(panel->replay_ui.playback_slider, 15);
+    g_signal_connect(panel->replay_ui.playback_slider, "value-changed", G_CALLBACK(on_replay_slider_value_changed), panel);
+    gtk_box_append(GTK_BOX(panel->replay_ui.box), panel->replay_ui.playback_slider);
     
     // Media Control Row
     GtkWidget* media_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -2162,12 +2204,7 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     g_signal_connect(panel->replay_ui.prev_btn, "clicked", G_CALLBACK(on_replay_prev_clicked), panel);
     gtk_box_append(GTK_BOX(media_box), panel->replay_ui.prev_btn);
 
-    // Stop [] (Rewind/Reset)
-    panel->replay_ui.stop_btn = gtk_button_new_from_icon_name("media-playback-stop-symbolic");
-    gtk_widget_add_css_class(panel->replay_ui.stop_btn, "media-button");
-    gtk_widget_set_tooltip_text(panel->replay_ui.stop_btn, "Stop Playback");
-    g_signal_connect(panel->replay_ui.stop_btn, "clicked", G_CALLBACK(on_replay_stop_clicked), panel);
-    gtk_box_append(GTK_BOX(media_box), panel->replay_ui.stop_btn);
+    // Stop button removed
     
     // Play/Pause > / ||
     panel->replay_ui.play_pause_btn = gtk_button_new_from_icon_name("media-playback-start-symbolic");
@@ -2288,6 +2325,17 @@ void info_panel_update_replay_status(GtkWidget* info_panel, int current_ply, int
     
     if (panel->replay_ui.next_btn) gtk_widget_set_sensitive(panel->replay_ui.next_btn, current_ply < total_plies);
     if (panel->replay_ui.end_btn) gtk_widget_set_sensitive(panel->replay_ui.end_btn, current_ply < total_plies);
+
+    // Update slider
+    if (panel->replay_ui.playback_slider) {
+        g_signal_handlers_block_by_func(panel->replay_ui.playback_slider, on_replay_slider_value_changed, panel);
+        
+        // Update range and value
+        gtk_range_set_range(GTK_RANGE(panel->replay_ui.playback_slider), 0, total_plies);
+        gtk_range_set_value(GTK_RANGE(panel->replay_ui.playback_slider), current_ply);
+        
+        g_signal_handlers_unblock_by_func(panel->replay_ui.playback_slider, on_replay_slider_value_changed, panel);
+    }
 }
 
 void info_panel_show_replay_controls(GtkWidget* info_panel, gboolean visible) {

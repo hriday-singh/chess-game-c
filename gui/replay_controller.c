@@ -292,9 +292,12 @@ void replay_controller_next(ReplayController* self) {
         board_widget_animate_move(self->app_state->gui.board, next_move);
     }
     
-    // Note: gamelogic_perform_move is NOT called here to avoid double execution
-    // The animation system will call execute_move_with_updates when animation completes
-    // For replay, we just update the ply counter
+    // Note: gamelogic_perform_move is NOW called to ensure logic state (turn, checkmate status) updates
+    // The animation system will call execute_move_with_updates when animation completes, 
+    // BUT we need immediate logic state update for the UI status to be correct.
+    // Double execution is prevented because Replay Controller manages the logic, not the Board Widget callbacks in this mode.
+    gamelogic_perform_move(self->logic, next_move);
+    
     self->current_ply++;
     
     // Auto-pause if we've reached the end

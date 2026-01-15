@@ -22,7 +22,8 @@ typedef enum {
     GAME_MODE_PVP = 0,
     GAME_MODE_PVC = 1,
     GAME_MODE_CVC = 2,
-    GAME_MODE_PUZZLE = 3
+    GAME_MODE_PUZZLE = 3,
+    GAME_MODE_TUTORIAL = 4
 } GameMode;
 
 // Piece structure

@@ -452,6 +452,9 @@ static const char *CSS_STRUCTURAL =
     "}\n"
     "button.suggested-action:hover { background-color: shade(@accent_color, 1.05); }\n"
     "button.suggested-action:active { background-color: shade(@accent_color, 0.92); }\n"
+    "\n"
+    /* Fix for buttons inside listboxes where labels get forced color */
+    "button.suggested-action label, button.destructive-action label, button.success-action label { color: inherit; }\n"
 
     /* -------------------- Dialogs -------------------- */
     "dialog, window.dialog, message-dialog { background-color: @bg_color; color: @fg_color; }\n"

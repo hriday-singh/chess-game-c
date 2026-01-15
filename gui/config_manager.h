@@ -2,6 +2,7 @@
 #define CONFIG_MANAGER_H
 
 #include <stdbool.h>
+#include <stdint.h>
 
 // Define defaults
 #define DEFAULT_THEME "theme_b_emerald"
@@ -112,7 +113,7 @@ typedef struct {
 
 typedef struct {
     char id[64];
-    long timestamp;
+    int64_t timestamp;
     int game_mode;
     MatchPlayerConfig white;
     MatchPlayerConfig black;

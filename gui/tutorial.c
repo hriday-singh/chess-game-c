@@ -4,6 +4,7 @@
 #include "sound_engine.h"
 #include "piece.h"
 #include "gamelogic.h"
+#include "right_side_panel.h"
 
 static bool debug_mode = false;
 
@@ -83,21 +84,24 @@ static void on_message_dialog_destroy(GtkWidget* window, gpointer user_data) {
     }
 }
 
+// Helper to update specific tutorial step UI
 void show_message_dialog(GtkWindow* parent, const char* message, AppState* state) {
-    // FIX: Prevent double messages if one is already showing
     if (state->gui.tutorial_msg) {
-        gtk_window_present(GTK_WINDOW(state->gui.tutorial_msg));
+        // Reuse existing dialog
+        GtkWidget* window = state->gui.tutorial_msg;
+        GtkLabel* label = GTK_LABEL(g_object_get_data(G_OBJECT(window), "msg-label"));
+        if (label) {
+            gtk_label_set_text(label, message);
+        }
+        gtk_window_present(GTK_WINDOW(window));
         return;
     }
 
     GtkWidget* window = gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(window), "Tutorial");
-    gtk_window_set_transient_for(GTK_WINDOW(window), parent);
+    if (parent) gtk_window_set_transient_for(GTK_WINDOW(window), parent);
     gtk_window_set_modal(GTK_WINDOW(window), TRUE);
     gtk_window_set_default_size(GTK_WINDOW(window), 400, 200);
-    
-    // Ensure focus returns to parent on destroy
-    // gui_utils_setup_auto_focus_restore(GTK_WINDOW(window));
     
     state->gui.tutorial_msg = window; // Track it!
     
@@ -110,6 +114,7 @@ void show_message_dialog(GtkWindow* parent, const char* message, AppState* state
     GtkWidget* label = gtk_label_new(message);
     gtk_label_set_wrap(GTK_LABEL(label), TRUE);
     gtk_label_set_max_width_chars(GTK_LABEL(label), 50);
+    g_object_set_data(G_OBJECT(window), "msg-label", label); // Store reference
     gtk_box_append(GTK_BOX(box), label);
     
     GtkWidget* btn = gtk_button_new_with_label("OK");
@@ -122,7 +127,7 @@ void show_message_dialog(GtkWindow* parent, const char* message, AppState* state
     }
     
     gtk_window_set_child(GTK_WINDOW(window), box);
-    gtk_window_present(GTK_WINDOW(window));
+    gtk_widget_set_visible(window, TRUE);
 }
 
 
@@ -187,6 +192,7 @@ void tutorial_reset_step(GtkButton* btn, gpointer user_data) {
 
 static void tutorial_setup_pawn(AppState* state) {
     tutorial_clear_board(state);
+    state->tutorial.wait = FALSE; // Force clear
     state->logic->board[6][3] = piece_create(PIECE_PAWN, PLAYER_WHITE);
     // Add Black King to prevent stalemate
     state->logic->board[0][0] = piece_create(PIECE_KING, PLAYER_BLACK);
@@ -392,6 +398,9 @@ void on_tutorial_exit(GtkButton* btn, gpointer user_data) {
     if (state->gui.tutorial_exit_btn) gtk_widget_set_visible(state->gui.tutorial_exit_btn, FALSE);
     gtk_window_set_title(state->gui.window, "HAL :) Chess");
     
+    // Restore RSP
+    if (state->gui.right_side_panel) right_side_panel_set_visible(state->gui.right_side_panel, true);
+    
     board_widget_refresh(state->gui.board);
 }
 
@@ -408,8 +417,13 @@ void on_tutorial_action(GSimpleAction* action, GVariant* parameter, gpointer use
     if (state->gui.tutorial_exit_btn) gtk_widget_set_visible(state->gui.tutorial_exit_btn, TRUE);
     gtk_window_set_title(state->gui.window, "Interactive Tutorial");
     
-    // Important: Switch to PvP so logic does not try to play AI
-    state->logic->gameMode = GAME_MODE_PVP;
+    gtk_window_set_title(state->gui.window, "Interactive Tutorial");
+    
+    // Hide RSP
+    if (state->gui.right_side_panel) right_side_panel_set_visible(state->gui.right_side_panel, false);
+    
+    // Important: Switch to Tutorial Mode
+    state->logic->gameMode = GAME_MODE_TUTORIAL;
     
     // Enable Tutorial Mode in InfoPanel + Show Dialog via helper
     if (state->gui.info_panel) {

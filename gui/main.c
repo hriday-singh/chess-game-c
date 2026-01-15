@@ -210,7 +210,7 @@ static void record_match_history(AppState* state, const char* reason) {
 
     MatchHistoryEntry entry = {0};
     snprintf(entry.id, sizeof(entry.id), "m_%ld", (long)time(NULL));
-    entry.timestamp = (long)time(NULL);
+    entry.timestamp = (int64_t)time(NULL);
     entry.game_mode = (int)state->logic->gameMode;
     
     AppConfig* cfg = config_get();
@@ -322,7 +322,7 @@ static void update_ui_callback(void) {
             int m_num = (count + 1) / 2;
             Player p = (count % 2 == 1) ? PLAYER_WHITE : PLAYER_BLACK;
             // This now handles truncation automatically if we are in the past
-            if (!state->is_replaying) {
+            if (!state->is_replaying && state->logic->gameMode != GAME_MODE_PUZZLE && state->tutorial.step == TUT_OFF) {
                 right_side_panel_add_move(state->gui.right_side_panel, m, m_num, p);
             }
         } else if (count == 0) {
@@ -331,7 +331,6 @@ static void update_ui_callback(void) {
         
         // Detect move change for rating
         if (count > state->last_move_count) {
-            ai_controller_set_rating_pending(state->ai_controller, true);
             state->last_move_count = count;
             state->match_saved = false; // New move made, any previous "saved" state for this match is potentially stale
         }
@@ -406,7 +405,6 @@ static void sync_live_analysis(AppState* state) {
     }
 
     if (!cfg || !cfg->enable_live_analysis || (state->logic && state->logic->isGameOver) || state->is_replaying) {
-        ai_controller_stop_analysis(state->ai_controller, false);
         return;
     }
     
@@ -420,8 +418,6 @@ static void sync_live_analysis(AppState* state) {
             use_custom = false;
         }
     }
-    
-    ai_controller_start_analysis(state->ai_controller, use_custom, custom_path);
 }
 
 static void on_undo_move(gpointer user_data) {
@@ -572,38 +568,6 @@ static void on_open_settings_action(GSimpleAction* action, GVariant* parameter, 
     }
     
     open_settings_page(state, page);
-}
-
-static void on_ai_eval_update(const AiStats* stats, gpointer user_data) {
-    AppState* state = (AppState*)user_data;
-    if (!state || !state->gui.right_side_panel || !stats) return;
-    
-    AppConfig* cfg = config_get();
-    if (!cfg) return;
-
-    // Rating Toast
-    if (stats->rating_label && cfg->show_move_rating) {
-        right_side_panel_show_rating_toast(state->gui.right_side_panel, 
-             stats->rating_label, stats->rating_reason, stats->move_number);
-    }
-    
-    // Eval Bar
-    if (cfg->show_advantage_bar) {
-        double eval_val = (double)stats->score / 100.0;
-        right_side_panel_update_stats(state->gui.right_side_panel, eval_val, stats->is_mate);
-    }
-    
-    // Mate Warning
-    if (cfg->show_mate_warning) {
-        int mate_dist = stats->is_mate ? stats->mate_distance : 0;
-        right_side_panel_set_mate_warning(state->gui.right_side_panel, mate_dist);
-    }
-    
-    // Hanging Pieces
-    if (cfg->show_hanging_pieces) {
-        right_side_panel_set_hanging_pieces(state->gui.right_side_panel, 
-              stats->white_hanging, stats->black_hanging);
-    }
 }
 
 static void on_ai_move_ready(Move* move, gpointer user_data) {
@@ -802,19 +766,30 @@ static void on_board_before_move(const char* move_uci, void* user_data) {
     (void)move_uci;
     AppState* state = (AppState*)user_data;
     if (state && state->ai_controller && state->logic) {
-        // Only mark if it's currently a human turn. 
-        // This prevents the AI move execution from triggering a "human move" snapshot.
-        if (!state->is_replaying && !gamelogic_is_computer(state->logic, state->logic->turn)) {
-            ai_controller_mark_human_move_begin(state->ai_controller);
-        }
     }
 }
 
 // --- History Dialog Callbacks ---
+// Helper to grab focus after dialog is fully destroyed
+static gboolean restore_board_focus_idle(gpointer user_data) {
+    AppState* app = (AppState*)user_data;
+    if (app && app->gui.window) {
+        gtk_window_present(app->gui.window); // Ensure main window is active
+        if (app->gui.board) {
+            gtk_widget_grab_focus(app->gui.board);
+        }
+    }
+    return FALSE;
+}
+
 static void on_history_dialog_destroyed(GtkWidget *w, gpointer data) {
     (void)w;
     AppState* app = (AppState*)data;
     app->gui.history_dialog = NULL;
+    
+    // Schedule focus restoration for next idle cycle
+    // This allows the window manager to finish closing the modal dialog
+    g_idle_add(restore_board_focus_idle, app);
 }
 
 static void on_history_clicked(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
@@ -885,6 +860,11 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
     }
     
     if (debug_mode) printf("[Main] Started replay for match ID: %s\n", match_id);
+    
+    // Ensure board has focus so arrow keys work immediately
+    if (state->gui.board) {
+        gtk_widget_grab_focus(state->gui.board);
+    }
 }
 
 // Bridge callback for InfoPanel exit button
@@ -897,14 +877,13 @@ static void on_exit_replay(GSimpleAction* action, GVariant* parameter, gpointer 
     AppState* state = (AppState*)user_data;
     if (!state) return;
 
-    state->is_replaying = false;
-    g_free(state->replay_match_id);
-    state->replay_match_id = NULL;
-
+    // cleanup calls
     if (state->replay_controller) {
         replay_controller_exit(state->replay_controller);
     }
-    
+    g_free(state->replay_match_id);
+    state->replay_match_id = NULL;
+
     if (state->gui.info_panel) {
         info_panel_show_replay_controls(state->gui.info_panel, FALSE);
     }
@@ -929,16 +908,18 @@ static void on_exit_replay(GSimpleAction* action, GVariant* parameter, gpointer 
     // Restore UI to normal mode
     board_widget_set_interactive(state->gui.board, TRUE); // Re-enable board interaction
 
+    if (state->gui.right_side_panel) {
+        right_side_panel_set_analysis_visible(state->gui.right_side_panel, TRUE);
+        right_side_panel_clear_history(state->gui.right_side_panel);
+    }
+    
     // Trigger AI if restored mode requires it (PvC computer turn)
     if (state->logic->gameMode == GAME_MODE_PVC && gamelogic_is_computer(state->logic, state->logic->turn)) {
          request_ai_move(state); 
     }
 
-    if (state->gui.right_side_panel) {
-        // right_side_panel_set_nav_visible(state->gui.right_side_panel, FALSE); // Removed
-        right_side_panel_set_analysis_visible(state->gui.right_side_panel, TRUE);
-        right_side_panel_clear_history(state->gui.right_side_panel);
-    }
+    // Now safe to clear replay flag
+    state->is_replaying = false;
     
     if (debug_mode) printf("[Main] Exited replay mode.\n");
 }
@@ -980,7 +961,6 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     if (cfg) theme_data_load_config(state->theme, cfg);
     
     state->ai_controller = ai_controller_new(state->logic, state->gui.ai_dialog);
-    ai_controller_set_eval_callback(state->ai_controller, on_ai_eval_update, state);
 
     GtkWidget* header = gtk_header_bar_new();
     // Replacement for Menu: Settings Button

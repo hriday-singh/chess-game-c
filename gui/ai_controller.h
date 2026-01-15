@@ -51,28 +51,7 @@ void ai_controller_stop(AiController* controller);
 // Check if AI is currently thinking
 bool ai_controller_is_thinking(AiController* controller);
 
-// Get current evaluation (last known)
-void ai_controller_get_evaluation(AiController* controller, int* score, bool* is_mate);
-
 // Set search parameters (depth, time, etc.)
 void ai_controller_set_params(AiController* controller, AiDifficultyParams params);
-
-// Set evaluation update callback
-void ai_controller_set_eval_callback(AiController* controller, AiEvalUpdateCallback callback, gpointer user_data);
-
-// Enable/disable NNUE
-void ai_controller_set_nnue(AiController* controller, bool enabled, const char* path);
-
-/* OPTIONAL:
-   If you used this externally, keep it. But the new rating flow does not need it.
-   Recommended: remove all external uses and delete this API. */
-void ai_controller_set_rating_pending(AiController* controller, bool pending);
-
-// Analysis Control
-bool ai_controller_start_analysis(AiController* controller, bool use_custom, const char* custom_path);
-void ai_controller_stop_analysis(AiController* controller, bool free_engine);
-
-// Mark beginning of a human move
-void ai_controller_mark_human_move_begin(AiController* controller);
 
 #endif // AI_CONTROLLER_H

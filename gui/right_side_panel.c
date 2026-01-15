@@ -367,6 +367,11 @@ GtkWidget* right_side_panel_get_widget(RightSidePanel* panel) {
     return panel->container;
 }
 
+void right_side_panel_set_visible(RightSidePanel* panel, bool visible) {
+    if (!panel || !panel->container) return;
+    gtk_widget_set_visible(panel->container, visible);
+}
+
 void right_side_panel_update_stats(RightSidePanel* panel, double evaluation, bool is_mate) {
     if (!panel) return;
     panel->current_eval = evaluation;
@@ -757,6 +762,34 @@ void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index) {
     panel->last_highlighted_ply = ply_index;
     panel->viewed_ply = ply_index;
     panel->locked_ply = ply_index;
+
+    // 3. Auto-scroll to make the highlighted row visible
+    if (ply_index >= 0) {
+        int row_idx = ply_index / 2;
+        GtkWidget* row_widget = GTK_WIDGET(gtk_list_box_get_row_at_index(GTK_LIST_BOX(panel->history_list), row_idx));
+        if (row_widget) {
+            // Get vertical adjustment
+            GtkAdjustment* adj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(panel->history_scrolled));
+            if (adj) {
+                 double page_size = gtk_adjustment_get_page_size(adj);
+                 double value = gtk_adjustment_get_value(adj);
+                 
+                 // Compute row position relative to list
+                 graphene_point_t p_list = {0}, p_row = {0};
+                 if (gtk_widget_compute_point(row_widget, panel->history_list, &p_row, &p_list)) {
+                     double row_y = p_list.y;
+                     double row_h = gtk_widget_get_height(row_widget);
+                     
+                     // Scroll if out of view
+                     if (row_y < value) {
+                         gtk_adjustment_set_value(adj, row_y);
+                     } else if (row_y + row_h > value + page_size) {
+                         gtk_adjustment_set_value(adj, row_y + row_h - page_size);
+                     }
+                 }
+            }
+        }
+    }
 }
 
 void right_side_panel_clear_history(RightSidePanel* panel) {

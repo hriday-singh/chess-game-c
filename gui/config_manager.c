@@ -6,6 +6,8 @@
 #include <stdarg.h>
 #include <time.h>
 
+#include <errno.h>
+
 #ifdef _WIN32
 #include <direct.h>
 #include <windows.h>
@@ -55,8 +57,16 @@ static void determine_base_dir(void) {
 #endif
     }
     
-    // Create directory, ignore error (might exist)
-    MKDIR(g_base_dir);
+    // Try creating the system directory
+    // If it fails and not because it exists, use fallback
+    int res = MKDIR(g_base_dir);
+    if (res != 0 && errno != EEXIST) {
+        if (debug_mode) printf("[ConfigManager] Failed to create system config dir: %s (errno=%d). Using fallback.\n", g_base_dir, errno);
+        
+        // Fallback: ./.chessconfig
+        snprintf(g_base_dir, sizeof(g_base_dir), "./.chessconfig");
+        MKDIR(g_base_dir); // Try creating fallback
+    }
 }
 
 static void determine_config_path(void) {
@@ -585,7 +595,7 @@ static void save_single_match(MatchHistoryEntry* m) {
 
     fprintf(f, "{\n");
     fprintf(f, "  \"id\": \"%s\",\n", m->id);
-    fprintf(f, "  \"timestamp\": %ld,\n", m->timestamp);
+    fprintf(f, "  \"timestamp\": %lld,\n", (long long)m->timestamp);
     fprintf(f, "  \"game_mode\": %d,\n", m->game_mode);
     
     fprintf(f, "  \"white\": {\n");
@@ -611,7 +621,7 @@ static void save_single_match(MatchHistoryEntry* m) {
     if (debug_mode){
          printf("[ConfigManager] Match History saved to: %s\n", match_path);
          printf("  \"id\": \"%s\",\n", m->id);
-         printf("  \"timestamp\": %ld,\n", m->timestamp);
+         printf("  \"timestamp\": %lld,\n", (long long)m->timestamp);
          printf("  \"game_mode\": %d,\n", m->game_mode);
     
          printf("  \"white\": {\n");
@@ -677,17 +687,17 @@ static void parse_match_file(const char* path) {
         
         if (strstr(line, "\"timestamp\"")) {
             char* p = strchr(line, ':');
-            if (p) m->timestamp = atol(p + 1);
+            if (p) m->timestamp = (int64_t)strtoll(p + 1, NULL, 10);
         }
         else if (strstr(line, "\"game_mode\"")) {
             char* p = strchr(line, ':');
             if (p) m->game_mode = atoi(p + 1);
         }
-        else if (strstr(line, "\"result\"")) {
-            extract_json_str(line, "result", m->result, sizeof(m->result));
-        }
         else if (strstr(line, "\"result_reason\"")) {
             extract_json_str(line, "result_reason", m->result_reason, sizeof(m->result_reason));
+        }
+        else if (strstr(line, "\"result\"")) {
+            extract_json_str(line, "result", m->result, sizeof(m->result));
         }
         else if (strstr(line, "\"move_count\"")) {
             char* p = strchr(line, ':');
@@ -709,7 +719,7 @@ static void parse_match_file(const char* path) {
     if (debug_mode){
          printf("[ConfigManager] Match History loaded from: %s\n", path);
          printf("  \"id\": \"%s\",\n", m->id);
-         printf("  \"timestamp\": %ld,\n", m->timestamp);
+         printf("  \"timestamp\": %lld,\n", (long long)m->timestamp);
          printf("  \"game_mode\": %d,\n", m->game_mode);
     
          printf("  \"white\": {\n");

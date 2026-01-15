@@ -34,10 +34,27 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
     char summary[256];
     const char* mode_str = (m->game_mode == 0) ? "PvP" : (m->game_mode == 1) ? "PvC" : "CvC";
     
-    // Clean up result string slightly if needed
-    // Use alpha for separator to ensure it respects theme text color (light/dark)
+    char readable_result[64];
+    if (strcmp(m->result, "1-0") == 0) snprintf(readable_result, sizeof(readable_result), "White Won");
+    else if (strcmp(m->result, "0-1") == 0) snprintf(readable_result, sizeof(readable_result), "Black Won");
+    else if (strcmp(m->result, "1/2-1/2") == 0) snprintf(readable_result, sizeof(readable_result), "Draw");
+    else snprintf(readable_result, sizeof(readable_result), "No Result");
+    
+    // Enhancing text for PvC
+    if (m->game_mode == 1) { 
+         if (m->black.is_ai && !m->white.is_ai) {
+             // User is White
+             if (strcmp(m->result, "1-0") == 0) snprintf(readable_result, sizeof(readable_result), "You Won!");
+             else if (strcmp(m->result, "0-1") == 0) snprintf(readable_result, sizeof(readable_result), "AI Won");
+         } else if (m->white.is_ai && !m->black.is_ai) {
+             // User is Black
+             if (strcmp(m->result, "0-1") == 0) snprintf(readable_result, sizeof(readable_result), "You Won!");
+             else if (strcmp(m->result, "1-0") == 0) snprintf(readable_result, sizeof(readable_result), "AI Won");
+         }
+    }
+
     snprintf(summary, sizeof(summary), "<b>%s</b>  <span alpha='45%%'>|</span>  %s (%s)", 
-             mode_str, m->result, m->result_reason);
+             mode_str, readable_result, m->result_reason);
     
     GtkWidget* summary_lbl = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(summary_lbl), summary);
@@ -174,6 +191,11 @@ void history_dialog_show(HistoryDialog* dialog) {
 
     gtk_widget_set_visible(GTK_WIDGET(dialog->window), TRUE);
     gtk_window_present(dialog->window);
+    
+    // Auto-focus the list so keyboard works immediately
+    if (dialog->list_box) {
+        gtk_widget_grab_focus(dialog->list_box);
+    }
 }
 
 GtkWindow* history_dialog_get_window(HistoryDialog* dialog) {

@@ -8,7 +8,9 @@
 #include <string.h>
 #include "gamelogic.h"
 
-static bool debug_mode = false;
+#include "right_side_panel.h"
+
+static void on_puzzle_list_item_selected(int idx, gpointer user_data);
 
 void puzzle_controller_init(AppState* state) {
     if (!state) return;
@@ -58,9 +60,53 @@ void puzzle_controller_start(AppState* state, int puzzle_idx) {
         board_widget_reset_selection(state->gui.board);
         gtk_widget_grab_focus(state->gui.board);
     }
+    
+    // Hide Right Side Panel for immersion
+    if (state->gui.right_side_panel) right_side_panel_set_visible(state->gui.right_side_panel, false);
 
     // Explicitly grab focus to main window
     if (state->gui.window) gtk_window_present(state->gui.window);
+}
+
+
+static gboolean on_auto_play_opponent_move(gpointer user_data) {
+    AppState* state = (AppState*)user_data;
+    if (!state || state->logic->gameMode != GAME_MODE_PUZZLE) return FALSE;
+    
+    const Puzzle* puzzle = puzzles_get_at(state->puzzle.current_idx);
+    if (!puzzle || state->puzzle.move_idx >= puzzle->solution_length) return FALSE;
+    
+    const char* uci = puzzle->solution_moves[state->puzzle.move_idx];
+    if (!uci) return FALSE;
+    
+    // Parse UCI
+    Move m = {0};
+    m.promotionPiece = NO_PROMOTION; // Default to no promotion
+    m.capturedPieceType = NO_PIECE;  // Default to no capture (logic will fill if needed, but safer)
+    
+    int f1 = uci[0] - 'a';
+    int r1 = 8 - (uci[1] - '0');
+    int f2 = uci[2] - 'a';
+    int r2 = 8 - (uci[3] - '0');
+    
+    m.from_sq = r1 * 8 + f1;
+    m.to_sq = r2 * 8 + f2;
+    
+    if (strlen(uci) > 4) {
+        char p = uci[4];
+        if (p == 'q') m.promotionPiece = PIECE_QUEEN;
+        else if (p == 'r') m.promotionPiece = PIECE_ROOK;
+        else if (p == 'b') m.promotionPiece = PIECE_BISHOP;
+        else if (p == 'n') m.promotionPiece = PIECE_KNIGHT;
+    }
+    
+    // Animate (this will trigger logical move upon completion)
+    if (state->gui.board) {
+        state->puzzle.wait = false; 
+        board_widget_animate_move(state->gui.board, &m);
+    }
+    
+    return FALSE; // One-shot
 }
 
 void puzzle_controller_check_move(AppState* state) {
@@ -109,17 +155,18 @@ void puzzle_controller_check_move(AppState* state) {
                 if (state->gui.board) board_widget_set_nav_restricted(state->gui.board, true, -1, -1, -1, -1);
             } else {
                 sound_engine_play(SOUND_PUZZLE_CORRECT_2);
-                // Check if next move is opponent's response
-                state->puzzle.wait = true;
-                if (state->gui.info_panel) info_panel_update_puzzle_info(state->gui.info_panel, NULL, NULL, "Correct! Keep going...", false);
-                
-                // Auto-play opponent response after delay
-                // TODO: Implement auto-play of opponent move
-                state->puzzle.wait = false;
-                
-                // For now, if it's player's turn to move again, update text
-                 const char* turn_str = (state->logic->turn == PLAYER_WHITE) ? "Your turn! (White to Move)" : "Your turn! (Black to Move)";
-                 if (state->gui.info_panel) info_panel_update_puzzle_info(state->gui.info_panel, NULL, NULL, turn_str, true);
+                     // Check if next move is opponent's response (Odd index = Opponent)
+                if (state->puzzle.move_idx % 2 != 0) {
+                     state->puzzle.wait = true;
+                     if (state->gui.board) board_widget_set_interactive(state->gui.board, FALSE);
+                     if (state->gui.info_panel) info_panel_update_puzzle_info(state->gui.info_panel, NULL, NULL, "Correct! Opponent is responding...", false);
+                     g_timeout_add(500, on_auto_play_opponent_move, state);
+                } else {
+                     // It is Player's turn again
+                     state->puzzle.wait = false;
+                     if (state->gui.board) board_widget_set_interactive(state->gui.board, TRUE);
+                     if (state->gui.info_panel) info_panel_update_puzzle_info(state->gui.info_panel, NULL, NULL, "Your turn! Make the winning move.", true);
+                }
             }
         } else {
             // Wrong move - undo it
@@ -163,6 +210,9 @@ void puzzle_controller_exit(AppState* state) {
     if (state->gui.info_panel) info_panel_set_game_mode(state->gui.info_panel, GAME_MODE_PVC);
     
     if (state->gui.info_panel) info_panel_rebuild_layout(state->gui.info_panel);
+    
+    // Restore RSP
+    if (state->gui.right_side_panel) right_side_panel_set_visible(state->gui.right_side_panel, true);
 }
 
 void puzzle_controller_refresh_list(AppState* state) {
@@ -174,6 +224,8 @@ void puzzle_controller_refresh_list(AppState* state) {
             info_panel_add_puzzle_to_list(state->gui.info_panel, p->title, i);
         }
     }
+    // Connect proper callback for list selection
+    info_panel_set_puzzle_list_callback(state->gui.info_panel, G_CALLBACK(on_puzzle_list_item_selected), state);
 }
 
 // --- Signal Handlers ---
@@ -241,6 +293,16 @@ void on_panel_puzzle_selected_safe(GtkListBox* box, GtkListBoxRow* row, gpointer
     if (idx < 0) return;
     
     // Use idle to safely switch context
+    PendingPuzzleData* data = g_new0(PendingPuzzleData, 1);
+    data->state = state;
+    data->puzzle_index = idx;
+    g_idle_add(start_puzzle_idle, data);
+}
+
+static void on_puzzle_list_item_selected(int idx, gpointer user_data) {
+    AppState* state = (AppState*)user_data;
+    if (idx < 0) return;
+    
     PendingPuzzleData* data = g_new0(PendingPuzzleData, 1);
     data->state = state;
     data->puzzle_index = idx;

@@ -127,8 +127,12 @@ static void play_move_sound(BoardWidget* board, Move* move) {
     if (!board || !move || !board->logic) return;
     
     // Check game end states first (highest priority)
-    if (gamelogic_is_checkmate(board->logic, PLAYER_WHITE) || 
-        gamelogic_is_checkmate(board->logic, PLAYER_BLACK)) {
+    // In Puzzle/Tutorial modes, suppress default game-over sounds (controller handles success/fail)
+    bool suppress_game_over_sfx = (board->logic->gameMode == GAME_MODE_PUZZLE || 
+                                   board->logic->gameMode == GAME_MODE_TUTORIAL);
+
+    if (!suppress_game_over_sfx && (gamelogic_is_checkmate(board->logic, PLAYER_WHITE) || 
+        gamelogic_is_checkmate(board->logic, PLAYER_BLACK))) {
         // Determine winner
         Player winner = gamelogic_is_checkmate(board->logic, PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
         if (winner == board->logic->playerSide) {
@@ -141,8 +145,8 @@ static void play_move_sound(BoardWidget* board, Move* move) {
         return;
     }
     
-    if (gamelogic_is_stalemate(board->logic, PLAYER_WHITE) || 
-        gamelogic_is_stalemate(board->logic, PLAYER_BLACK)) {
+    if (!suppress_game_over_sfx && (gamelogic_is_stalemate(board->logic, PLAYER_WHITE) || 
+        gamelogic_is_stalemate(board->logic, PLAYER_BLACK))) {
         sound_engine_play(SOUND_DRAW);
         if (debug_mode) printf("[BoardWidget] Playing draw sound\n");
         return;
@@ -257,7 +261,18 @@ static void execute_move_with_updates(BoardWidget* board, Move* move) {
 
     // 2. Update Game Logic
     bool moved = gamelogic_perform_move(board->logic, move);
-    if (!moved) return;
+    if (!moved) {
+        // Special Check: Logic might be already updated (Replay Mode)
+        // If the destination square already has the piece we expect, force a refresh
+        // to ensure the final frame (with piece visible) is drawn.
+        int r = move->to_sq / 8;
+        int c = move->to_sq % 8;
+        Piece* p = board->logic->board[r][c];
+        if (p && p->owner == move->mover) {
+             refresh_board(board);
+        }
+        return;
+    }
     
     // 2. Play Sound (if enabled)
     // IMPORTANT: Play sound AFTER move so we can detect check/checkmate
@@ -519,16 +534,43 @@ static void draw_square(GtkDrawingArea* area, cairo_t* cr, int width, int height
     bool hidePiece = false;
     if (board->isAnimating && board->animatingMove) {
         Move* move = board->animatingMove;
-        // Only hide the piece at the START position (the one moving)
-        // Ensure destination remains visible (e.g. for captures) until animation finishes/board updates
-        if (r == (int)(move->from_sq / 8) && c == (int)(move->from_sq % 8)) {
+        
+        int startR = (int)(move->from_sq / 8);
+        int startC = (int)(move->from_sq % 8);
+        int endR = (int)(move->to_sq / 8);
+        int endC = (int)(move->to_sq % 8);
+        
+        // Hide Piece at START (Standard Mode / Before Logic Update)
+        if (r == startR && c == startC) {
             hidePiece = true;
         }
+        
+        // Hide Piece at DESTINATION (Replay Mode / After Logic Update)
+        // If legic is updated early, dest has the piece. We must hide it until animation ends.
+        if (r == endR && c == endC) {
+             Piece* p = board->logic->board[r][c];
+             if (p && p->owner == move->mover) {
+                 hidePiece = true;
+             }
+        }
+        
         // Also hide the Rook if castling
         if (board->animCastlingRookMove) {
+            // Note: Castling logic update might also need dest hiding, but Rook move is usually secondary
+            // and might not trigger the "Double" distraction as much. 
+            // The rook start is definitely hidden.
             if (r == (int)(board->animCastlingRookMove->from_sq / 8) && 
                 c == (int)(board->animCastlingRookMove->from_sq % 8)) {
                 hidePiece = true;
+            }
+             // Hide Rook Dest if already there
+            int rDest = board->animCastlingRookMove->to_sq / 8;
+            int cDest = board->animCastlingRookMove->to_sq % 8;
+            if (r == rDest && c == cDest) {
+                 Piece* p = board->logic->board[r][c];
+                 if (p && p->type == PIECE_ROOK && p->owner == move->mover) {
+                     hidePiece = true;
+                 }
             }
         }
     }
@@ -792,6 +834,21 @@ static void on_drag_press(GtkGestureClick* gesture, int n_press, double x, doubl
     // Skip if game is over (checkmate/stalemate)
     if (board->logic->isGameOver) {
         return;
+    }
+    
+    // In Puzzle Mode, STRICTLY forbid selecting opponent's pieces
+    if (board->logic->gameMode == GAME_MODE_PUZZLE) {
+        GtkWidget* widget = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
+        int r = -1, c = -1;
+        // Optimization: We need r,c here. We can get them early.
+        int visualR = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "row"));
+        int visualC = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "col"));
+        visual_to_logical(board, visualR, visualC, &r, &c);
+        
+        Piece* p = board->logic->board[r][c];
+        if (p && p->owner != board->logic->turn) {
+            return; // Silently ignore clicks on opponent pieces
+        }
     }
     
     // Don't prepare new drag if currently animating
