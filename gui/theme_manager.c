@@ -757,7 +757,55 @@ static const char *CSS_STRUCTURAL =
     // ---------- Extra changes for move history row active state ----------
     " .move-history-row-v2.active-row { background-color: alpha(@accent_color, 0.12); border-radius: 10px; }\n"
     " .move-history-row-v2.active-row .move-number-v2 { background-color: alpha(@accent_color, 0.25); color: @accent_fg; }\n"
-    " .move-history-row-v2.active-row .move-cell-v2 { background-color: alpha(@accent_color, 0.10); }\n";
+    " .move-history-row-v2.active-row .move-cell-v2 { background-color: alpha(@accent_color, 0.10); }\n"
+
+    // ---------- Extra changes for loading overlay ----------
+    /* Loading overlay backdrop */
+    " .overlay-dim {\n"
+    "background-color: alpha(@bg_color, 0.55);\n"
+    "}\n"
+
+    /* Modal card */
+    " .loading-card {\n"
+    "background-color: @card_bg;\n"
+    "color: @fg_color;\n"
+    "border: 1px solid @border_color;\n"
+    "border-radius: 14px;\n"
+    "padding: 24px 32px;\n"
+    "box-shadow: 0 10px 30px alpha(@bg_color, 0.55), 0 2px 8px alpha(@bg_color, 0.35);\n"
+    "}\n"
+
+    /* Spinner uses accent */
+    " .loading-card spinner {\n"
+    "color: @accent_color;\n"
+    "}\n"
+
+    /* Title */
+    " .loading-title {\n"
+    "color: @fg_color;\n"
+    "font-size: 16px;\n"
+    "font-weight: 700;\n"
+    "letter-spacing: 0.2px;\n"
+    "}\n"
+
+    /* Subtitle (dim) */
+    " .loading-subtitle {\n"
+    "color: @dim_label;\n"
+    "font-size: 13px;\n"
+    "font-weight: 500;\n"
+    "}\n"
+
+    /* Optional: nicer alignment/spacing for labels inside the card */
+    " .loading-card label {\n"
+    "margin: 0;\n"
+    "}\n"
+
+    /* Optional: slightly tighten the vertical rhythm */
+    " .loading-card > * {\n"
+    "margin-top: 0;\n"
+    "margin-bottom: 0;\n"
+    "}\n";
+
 
 
 

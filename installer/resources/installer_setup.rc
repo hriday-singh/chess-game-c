@@ -5,6 +5,9 @@
 
 PAYLOAD_ZIP RCDATA "dist/payload.zip"
 
+// Manifest for Visual Styles
+1 24 "installer.manifest"
+
 // Manifest to request creating shortcuts might not need admin, 
 // strictly speaking, but writing to ProgramFiles would.
 // For now, we default to local appdata so no admin needed.

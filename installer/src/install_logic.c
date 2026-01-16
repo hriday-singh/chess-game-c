@@ -7,6 +7,46 @@
 #include <commctrl.h>
 
 // =================================================================================
+// UI HELPERS
+// =================================================================================
+
+static HFONT g_hFont = NULL;
+
+void Installer_InitUI(void) {
+    INITCOMMONCONTROLSEX icex;
+    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+    icex.dwICC = ICC_WIN95_CLASSES | ICC_STANDARD_CLASSES;
+    InitCommonControlsEx(&icex);
+
+    // Create a modern system font (Segoe UI)
+    NONCLIENTMETRICSA ncm;
+    ncm.cbSize = sizeof(NONCLIENTMETRICSA);
+    if (SystemParametersInfoA(SPI_GETNONCLIENTMETRICS, sizeof(NONCLIENTMETRICSA), &ncm, 0)) {
+        g_hFont = CreateFontIndirectA(&ncm.lfMessageFont);
+    } else {
+        // Fallback
+        g_hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+    }
+}
+
+HFONT Installer_GetFont(void) {
+    return g_hFont;
+}
+
+void Installer_ApplySystemFont(HWND hwnd) {
+    if (g_hFont) {
+        SendMessage(hwnd, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+    }
+    
+    // Apply to children
+    HWND hChild = GetWindow(hwnd, GW_CHILD);
+    while (hChild) {
+        SendMessage(hChild, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        hChild = GetWindow(hChild, GW_HWNDNEXT);
+    }
+}
+
+// =================================================================================
 // FAST TRACK LOGIC
 // =================================================================================
 
@@ -19,6 +59,10 @@ int ExecuteFastTrack(void) {
     }
 
     char install_dir[MAX_PATH];
+    if (strlen(current_dir) + 10 >= MAX_PATH) {
+        MessageBoxA(NULL, "Current directory path too long.", "Error", MB_ICONERROR);
+        return 1;
+    }
     snprintf(install_dir, MAX_PATH, "%s\\HalChess", current_dir);
 
     // 2. Load Payload
@@ -44,6 +88,7 @@ int ExecuteFastTrack(void) {
 
     // 4. Launch Game
     char game_exe[MAX_PATH];
+    if (strlen(install_dir) + 15 >= MAX_PATH) return 1;
     snprintf(game_exe, MAX_PATH, "%s\\HalChess.exe", install_dir);
 
     if (!System_LaunchProcess(game_exe)) {
@@ -66,8 +111,9 @@ int ExecuteFastTrack(void) {
 #define ID_CHECK_SHORTCUT 104
 #define ID_CHECK_RUN 105
 #define ID_STATIC_STATUS 106
+#define ID_LBL_PATH 107
+#define ID_GRP_OPTIONS 108
 
-static char g_InstallPath[MAX_PATH];
 static HWND g_hEditPath;
 static HWND g_hStatus;
 static HWND g_hBtnInstall;
@@ -84,30 +130,31 @@ static HRESULT CreateLink(LPCSTR lpszPathObj, LPCSTR lpszPathLink, LPCSTR lpszDe
     if (SUCCEEDED(hres)) {
         IPersistFile* ppf;
         
-        // Use Macros or Vtbl
-        IShellLinkA_SetPath(psl, lpszPathObj);
-        IShellLinkA_SetDescription(psl, lpszDesc);
+        // Use VTable access directly for C compatibility
+        psl->lpVtbl->SetPath(psl, lpszPathObj);
+        psl->lpVtbl->SetDescription(psl, lpszDesc);
         
         char workingDir[MAX_PATH];
         strncpy(workingDir, lpszPathObj, MAX_PATH);
         char* last_slash = strrchr(workingDir, '\\');
         if (last_slash) *last_slash = '\0';
-        IShellLinkA_SetWorkingDirectory(psl, workingDir);
+        psl->lpVtbl->SetWorkingDirectory(psl, workingDir);
 
-        hres = IShellLinkA_QueryInterface(psl, &IID_IPersistFile, (LPVOID*)&ppf);
+        hres = psl->lpVtbl->QueryInterface(psl, &IID_IPersistFile, (LPVOID*)&ppf);
         if (SUCCEEDED(hres)) {
             WCHAR wsz[MAX_PATH];
             MultiByteToWideChar(CP_ACP, 0, lpszPathLink, -1, wsz, MAX_PATH);
-            IPersistFile_Save(ppf, wsz, TRUE);
-            IPersistFile_Release(ppf);
+            ppf->lpVtbl->Save(ppf, wsz, TRUE);
+            ppf->lpVtbl->Release(ppf);
         }
-        IShellLinkA_Release(psl);
+        psl->lpVtbl->Release(psl);
     }
     CoUninitialize();
     return hres;
 }
 
 static int CALLBACK BrowseCallbackProc(HWND hwnd, UINT uMsg, LPARAM lParam, LPARAM lpData) {
+    (void)lParam; // Unused
     if (uMsg == BFFM_INITIALIZED) {
         SendMessage(hwnd, BFFM_SETSELECTION, TRUE, lpData);
     }
@@ -118,7 +165,8 @@ static void DoBrowse(HWND hwndParent) {
     char path[MAX_PATH];
     GetWindowTextA(g_hEditPath, path, MAX_PATH);
 
-    BROWSEINFOA bi = { 0 };
+    BROWSEINFOA bi;
+    memset(&bi, 0, sizeof(bi));
     bi.hwndOwner = hwndParent;
     bi.lpszTitle = "Select Installation Directory";
     bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
@@ -145,6 +193,7 @@ static DWORD WINAPI InstallThread(LPVOID lpParam) {
     SetWindowTextA(g_hStatus, "Preparing...");
 
     // 1. Load Payload
+    SetWindowTextA(g_hStatus, "Loading payload...");
     size_t payload_size = 0;
     const void* payload_data = Payload_GetResource(&payload_size);
     
@@ -167,11 +216,13 @@ static DWORD WINAPI InstallThread(LPVOID lpParam) {
          SetWindowTextA(g_hStatus, "Creating shortcut...");
          char linkPath[MAX_PATH];
          char targetPath[MAX_PATH];
-         snprintf(targetPath, MAX_PATH, "%s\\HalChess.exe", path);
+         if (strlen(path) + 15 < MAX_PATH) {
+            snprintf(targetPath, MAX_PATH, "%s\\HalChess.exe", path);
          
-         if (SHGetFolderPathA(NULL, CSIDL_DESKTOP, NULL, 0, linkPath) == S_OK) {
-             strncat(linkPath, "\\HalChess.lnk", MAX_PATH - strlen(linkPath) - 1);
-             CreateLink(targetPath, linkPath, "Play HalChess");
+            if (SHGetFolderPathA(NULL, CSIDL_DESKTOP, NULL, 0, linkPath) == S_OK) {
+                strncat(linkPath, "\\HalChess.lnk", MAX_PATH - strlen(linkPath) - 1);
+                CreateLink(targetPath, linkPath, "Play HalChess");
+            }
          }
     }
 
@@ -181,8 +232,10 @@ static DWORD WINAPI InstallThread(LPVOID lpParam) {
     // 4. Run Now
     if (SendMessage(GetDlgItem(GetParent(g_hStatus), ID_CHECK_RUN), BM_GETCHECK, 0, 0) == BST_CHECKED) {
          char targetPath[MAX_PATH];
-         snprintf(targetPath, MAX_PATH, "%s\\HalChess.exe", path);
-         System_LaunchProcess(targetPath);
+         if (strlen(path) + 15 < MAX_PATH) {
+            snprintf(targetPath, MAX_PATH, "%s\\HalChess.exe", path);
+            System_LaunchProcess(targetPath);
+         }
     }
     
     PostMessage(GetParent(g_hStatus), WM_CLOSE, 0, 0);
@@ -192,6 +245,8 @@ static DWORD WINAPI InstallThread(LPVOID lpParam) {
 static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
         case WM_CREATE: {
+            Installer_ApplySystemFont(hwnd);
+            
             // Default Path: %LOCALAPPDATA%\HalChess
             char defaultPath[MAX_PATH];
             if (SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, defaultPath) == S_OK) {
@@ -200,18 +255,33 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 strcpy(defaultPath, "C:\\HalChess");
             }
 
+            // --- Layout matched to installer/setup/main.c ---
+            
+            // Install Location Label
             CreateWindow("STATIC", "Install Location:", WS_CHILD | WS_VISIBLE, 10, 10, 100, 20, hwnd, NULL, NULL, NULL);
+            
+            // Edit Path
             g_hEditPath = CreateWindow("EDIT", defaultPath, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 10, 35, 280, 25, hwnd, (HMENU)ID_EDIT_PATH, NULL, NULL);
+            
+            // Browse Button
             CreateWindow("BUTTON", "Browse...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 300, 35, 75, 25, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
 
+            // Shortcuts
             CreateWindow("BUTTON", "Create Desktop Shortcut", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 10, 70, 200, 20, hwnd, (HMENU)ID_CHECK_SHORTCUT, NULL, NULL);
             CheckDlgButton(hwnd, ID_CHECK_SHORTCUT, BST_CHECKED);
 
+            // Run After Install
             CreateWindow("BUTTON", "Run HalChess after install", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 10, 95, 200, 20, hwnd, (HMENU)ID_CHECK_RUN, NULL, NULL);
             CheckDlgButton(hwnd, ID_CHECK_RUN, BST_CHECKED);
 
+            // Install Button
             g_hBtnInstall = CreateWindow("BUTTON", "Install", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 150, 130, 100, 30, hwnd, (HMENU)ID_BTN_INSTALL, NULL, NULL);
+            
+            // Status Static
             g_hStatus = CreateWindow("STATIC", "", WS_CHILD | WS_VISIBLE, 10, 170, 360, 20, hwnd, (HMENU)ID_STATIC_STATUS, NULL, NULL);
+            
+            // Set Font for all
+            Installer_ApplySystemFont(hwnd);
             return 0;
         }
         case WM_COMMAND:
@@ -232,17 +302,20 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
 }
 
 int ExecuteCustomSetup(HINSTANCE hInstance) {
-    WNDCLASSA wc = {0};
+    Installer_InitUI();
+
+    WNDCLASSA wc;
+    memset(&wc, 0, sizeof(wc)); // FIX: Use memset
     wc.lpfnWndProc = SetupWindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = "HalChessSetupClass";
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(1)); // Use app icon if avail
     
-    if (!RegisterClassA(&wc)) {
-        // Register failed, maybe already registered
-    }
+    RegisterClassA(&wc); // Ignore result
 
+    // Standard Window Size
     HWND hwnd = CreateWindowA("HalChessSetupClass", "HalChess Setup", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, 
         CW_USEDEFAULT, CW_USEDEFAULT, 400, 230, NULL, NULL, hInstance, NULL);
 

@@ -313,7 +313,7 @@ unified_installer: $(UNIFIED_TARGET)
 
 $(UNIFIED_TARGET): $(UNIFIED_SRC) $(UNIFIED_RES_OBJ)
 	@echo "Building Unified Installer..."
-	$(CC) $(CFLAGS) -mwindows -Iinstaller/src -Iinstaller/lib $(UNIFIED_SRC) $(UNIFIED_RES_OBJ) -o $@ -lshlwapi -luser32 -lshell32 -lole32 -luuid -lcomdlg32
+	$(CC) $(CFLAGS) -mwindows -Iinstaller/src -Iinstaller/lib $(UNIFIED_SRC) $(UNIFIED_RES_OBJ) -o $@ -lshlwapi -luser32 -lshell32 -lole32 -luuid -lcomdlg32 -lcomctl32
 	@echo "Installer created at $@"
 
 .PHONY: all all-tests clean test test-suite gui test-svg test-focus test-ai-stress test-pgn stage payload dist unified_installer

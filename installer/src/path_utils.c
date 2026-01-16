@@ -45,3 +45,20 @@ bool Path_IsSafe(const char* base_dir, const char* relative_path, char* out_full
 
     return true;
 }
+
+// Helper to create directory recursively (like mkdir -p)
+bool Path_CreateRecursive(const char* dir) {
+    if (CreateDirectoryA(dir, NULL) || GetLastError() == ERROR_ALREADY_EXISTS) {
+        return true;
+    }
+
+    // Try creating parent
+    char parent[MAX_PATH];
+    strncpy(parent, dir, MAX_PATH);
+    if (PathRemoveFileSpecA(parent)) {
+        if (Path_CreateRecursive(parent)) {
+             return (CreateDirectoryA(dir, NULL) || GetLastError() == ERROR_ALREADY_EXISTS);
+        }
+    }
+    return false;
+}

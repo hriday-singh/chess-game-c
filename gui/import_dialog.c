@@ -209,41 +209,28 @@ void import_dialog_show(AppState* state) {
     // Overlay to hold content + loading
     GtkWidget* overlay = gtk_overlay_new();
     gtk_window_set_child(GTK_WINDOW(s_dialog), overlay);
-    
-    GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_widget_set_margin_start(main_vbox, 20);
-    gtk_widget_set_margin_end(main_vbox, 20);
-    gtk_widget_set_margin_top(main_vbox, 20);
-    gtk_widget_set_margin_bottom(main_vbox, 20);
-    gtk_overlay_set_child(GTK_OVERLAY(overlay), main_vbox);
-    
-    // Setup Loading Overlay (Hidden by default)
-    s_loading_overlay = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
-    gtk_widget_set_halign(s_loading_overlay, GTK_ALIGN_CENTER);
-    gtk_widget_set_valign(s_loading_overlay, GTK_ALIGN_CENTER);
-    gtk_widget_add_css_class(s_loading_overlay, "overlay-box");
-    
-    GtkWidget* frame = gtk_frame_new(NULL);
-    gtk_widget_add_css_class(frame, "loading-frame");
-    
-    GtkWidget* load_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
-    gtk_widget_set_margin_start(load_box, 30);
-    gtk_widget_set_margin_end(load_box, 30);
-    gtk_widget_set_margin_top(load_box, 20);
-    gtk_widget_set_margin_bottom(load_box, 20);
-    gtk_frame_set_child(GTK_FRAME(frame), load_box);
-    gtk_box_append(GTK_BOX(s_loading_overlay), frame);
 
-    s_spinner = gtk_spinner_new();
-    gtk_widget_set_size_request(s_spinner, 48, 48);
-    gtk_widget_set_halign(s_spinner, GTK_ALIGN_CENTER);
-    gtk_box_append(GTK_BOX(load_box), s_spinner);
+    /* ---------------- Main Content ---------------- */
+
+    GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 16);
+    gtk_widget_set_margin_start(main_vbox, 24);
+    gtk_widget_set_margin_end(main_vbox, 24);
+    gtk_widget_set_margin_top(main_vbox, 24);
+    gtk_widget_set_margin_bottom(main_vbox, 24);
+    gtk_overlay_set_child(GTK_OVERLAY(overlay), main_vbox);
+
+    /* ---------------- Loading Overlay ---------------- */
     
-    GtkWidget* load_lbl = gtk_label_new("Importing Game...");
-    gtk_widget_add_css_class(load_lbl, "title-label");
-    gtk_box_append(GTK_BOX(load_box), load_lbl);
-    
-    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), s_loading_overlay);
+    s_loading_overlay = gui_utils_create_loading_overlay(
+        GTK_OVERLAY(overlay), 
+        &s_spinner, 
+        "Importing Game", 
+        "Please wait while the game is prepared"
+    );
+
+    /* Add overlay */
+    // Note: The GUI utility automatically adds the loading overlay to the parent overlay.
+    // We only need to ensure it starts hidden.
     gtk_widget_set_visible(s_loading_overlay, FALSE);
     
     // Instructions

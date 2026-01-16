@@ -12,9 +12,15 @@ bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_
 
 // Path Utils
 bool Path_IsSafe(const char* base_dir, const char* relative_path, char* out_full_path, size_t max_len);
+bool Path_CreateRecursive(const char* dir);
 
 // System Utils
 bool System_LaunchProcess(const char* exe_path);
+
+// Basic UI Helpers
+void Installer_InitUI(void);
+void Installer_ApplySystemFont(HWND div);
+HFONT Installer_GetFont(void);
 
 // High-Level Workflows
 // Run the FastTrack installation (install to CWD\HalChess, launch immediately)

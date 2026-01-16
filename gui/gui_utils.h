@@ -51,4 +51,18 @@ void gui_utils_setup_auto_focus_restore(GtkWindow *window);
  */
 void gui_utils_add_esc_close(GtkWidget* window);
 
+/**
+ * @brief Creates a standard loading overlay widget structure.
+ * 
+ * Creates a "dimmed" background box containing a centered card with a spinner,
+ * title, and subtitle. Adds this widget to the provided GtkOverlay as an overlay child.
+ * 
+ * @param parent_overlay The GtkOverlay to attach the loading view to.
+ * @param out_spinner Pointer to store the created GtkSpinner widget (for start/stop).
+ * @param title The main title text (e.g. "Importing Game").
+ * @param subtitle The subtitle text (e.g. "Please wait...").
+ * @return GtkWidget* The container widget representing the loading overlay (hidden by default).
+ */
+GtkWidget* gui_utils_create_loading_overlay(GtkOverlay* parent_overlay, GtkWidget** out_spinner, const char* title, const char* subtitle);
+
 #endif // GUI_UTILS_H

@@ -78,3 +78,62 @@ void gui_utils_add_esc_close(GtkWidget* window) {
     g_signal_connect(controller, "key-pressed", G_CALLBACK(on_esc_close_controller_key_pressed), window);
     gtk_widget_add_controller(window, controller);
 }
+
+GtkWidget* gui_utils_create_loading_overlay(GtkOverlay* parent_overlay, GtkWidget** out_spinner, const char* title, const char* subtitle) {
+    if (!parent_overlay) return NULL;
+
+    /* ---------------- Loading Overlay ---------------- */
+    GtkWidget* loading_overlay = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_halign(loading_overlay, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(loading_overlay, GTK_ALIGN_FILL);
+    gtk_widget_add_css_class(loading_overlay, "overlay-dim");
+
+    /* Center container */
+    GtkWidget* center_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_widget_set_halign(center_box, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(center_box, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(center_box, TRUE);
+    gtk_widget_set_vexpand(center_box, TRUE);
+    gtk_box_append(GTK_BOX(loading_overlay), center_box);
+
+    /* Card / panel */
+    GtkWidget* card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
+    gtk_widget_add_css_class(card, "loading-card");
+    gtk_widget_set_margin_start(card, 32);
+    gtk_widget_set_margin_end(card, 32);
+    gtk_widget_set_margin_top(card, 24);
+    gtk_widget_set_margin_bottom(card, 24);
+    gtk_box_append(GTK_BOX(center_box), card);
+
+    /* Spinner */
+    GtkWidget* spinner = gtk_spinner_new();
+    gtk_widget_set_size_request(spinner, 40, 40);
+    gtk_widget_set_halign(spinner, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(card), spinner);
+    
+    if (out_spinner) *out_spinner = spinner;
+
+    /* Title */
+    if (title) {
+        GtkWidget* title_lbl = gtk_label_new(title);
+        gtk_widget_add_css_class(title_lbl, "loading-title");
+        gtk_widget_set_halign(title_lbl, GTK_ALIGN_CENTER);
+        gtk_box_append(GTK_BOX(card), title_lbl);
+    }
+
+    /* Subtitle */
+    if (subtitle) {
+        GtkWidget* subtitle_lbl = gtk_label_new(subtitle);
+        gtk_widget_add_css_class(subtitle_lbl, "loading-subtitle");
+        gtk_widget_set_halign(subtitle_lbl, GTK_ALIGN_CENTER);
+        gtk_label_set_wrap(GTK_LABEL(subtitle_lbl), TRUE);
+        gtk_label_set_justify(GTK_LABEL(subtitle_lbl), GTK_JUSTIFY_CENTER);
+        gtk_box_append(GTK_BOX(card), subtitle_lbl);
+    }
+
+    /* Add overlay */
+    gtk_overlay_add_overlay(parent_overlay, loading_overlay);
+    gtk_widget_set_visible(loading_overlay, FALSE);
+    
+    return loading_overlay;
+}

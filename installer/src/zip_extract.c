@@ -46,39 +46,55 @@ bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_
         mz_zip_archive_file_stat file_stat;
         if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) {
             printf("Error: Failed to get file stat for index %d\n", i);
-            mz_zip_reader_end(&zip_archive);
-            return false;
-        }
-
-        char full_path[MAX_PATH];
-        // Security check: validate path and ensure it stays within dest_dir
-        if (!Path_IsSafe(dest_dir, file_stat.m_filename, full_path, sizeof(full_path))) {
-            printf("Skipping unsafe path: %s\n", file_stat.m_filename);
+            // This error is not critical enough to stop extraction, just skip this file
+            printf("Warning: Failed to get file stat for index %d. Skipping.\n", i);
             continue;
         }
 
-        if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) {
-            printf("Creating directory: %s\n", full_path);
-            EnsureDirectoryExists(full_path);
-        } else {
-            printf("Extracting: %s\n", full_path);
-            
-            // Ensure parent directory exists
-            char parent_dir[MAX_PATH];
-            snprintf(parent_dir, sizeof(parent_dir), "%s", full_path);
-            char* last_slash = strrchr(parent_dir, '\\');
-            if (!last_slash) last_slash = strrchr(parent_dir, '/');
-            if (last_slash) {
-                *last_slash = '\0';
-                EnsureDirectoryExists(parent_dir);
-            }
+        // Determine full path
+        char full_path[MAX_PATH];
+        if (!Path_IsSafe(dest_dir, file_stat.m_filename, full_path, MAX_PATH)) {
+            char msg[512];
+            snprintf(msg, sizeof(msg), "Skipping unsafe or invalid path:\n%s", file_stat.m_filename);
+            MessageBoxA(NULL, msg, "Security Warning", MB_ICONWARNING);
+            continue;
+        }
 
-            if (!mz_zip_reader_extract_to_file(&zip_archive, i, full_path, 0)) {
-                printf("Error: Failed to extract file %s\n", full_path);
-                // Continue or fail? Let's fail for integrity.
-                mz_zip_reader_end(&zip_archive);
-                return false;
-            }
+        // Fix: Explicitly check for trailing slash to identify directories
+        // Miniz might not set the attribute bit for some zips
+        size_t path_len = strlen(full_path);
+        if (path_len > 0 && (full_path[path_len - 1] == '/' || full_path[path_len - 1] == '\\')) {
+             Path_CreateRecursive(full_path);
+             continue;
+        }
+
+        // Create directories if needed
+        if (mz_zip_reader_is_file_a_directory(&zip_archive, i)) {
+            Path_CreateRecursive(full_path);
+            continue;
+        }
+
+        // Ensure parent dir exists for files
+        char parent_dir[MAX_PATH];
+        strncpy(parent_dir, full_path, MAX_PATH);
+        parent_dir[MAX_PATH - 1] = '\0'; // Ensure null termination
+        char* last_slash = strrchr(parent_dir, '\\');
+        if (!last_slash) last_slash = strrchr(parent_dir, '/');
+        if (last_slash) {
+            *last_slash = '\0'; // Null-terminate to get parent path
+            Path_CreateRecursive(parent_dir);
+        }
+
+        // Extract file
+        if (!mz_zip_reader_extract_to_file(&zip_archive, i, full_path, 0)) {
+            char msg[512];
+            snprintf(msg, sizeof(msg), "Failed to extract file:\n%s\n\nMiniz Error: %s\nWindows Error: %lu", 
+                file_stat.m_filename, 
+                mz_zip_get_error_string(mz_zip_get_last_error(&zip_archive)),
+                GetLastError());
+            MessageBoxA(NULL, msg, "Extraction Failure", MB_ICONERROR);
+            mz_zip_reader_end(&zip_archive);
+            return false;
         }
     }
 
@@ -122,7 +138,7 @@ bool System_LaunchProcess(const char* exe_path) {
         &si,            // Pointer to STARTUPINFO structure
         &pi             // Pointer to PROCESS_INFORMATION structure
     )) {
-        printf("CreateProcess failed (%d).\n", GetLastError());
+        printf("CreateProcess failed (%lu).\n", GetLastError());
         return false;
     }
 
