@@ -576,6 +576,44 @@ void app_themes_save_all(void) {
 
 // --- Match History Implementation ---
 
+// Pagination Configuration
+#define PAGE_SIZE 20              // Matches per page
+#define MAX_CACHED_PAGES 10       // Keep 10 pages in memory (200 entries)
+#define PRELOAD_THRESHOLD 5       // Load next page when 5 items from bottom
+
+// Lightweight metadata for fast indexing
+typedef struct {
+    char id[64];
+    int64_t timestamp;  // For sorting
+} MatchMetadata;
+
+// Metadata index (all matches, but only ID + timestamp)
+typedef struct {
+    MatchMetadata* items;
+    int count;
+    int capacity;
+} MatchIndex;
+
+// Cached page of full match entries
+typedef struct {
+    int page_number;
+    MatchHistoryEntry* entries;  // Array of entries
+    int entry_count;             // Actual entries in this page
+    uint64_t last_access_time;   // For LRU eviction (milliseconds)
+} CachePage;
+
+// LRU Cache for match pages
+typedef struct {
+    CachePage* pages;
+    int page_count;
+    int max_pages;
+} MatchCache;
+
+// Global state
+static MatchIndex g_match_index = {0};
+static MatchCache g_match_cache = {0};
+
+// Legacy: Keep for backward compatibility
 static MatchHistoryEntry* g_history_list = NULL;
 static int g_history_count = 0;
 static int g_history_capacity = 0;
@@ -591,13 +629,22 @@ void match_history_free_entry(MatchHistoryEntry* entry) {
     }
 }
 
+// Forward declaration for pagination cache invalidation
+static void invalidate_cache(void);
+
 static void save_single_match(MatchHistoryEntry* m) {
     determine_base_dir();
-    char matches_dir[4096]; // Increased to avoid truncation warnings
-    snprintf(matches_dir, sizeof(matches_dir), "%s/matches", g_base_dir);
+    char matches_dir[4096]; 
+    
+    // Determine subdirectory based on ID prefix
+    if (strncmp(m->id, "import_", 7) == 0) {
+        snprintf(matches_dir, sizeof(matches_dir), "%s/matches/imported", g_base_dir);
+    } else {
+        snprintf(matches_dir, sizeof(matches_dir), "%s/matches", g_base_dir);
+    }
     MKDIR(matches_dir);
 
-    char match_path[4096]; // Increased to avoid truncation warnings
+    char match_path[4096]; 
     snprintf(match_path, sizeof(match_path), "%.2048s/%.256s.json", matches_dir, m->id);
     
     FILE* f = fopen(match_path, "w");
@@ -694,12 +741,138 @@ static void save_single_match(MatchHistoryEntry* m) {
     }
 }
 
+// --- NEW: Helper Functions for Pagination ---
+
+// Get current time in milliseconds for LRU tracking
+static uint64_t get_time_ms(void) {
+#ifdef _WIN32
+    return GetTickCount64();
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+#endif
+}
+
+// Compare function for qsort (descending by timestamp)
+static int compare_metadata(const void* a, const void* b) {
+    const MatchMetadata* ma = (const MatchMetadata*)a;
+    const MatchMetadata* mb = (const MatchMetadata*)b;
+    if (ma->timestamp > mb->timestamp) return -1;
+    if (ma->timestamp < mb->timestamp) return 1;
+    return 0;
+}
+
+// Helper to scan a directory and add to index
+static void scan_directory(const char* dir_path) {
+    char search_path[4096];
+    
+#ifdef _WIN32
+    snprintf(search_path, sizeof(search_path), "%.2048s/*.json", dir_path);
+    WIN32_FIND_DATAA fd;
+    HANDLE hFind = FindFirstFileA(search_path, &fd);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            // Expand capacity if needed
+            if (g_match_index.count >= g_match_index.capacity) {
+                g_match_index.capacity *= 2;
+                g_match_index.items = realloc(g_match_index.items, 
+                    g_match_index.capacity * sizeof(MatchMetadata));
+            }
+            
+            MatchMetadata* meta = &g_match_index.items[g_match_index.count++];
+            
+            // Extract ID
+            snprintf(meta->id, sizeof(meta->id), "%.63s", fd.cFileName);
+            char* ext = strstr(meta->id, ".json");
+            if (ext) *ext = '\0';
+            
+            // Use file modification time as timestamp
+            FILETIME ft = fd.ftLastWriteTime;
+            ULARGE_INTEGER ull;
+            ull.LowPart = ft.dwLowDateTime;
+            ull.HighPart = ft.dwHighDateTime;
+            meta->timestamp = ull.QuadPart / 10000000ULL - 11644473600ULL; // Convert to Unix time
+            
+        } while (FindNextFileA(hFind, &fd));
+        FindClose(hFind);
+    }
+#else
+    DIR* d = opendir(dir_path);
+    if (d) {
+        struct dirent* dir;
+        while ((dir = readdir(d)) != NULL) {
+            if (strstr(dir->d_name, ".json")) {
+                if (g_match_index.count >= g_match_index.capacity) {
+                    g_match_index.capacity *= 2;
+                    g_match_index.items = realloc(g_match_index.items, 
+                        g_match_index.capacity * sizeof(MatchMetadata));
+                }
+                
+                MatchMetadata* meta = &g_match_index.items[g_match_index.count++];
+                snprintf(meta->id, sizeof(meta->id), "%s", dir->d_name);
+                char* ext = strstr(meta->id, ".json");
+                if (ext) *ext = '\0';
+                
+                // Get timestamp
+                char full_path[4096];
+                snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, dir->d_name);
+                struct stat st;
+                if (stat(full_path, &st) == 0) {
+                    meta->timestamp = st.st_mtime;
+                }
+            }
+        }
+        closedir(d);
+    }
+#endif
+}
+
+// Fast scan: only extract ID and timestamp from filename
+static void scan_match_files(void) {
+    determine_base_dir();
+    char matches_dir[4096];
+    snprintf(matches_dir, sizeof(matches_dir), "%s/matches", g_base_dir);
+    
+    // Initialize index
+    g_match_index.capacity = 100;
+    g_match_index.count = 0;
+    if (g_match_index.items) free(g_match_index.items); // Reset
+    g_match_index.items = calloc(g_match_index.capacity, sizeof(MatchMetadata));
+    
+    // Scan root matches
+    scan_directory(matches_dir);
+    
+    // Scan imported matches
+    char imported_dir[4096];
+    snprintf(imported_dir, sizeof(imported_dir), "%s/matches/imported", g_base_dir);
+    scan_directory(imported_dir); // Prefix not stored in ID, ID is filename
+    
+    // Sort by timestamp (descending - newest first)
+    if (g_match_index.count > 0) {
+        qsort(g_match_index.items, g_match_index.count, sizeof(MatchMetadata), compare_metadata);
+    }
+    
+    if (debug_mode) {
+        printf("[ConfigManager] Fast scan: indexed %d matches total\n", g_match_index.count);
+    }
+}
+
 void match_history_init(void) {
+    // NEW: Fast initialization - only scan filenames
+    scan_match_files();
+    
+    // Initialize cache
+    g_match_cache.max_pages = MAX_CACHED_PAGES;
+    g_match_cache.page_count = 0;
+    g_match_cache.pages = calloc(MAX_CACHED_PAGES, sizeof(CachePage));
+    
+    // Legacy: Initialize old system for backward compatibility
     g_history_count = 0;
     g_history_capacity = 50;
     g_history_list = calloc(g_history_capacity, sizeof(MatchHistoryEntry));
-    match_history_load_all();
 }
+
 
 /* Portable strtok_r implementation for Windows/MinGW */
 static char* strtok_r_portable(char *str, const char *delim, char **saveptr) {
@@ -982,6 +1155,10 @@ void match_history_delete(const char* id) {
         }
         g_history_count--;
     }
+    
+    // NEW: Invalidate pagination cache
+    invalidate_cache();
+    
     if(debug_mode) printf("[ConfigManager] Deleted match: %s\n", path);
 }
 
@@ -998,6 +1175,9 @@ void match_history_add(MatchHistoryEntry* entry) {
     if (entry->moves_uci) dest->moves_uci = strdup(entry->moves_uci);
     
     save_single_match(dest);
+    
+    // NEW: Invalidate pagination cache
+    invalidate_cache();
 }
 
 MatchHistoryEntry* match_history_find_by_id(const char* id) {
@@ -1012,3 +1192,223 @@ MatchHistoryEntry* match_history_get_list(int* count) {
     if (count) *count = g_history_count;
     return g_history_list;
 }
+
+// --- NEW: Pagination API Implementation ---
+
+int match_history_get_count(void) {
+    return g_match_index.count;
+}
+
+// Find cached page or return NULL
+static CachePage* find_cached_page(int page_num) {
+    for (int i = 0; i < g_match_cache.page_count; i++) {
+        if (g_match_cache.pages[i].page_number == page_num) {
+            return &g_match_cache.pages[i];
+        }
+    }
+    return NULL;
+}
+
+// Find LRU page for eviction
+static CachePage* find_lru_page(void) {
+    if (g_match_cache.page_count == 0) return NULL;
+    
+    CachePage* lru = &g_match_cache.pages[0];
+    for (int i = 1; i < g_match_cache.page_count; i++) {
+        if (g_match_cache.pages[i].last_access_time < lru->last_access_time) {
+            lru = &g_match_cache.pages[i];
+        }
+    }
+    return lru;
+}
+
+// Free a cached page's entries
+static void free_cache_page(CachePage* page) {
+    if (!page || !page->entries) return;
+    
+    for (int i = 0; i < page->entry_count; i++) {
+        match_history_free_entry(&page->entries[i]);
+    }
+    free(page->entries);
+    page->entries = NULL;
+    page->entry_count = 0;
+}
+
+// Load a single match by ID into an entry
+static bool load_match_by_id(const char* id, MatchHistoryEntry* entry) {
+    determine_base_dir();
+    char path[4096];
+    snprintf(path, sizeof(path), "%s/matches/%s.json", g_base_dir, id);
+    
+    FILE* f = fopen(path, "r");
+    if (!f) return false;
+    
+    memset(entry, 0, sizeof(MatchHistoryEntry));
+    snprintf(entry->id, sizeof(entry->id), "%s", id);
+    entry->clock.enabled = false;
+    
+    // Parse the file (reuse existing parse_match_file logic)
+    int context = 0;
+    char line[4096];
+    while (fgets(line, sizeof(line), f)) {
+        if (strstr(line, "\"white\": {")) context = 1;
+        else if (strstr(line, "\"black\": {")) context = 2;
+        else if (strstr(line, "\"clock\": {")) context = 3;
+        else if (strchr(line, '}') && context != 0) context = 0;
+        
+        if (strstr(line, "\"timestamp\"")) {
+            char* p = strchr(line, ':');
+            if (p) entry->timestamp = (int64_t)strtoll(p + 1, NULL, 10);
+        }
+        else if (strstr(line, "\"created_at_ms\"")) {
+            char* p = strchr(line, ':');
+            if (p) entry->created_at_ms = (int64_t)strtoll(p + 1, NULL, 10);
+        }
+        else if (strstr(line, "\"started_at_ms\"")) {
+            char* p = strchr(line, ':');
+            if (p) entry->started_at_ms = (int64_t)strtoll(p + 1, NULL, 10);
+        }
+        else if (strstr(line, "\"ended_at_ms\"")) {
+            char* p = strchr(line, ':');
+            if (p) entry->ended_at_ms = (int64_t)strtoll(p + 1, NULL, 10);
+        }
+        else if (context == 3) {
+            if (strstr(line, "\"initial_ms\"")) {
+                char* p = strchr(line, ':'); if(p) entry->clock.initial_ms = atoi(p+1);
+            }
+            else if (strstr(line, "\"increment_ms\"")) {
+                char* p = strchr(line, ':'); if(p) entry->clock.increment_ms = atoi(p+1);
+            }
+            else if (strstr(line, "\"enabled\"")) {
+                if (strstr(line, "true")) entry->clock.enabled = true;
+                else if (strstr(line, "false")) entry->clock.enabled = false;
+            }
+        }
+        else if (context == 1 || context == 2) {
+            MatchPlayerConfig* p_cfg = (context == 1) ? &entry->white : &entry->black;
+            
+            if (strstr(line, "\"is_ai\"")) {
+                if (strstr(line, "true")) p_cfg->is_ai = true;
+                else if (strstr(line, "false")) p_cfg->is_ai = false;
+            }
+            if (strstr(line, "\"elo\"")) {
+                char* p = strstr(line, "\"elo\"");
+                p = strchr(p, ':'); if(p) p_cfg->elo = atoi(p+1);
+            }
+            if (strstr(line, "\"depth\"")) {
+                char* p = strstr(line, "\"depth\"");
+                p = strchr(p, ':'); if(p) p_cfg->depth = atoi(p+1);
+            }
+            if (strstr(line, "\"movetime\"")) {
+                char* p = strstr(line, "\"movetime\"");
+                p = strchr(p, ':'); if(p) p_cfg->movetime = atoi(p+1);
+            }
+            if (strstr(line, "\"engine_type\"")) {
+                char* p = strstr(line, "\"engine_type\"");
+                p = strchr(p, ':'); if(p) p_cfg->engine_type = atoi(p+1);
+            }
+            if (strstr(line, "\"engine_path\"")) {
+                extract_json_str(line, "engine_path", p_cfg->engine_path, sizeof(p_cfg->engine_path));
+            }
+        }
+        else if (strstr(line, "\"game_mode\"")) {
+            char* p = strchr(line, ':');
+            if (p) entry->game_mode = atoi(p + 1);
+        }
+        else if (strstr(line, "\"result_reason\"")) {
+            extract_json_str(line, "result_reason", entry->result_reason, sizeof(entry->result_reason));
+        }
+        else if (strstr(line, "\"result\"")) {
+            extract_json_str(line, "result", entry->result, sizeof(entry->result));
+        }
+        else if (strstr(line, "\"move_count\"")) {
+            char* p = strchr(line, ':');
+            if (p) entry->move_count = atoi(p + 1);
+        }
+        else if (strstr(line, "\"moves_uci\"")) {
+            char val[4096];
+            extract_json_str(line, "moves_uci", val, sizeof(val));
+            if (entry->moves_uci) free(entry->moves_uci);
+            entry->moves_uci = strdup(val);
+        }
+        else if (strstr(line, "\"start_fen\"")) extract_json_str(line, "start_fen", entry->start_fen, sizeof(entry->start_fen));
+        else if (strstr(line, "\"final_fen\"")) extract_json_str(line, "final_fen", entry->final_fen, sizeof(entry->final_fen));
+    }
+    
+    fclose(f);
+    return true;
+}
+
+MatchHistoryEntry* match_history_get_page(int page_num, int* out_count) {
+    // Check cache first
+    CachePage* cached = find_cached_page(page_num);
+    if (cached) {
+        cached->last_access_time = get_time_ms();
+        if (out_count) *out_count = cached->entry_count;
+        return cached->entries;
+    }
+    
+    // Calculate range for this page
+    int start_idx = page_num * PAGE_SIZE;
+    if (start_idx >= g_match_index.count) {
+        if (out_count) *out_count = 0;
+        return NULL;
+    }
+    
+    int end_idx = start_idx + PAGE_SIZE;
+    if (end_idx > g_match_index.count) {
+        end_idx = g_match_index.count;
+    }
+    int count = end_idx - start_idx;
+    
+    // Allocate new page
+    CachePage new_page = {0};
+    new_page.page_number = page_num;
+    new_page.entry_count = count;
+    new_page.entries = calloc(count, sizeof(MatchHistoryEntry));
+    new_page.last_access_time = get_time_ms();
+    
+    // Load matches for this page
+    for (int i = 0; i < count; i++) {
+        const char* id = g_match_index.items[start_idx + i].id;
+        if (!load_match_by_id(id, &new_page.entries[i])) {
+            // Failed to load, use metadata
+            snprintf(new_page.entries[i].id, sizeof(new_page.entries[i].id), "%s", id);
+            new_page.entries[i].timestamp = g_match_index.items[start_idx + i].timestamp;
+        }
+    }
+    
+    // Insert into cache (evict LRU if needed)
+    if (g_match_cache.page_count >= g_match_cache.max_pages) {
+        CachePage* lru = find_lru_page();
+        if (lru) {
+            free_cache_page(lru);
+            *lru = new_page;
+        }
+    } else {
+        g_match_cache.pages[g_match_cache.page_count++] = new_page;
+    }
+    
+    if (out_count) *out_count = count;
+    
+    // Return pointer to cached page
+    cached = find_cached_page(page_num);
+    return cached ? cached->entries : NULL;
+}
+
+// Invalidate cache when matches are added/deleted
+static void invalidate_cache(void) {
+    for (int i = 0; i < g_match_cache.page_count; i++) {
+        free_cache_page(&g_match_cache.pages[i]);
+    }
+    g_match_cache.page_count = 0;
+    
+    // Rescan index
+    if (g_match_index.items) {
+        free(g_match_index.items);
+        g_match_index.items = NULL;
+        g_match_index.count = 0;
+    }
+    scan_match_files();
+}
+

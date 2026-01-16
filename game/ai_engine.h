@@ -6,6 +6,7 @@
 typedef struct {
     int depth;         // derived from ELO in ELO-mode, or from advanced mode
     int move_time_ms;  // derived from ELO in ELO-mode, or from advanced mode
+    int target_elo;    // NEW: For non-advanced skill mapping
 } AiDifficultyParams;
 
 // Opaque handle for an engine instance
@@ -61,6 +62,22 @@ bool ai_engine_test_binary(const char* binary_path);
  * Sends a 'setoption name <name> value <value>' command.
  */
 void ai_engine_set_option(EngineHandle* handle, const char* name, const char* value);
+
+/**
+ * Waits for a specific UCI response token (e.g., "readyok", "uciok").
+ * Returns true if token received within timeout, false otherwise.
+ */
+bool ai_engine_wait_for_token(EngineHandle* handle, const char* token, int timeout_ms);
+
+/**
+ * Converts ELO rating to Stockfish Skill Level (0-20).
+ */
+int ai_engine_elo_to_skill(int elo);
+
+/**
+ * Ensures the engine is in UCI mode (sends "uci" if not already done).
+ */
+void ai_engine_ensure_uci(EngineHandle* handle);
 
 /**
  * Maps ELO rating to Stockfish parameters.

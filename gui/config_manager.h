@@ -164,7 +164,16 @@ void match_history_delete(const char* id);
 // Free memory for a match entry (especially moves_uci)
 void match_history_free_entry(MatchHistoryEntry* entry);
 
-// Get the list of historical matches
+// Get the list of historical matches (LEGACY: loads all matches)
 MatchHistoryEntry* match_history_get_list(int* count);
+
+// NEW: Pagination API for efficient loading
+// Get total count of matches (from lightweight index)
+int match_history_get_count(void);
+
+// Get a specific page of matches (0-indexed)
+// Returns pointer to cached entries, count set in out_count
+// Page size is defined internally (typically 20 entries)
+MatchHistoryEntry* match_history_get_page(int page_num, int* out_count);
 
 #endif // CONFIG_MANAGER_H

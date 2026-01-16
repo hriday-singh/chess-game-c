@@ -355,60 +355,48 @@ static void on_custom_path_changed(GtkEditable* editable, gpointer user_data) {
     if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
-static void on_browse_finished(GObject* src, GAsyncResult* r, gpointer d) {
-    GtkFileDialog* fd = GTK_FILE_DIALOG(src);
-    AiDialog* dialog = (AiDialog*)d;
-    GFile* file = gtk_file_dialog_open_finish(fd, r, NULL);
-    if (file) {
-        char* path = g_file_get_path(file);
+#include "gui_file_dialog.h"
+
+static void on_engine_path_selected(const char* path, gpointer user_data) {
+    AiDialog* dialog = (AiDialog*)user_data;
+    if (path) {
         gtk_editable_set_text(GTK_EDITABLE(dialog->custom_path_entry), path);
-        g_free(path);
-        g_object_unref(file);
     }
-    g_object_unref(fd);
 }
 
 static void on_browse_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn;
     AiDialog* dialog = (AiDialog*)user_data;
-    GtkFileDialog* fd = gtk_file_dialog_new();
-    GtkFileFilter* filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "UCI Engine (*.exe)");
-    gtk_file_filter_add_pattern(filter, "*.exe");
+    const char* patterns[] = { "*.exe", NULL };
     
-    GListStore* filter_list = g_list_store_new(GTK_TYPE_FILE_FILTER);
-    g_list_store_append(filter_list, filter);
-    gtk_file_dialog_set_filters(fd, G_LIST_MODEL(filter_list));
-    g_object_unref(filter_list);
-    
-    gtk_file_dialog_set_title(fd, "Select Engine Binary");
-    // Use dialog->window if available, else parent_window
     GtkWindow* w = dialog->window ? dialog->window : dialog->parent_window;
-    gtk_file_dialog_open(fd, w, NULL, on_browse_finished, dialog);
+    gui_file_dialog_open(w,
+                        "Select Engine Binary",
+                        "UCI Engine (*.exe)",
+                        patterns,
+                        on_engine_path_selected,
+                        dialog);
 }
 
-static void on_nnue_import_finished(GObject* src, GAsyncResult* r, gpointer d) {
-    GtkFileDialog* fd = GTK_FILE_DIALOG(src);
-    AiDialog* dialog = (AiDialog*)d;
-    GFile* file = gtk_file_dialog_open_finish(fd, r, NULL);
-    if (file) {
-        char* path = g_file_get_path(file);
-        if (validate_nnue_file(path)) {
+static void on_nnue_path_selected(const char* path, gpointer user_data) {
+    AiDialog* dialog = (AiDialog*)user_data;
+    if (path) {
+         if (validate_nnue_file(path)) {
             if (dialog->nnue_path) g_free(dialog->nnue_path);
-            dialog->nnue_path = path;
+            dialog->nnue_path = g_strdup(path); // Duplicate since path is const
             gtk_label_set_text(GTK_LABEL(dialog->nnue_path_label), g_path_get_basename(path));
             gtk_widget_set_visible(dialog->nnue_toggle, TRUE);
             gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->nnue_toggle), TRUE);
         } else {
-            // Show error using modern GTK4 window
+            // Show error
             GtkWindow* parent = dialog->window ? dialog->window : dialog->parent_window;
-            GtkWidget* error_window = gtk_window_new();
+            // Reusing existing error logic roughly
+            
+             GtkWidget* error_window = gtk_window_new();
             gtk_window_set_title(GTK_WINDOW(error_window), "Error");
             if (parent) gtk_window_set_transient_for(GTK_WINDOW(error_window), parent);
             gtk_window_set_modal(GTK_WINDOW(error_window), TRUE);
             gtk_window_set_default_size(GTK_WINDOW(error_window), 300, 150);
-            
-            // Auto-Focus Parent on Destroy
             gui_utils_setup_auto_focus_restore(GTK_WINDOW(error_window));
             
             GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
@@ -421,15 +409,15 @@ static void on_nnue_import_finished(GObject* src, GAsyncResult* r, gpointer d) {
             gtk_label_set_wrap(GTK_LABEL(label), TRUE);
             gtk_box_append(GTK_BOX(box), label);
             
-            GtkWidget* btn = gtk_button_new_with_label("OK");
-            gtk_widget_set_halign(btn, GTK_ALIGN_CENTER);
-            g_signal_connect_swapped(btn, "clicked", G_CALLBACK(gtk_window_destroy), error_window);
-            gtk_box_append(GTK_BOX(box), btn);
+            GtkWidget* ok_btn = gtk_button_new_with_label("OK");
+            gtk_widget_set_halign(ok_btn, GTK_ALIGN_CENTER);
+            g_signal_connect_swapped(ok_btn, "clicked", G_CALLBACK(gtk_window_destroy), error_window);
+            gtk_box_append(GTK_BOX(box), ok_btn);
             
             gtk_window_set_child(GTK_WINDOW(error_window), box);
             gtk_window_present(GTK_WINDOW(error_window));
             
-            // Clear NNUE
+            // Clear
             if (dialog->nnue_path) {
                 g_free(dialog->nnue_path);
                 dialog->nnue_path = NULL;
@@ -437,29 +425,22 @@ static void on_nnue_import_finished(GObject* src, GAsyncResult* r, gpointer d) {
             gtk_label_set_text(GTK_LABEL(dialog->nnue_path_label), "None");
             gtk_widget_set_visible(dialog->nnue_toggle, FALSE);
             gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->nnue_toggle), FALSE);
-            g_free(path);
         }
-        g_object_unref(file);
     }
-    g_object_unref(fd);
 }
 
 static void on_nnue_import_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn;
     AiDialog* dialog = (AiDialog*)user_data;
-    GtkFileDialog* fd = gtk_file_dialog_new();
-    GtkFileFilter* filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "NNUE Evaluation (*.nnue)");
-    gtk_file_filter_add_pattern(filter, "*.nnue");
+    const char* patterns[] = { "*.nnue", NULL };
     
-    GListStore* filter_list = g_list_store_new(GTK_TYPE_FILE_FILTER);
-    g_list_store_append(filter_list, filter);
-    gtk_file_dialog_set_filters(fd, G_LIST_MODEL(filter_list));
-    g_object_unref(filter_list);
-    
-    gtk_file_dialog_set_title(fd, "Select NNUE File");
     GtkWindow* w = dialog->window ? dialog->window : dialog->parent_window;
-    gtk_file_dialog_open(fd, w, NULL, on_nnue_import_finished, dialog);
+    gui_file_dialog_open(w, 
+                        "Select NNUE File",
+                        "NNUE Evaluation (*.nnue)",
+                        patterns,
+                        on_nnue_path_selected,
+                        dialog);
 }
 
 static void on_nnue_delete_clicked(GtkButton* btn, gpointer user_data) {

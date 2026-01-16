@@ -104,41 +104,16 @@ static void refresh_clock_display(ReplayController* self) {
     ClockWidget* clocks[2] = { self->app_state->gui.top_clock, self->app_state->gui.bottom_clock };
 
     if (clocks[0] && clocks[1]) {
-        // Fix for "00:00 at start":
-        // Always show clock at Move 0 if enabled, regardless of think time emulation status.
-        bool force_display = (self->clock_enabled && self->current_ply == 0);
-
-        if (!force_display && (!self->clock_enabled || !self->use_think_times)) {
-            // "Unitialized" state as requested
+        // Use precalculated times if available (always present when clock_enabled)
+        // Otherwise disable the clocks
+        if (!self->clock_enabled || !self->precalc_white_time || !self->precalc_black_time) {
+            // Clock disabled or not initialized
             clock_widget_set_disabled(clocks[0], true);
             clock_widget_set_disabled(clocks[1], true);
         } else {
-            // Calculate virtual clock times
-            // Start with initial time
-            int64_t w_time = (int64_t)self->clock_initial_ms;
-            int64_t b_time = (int64_t)self->clock_initial_ms;
-            
-            // Replay moves up to current_ply to deduce time
-            for (int i = 0; i < self->current_ply; i++) {
-                if (i >= self->think_time_count) break;
-                
-                int duration = self->think_times[i];
-                // Determine mover from snapshot
-                Player mover = PLAYER_WHITE; 
-                if (self->snapshots && i < self->snapshot_count) {
-                    mover = self->snapshots[i].turn;
-                }
-
-                if (mover == PLAYER_WHITE) {
-                    w_time -= duration;
-                    if (w_time < 0) w_time = 0; 
-                    w_time += self->clock_increment_ms;
-                } else {
-                    b_time -= duration;
-                    if (b_time < 0) b_time = 0;
-                    b_time += self->clock_increment_ms;
-                }
-            }
+            // Use precalculated times for O(1) lookup
+            int64_t w_time = self->precalc_white_time[self->current_ply];
+            int64_t b_time = self->precalc_black_time[self->current_ply];
             
             clock_widget_set_disabled(clocks[0], false);
             clock_widget_set_disabled(clocks[1], false);
@@ -403,7 +378,7 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
         
         if (valid) {
              self->use_think_times = true;
-             if (debug_mode) printf("[Replay] Real-time emulation enabled (Sanitized). Count: %d\n", self->think_time_count);
+             if (debug_mode) printf("[Replay] Real-time emulation enabled (Sanitized). Count: %d, Total Think: %lld ms\n", self->think_time_count, total_think);
         }
     } else {
         if (debug_mode) {

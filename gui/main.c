@@ -34,11 +34,11 @@
 
 static bool debug_mode = true;
 static int app_height = 1035;
-static int app_width = 1475;
+static int app_width = 1460;
 
 // Globals
 #include "history_dialog.h"
-static AppState* g_app_state = NULL;
+AppState* g_app_state = NULL;
 
 // Forward declarations
 static gboolean check_trigger_ai_idle(gpointer user_data);
@@ -770,6 +770,7 @@ static void request_ai_move(AppState* state) {
     if (ai_dialog_is_advanced_enabled(state->gui.ai_dialog, use_custom)) {
         params.depth = ai_dialog_get_depth(state->gui.ai_dialog, use_custom);
         params.move_time_ms = ai_dialog_get_movetime(state->gui.ai_dialog, use_custom);
+        params.target_elo = 0; // Advanced mode: no skill level
     } else {
         int elo = info_panel_get_elo(state->gui.info_panel, is_black);
         params = ai_get_difficulty_params(elo);
@@ -1145,7 +1146,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
 
     GtkWidget* header = gtk_header_bar_new();
     // Replacement for Menu: Settings Button
-    GtkWidget* settings_btn = gtk_button_new_from_icon_name("open-menu-symbolic");
+    GtkWidget* settings_btn = gtk_button_new_from_icon_name("emblem-system-symbolic");
     gtk_widget_add_css_class(settings_btn, "header-button");
     gtk_widget_set_tooltip_text(settings_btn, "Settings");
     state->gui.settings_btn = settings_btn; // Store reference
@@ -1167,7 +1168,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     state->gui.dark_mode_btn = dark_mode_btn; // Store reference
 
     // History Button
-    GtkWidget* history_btn = gtk_button_new_from_icon_name("document-open-recent-symbolic");
+    GtkWidget* history_btn = gtk_button_new_from_icon_name("open-menu-symbolic");
     gtk_widget_set_valign(history_btn, GTK_ALIGN_CENTER);
     gtk_widget_set_tooltip_text(history_btn, "Game History");
     // Ensure it uses the transparent header button class

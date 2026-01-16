@@ -136,39 +136,32 @@ static void on_import_confirm(GtkButton* btn, gpointer user_data) {
     gtk_window_destroy(dialog);
 }
 
-static void on_open_response(GObject* source, GAsyncResult* result, gpointer user_data) {
-    GtkFileDialog* dialog = GTK_FILE_DIALOG(source);
-    GError* error = NULL;
-    GFile* file = gtk_file_dialog_open_finish(dialog, result, &error);
+#include "gui_file_dialog.h"
+
+static void on_json_file_selected(const char* path, gpointer user_data) {
+    if (!path) return;
+    GtkTextView* tv = GTK_TEXT_VIEW(user_data);
     
-    if (file) {
-        char* contents;
-        gsize length;
-        if (g_file_load_contents(file, NULL, &contents, &length, NULL, NULL)) {
-             GtkTextView* tv = GTK_TEXT_VIEW(user_data);
-             gtk_text_buffer_set_text(gtk_text_view_get_buffer(tv), contents, length);
-             g_free(contents);
-        }
-        g_object_unref(file);
-    } else {
-        if (error) g_error_free(error);
+    char* contents = NULL;
+    gsize length = 0;
+    if (g_file_get_contents(path, &contents, &length, NULL)) {
+        gtk_text_buffer_set_text(gtk_text_view_get_buffer(tv), contents, length);
+        g_free(contents);
     }
 }
 
 static void on_load_file_clicked(GtkButton* btn, gpointer user_data) {
     GtkTextView* tv = GTK_TEXT_VIEW(user_data);
-    GtkFileDialog* dialog = gtk_file_dialog_new();
-    GtkFileFilter* filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "Chess Puzzle JSON (*.json)");
-    gtk_file_filter_add_pattern(filter, "*.json");
+    const char* patterns[] = { "*.json", NULL };
     
-    GListStore* filter_list = g_list_store_new(GTK_TYPE_FILE_FILTER);
-    g_list_store_append(filter_list, filter);
-    gtk_file_dialog_set_filters(dialog, G_LIST_MODEL(filter_list));
-    g_object_unref(filter_list);
-    gtk_file_dialog_set_title(dialog, "Open JSON");
-    gtk_file_dialog_open(dialog, GTK_WINDOW(gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_WINDOW)), NULL, on_open_response, tv);
-    g_object_unref(dialog);
+    GtkWindow* parent = GTK_WINDOW(gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_WINDOW));
+    
+    gui_file_dialog_open(parent,
+                        "Open JSON",
+                        "Chess Puzzle JSON (*.json)",
+                        patterns,
+                        on_json_file_selected,
+                        tv);
 }
 
 static void on_import_clicked(GtkButton* btn, gpointer user_data) {

@@ -1,16 +1,29 @@
 #include "history_dialog.h"
+#include "history_dialog.h"
 #include "config_manager.h"
+#include "import_dialog.h" // NEW
+#include "app_state.h"     // Need AppState to pass to import
+#include <time.h>
+
+extern AppState* g_app_state; // Access global state for import dialog
+
 #include <time.h>
 
 struct _HistoryDialog {
     GtkWindow* window;
     GtkWidget* list_box;
+    GtkWidget* scrolled_window;  // NEW: Keep reference for scroll detection
     GSimpleAction* replay_action;
+    int current_page;            // NEW: Current page number
+    bool loading;                // NEW: Prevent concurrent loads
 };
 
 static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* dialog);
 static void on_replay_clicked(GtkButton* btn, gpointer user_data);
 static void on_delete_clicked(GtkButton* btn, gpointer user_data);
+static void import_btn_clicked(GtkButton* btn, gpointer user_data); // Forward decl
+static void load_next_page(HistoryDialog* dialog);  // NEW: Load next page
+static void on_scroll_edge_reached(GtkScrolledWindow* sw, GtkPositionType pos, gpointer user_data);  // NEW: Scroll handler
 
 static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* dialog) {
     // Styling: Use a Frame for better visual separation
@@ -30,37 +43,44 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
     gtk_frame_set_child(GTK_FRAME(frame), row_box);
 
     // Mode & Result (Left Side)
-    // Remove brackets, clean format: "PvP | White Checkmate"
     char summary[256];
     const char* mode_str = (m->game_mode == 0) ? "PvP" : (m->game_mode == 1) ? "PvC" : "CvC";
     
-    char readable_result[64];
+    char readable_result[128];
     
     // Determine player roles for White and Black
     const char* white_role = m->white.is_ai ? "AI" : "Player";
     const char* black_role = m->black.is_ai ? "AI" : "Player";
     
-    // Build result text with roles
+    // Build detailed result text showing color and player type
     if (strcmp(m->result, "1-0") == 0) {
-        snprintf(readable_result, sizeof(readable_result), "White %s won", white_role);
+        // White won
+        if (m->game_mode == 1 && !m->white.is_ai) {
+            // PvC: Human player as White won
+            snprintf(readable_result, sizeof(readable_result), "You Won! (White Player)");
+        } else if (m->game_mode == 1 && m->white.is_ai) {
+            // PvC: AI as White won
+            snprintf(readable_result, sizeof(readable_result), "AI Won (White AI)");
+        } else {
+            // PvP or CvC
+            snprintf(readable_result, sizeof(readable_result), "White %s Won", white_role);
+        }
     } else if (strcmp(m->result, "0-1") == 0) {
-        snprintf(readable_result, sizeof(readable_result), "Black %s won", black_role);
+        // Black won
+        if (m->game_mode == 1 && !m->black.is_ai) {
+            // PvC: Human player as Black won
+            snprintf(readable_result, sizeof(readable_result), "You Won! (Black Player)");
+        } else if (m->game_mode == 1 && m->black.is_ai) {
+            // PvC: AI as Black won
+            snprintf(readable_result, sizeof(readable_result), "AI Won (Black AI)");
+        } else {
+            // PvP or CvC
+            snprintf(readable_result, sizeof(readable_result), "Black %s Won", black_role);
+        }
     } else if (strcmp(m->result, "1/2-1/2") == 0) {
         snprintf(readable_result, sizeof(readable_result), "Draw");
     } else {
         snprintf(readable_result, sizeof(readable_result), "No Result");
-    }
-    
-    if (m->game_mode == 1) { 
-         if (m->black.is_ai && !m->white.is_ai) {
-             // User is White
-             if (strcmp(m->result, "1-0") == 0) snprintf(readable_result, sizeof(readable_result), "Player Won!");
-             else if (strcmp(m->result, "0-1") == 0) snprintf(readable_result, sizeof(readable_result), "AI Won");
-         } else if (m->white.is_ai && !m->black.is_ai) {
-             // User is Black
-             if (strcmp(m->result, "0-1") == 0) snprintf(readable_result, sizeof(readable_result), "Player Won!");
-             else if (strcmp(m->result, "1-0") == 0) snprintf(readable_result, sizeof(readable_result), "AI Won");
-         }
     }
 
     // Validate result_reason to prevent FEN/garbage display
@@ -115,29 +135,35 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
     return frame; // Return frame instead of box
 }
 
-static void refresh_match_list(HistoryDialog* dialog) {
-    if (!dialog || !dialog->list_box) return;
-
-    // Clear existing
-    GtkWidget* child;
-    while ((child = gtk_widget_get_first_child(dialog->list_box)) != NULL) {
-        gtk_list_box_remove(GTK_LIST_BOX(dialog->list_box), child);
-    }
-
-    int count = 0;
-    MatchHistoryEntry* matches = match_history_get_list(&count);
+// NEW: Load next page of matches
+static void load_next_page(HistoryDialog* dialog) {
+    if (!dialog || !dialog->list_box || dialog->loading) return;
     
-    if (count == 0) {
+    int total_count = match_history_get_count();
+    int loaded_count = dialog->current_page * 20;  // PAGE_SIZE = 20
+    
+    // Check if we've loaded everything
+    if (loaded_count >= total_count) {
+        return;
+    }
+    
+    dialog->loading = true;
+    
+    int count = 0;
+    MatchHistoryEntry* entries = match_history_get_page(dialog->current_page, &count);
+    
+    if (count == 0 && dialog->current_page == 0) {
+        // No matches at all
         GtkWidget* empty_lbl = gtk_label_new("No matches played yet.");
         gtk_widget_add_css_class(empty_lbl, "dim-label");
         gtk_widget_set_margin_top(empty_lbl, 20);
         gtk_widget_set_margin_bottom(empty_lbl, 20);
         gtk_list_box_append(GTK_LIST_BOX(dialog->list_box), empty_lbl);
     } else {
-        for (int i = count - 1; i >= 0; i--) {
-            GtkWidget* row_content = create_match_row(&matches[i], dialog);
+        // Append rows for this page
+        for (int i = 0; i < count; i++) {
+            GtkWidget* row_content = create_match_row(&entries[i], dialog);
             
-            // Explicitly create row wrapper to disable interaction with the row itself
             GtkWidget* row = gtk_list_box_row_new();
             gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), row_content);
             gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(row), FALSE);
@@ -146,7 +172,38 @@ static void refresh_match_list(HistoryDialog* dialog) {
             gtk_list_box_append(GTK_LIST_BOX(dialog->list_box), row);
         }
     }
+    
+    dialog->current_page++;
+    dialog->loading = false;
 }
+
+// NEW: Scroll edge detection for infinite scroll
+static void on_scroll_edge_reached(GtkScrolledWindow* sw, GtkPositionType pos, gpointer user_data) {
+    (void)sw;  // Unused
+    if (pos == GTK_POS_BOTTOM) {
+        HistoryDialog* dialog = (HistoryDialog*)user_data;
+        load_next_page(dialog);
+    }
+}
+
+// MODIFIED: Clear list and reset pagination state
+static void refresh_match_list(HistoryDialog* dialog) {
+    if (!dialog || !dialog->list_box) return;
+
+    // Clear existing
+    GtkWidget* child;
+    while ((child = gtk_widget_get_first_child(dialog->list_box)) != NULL) {
+        gtk_list_box_remove(GTK_LIST_BOX(dialog->list_box), child);
+    }
+    
+    // Reset pagination state
+    dialog->current_page = 0;
+    dialog->loading = false;
+    
+    // Load first page
+    load_next_page(dialog);
+}
+
 
 static void on_delete_clicked(GtkButton* btn, gpointer user_data) {
     HistoryDialog* dialog = (HistoryDialog*)user_data;
@@ -190,14 +247,30 @@ HistoryDialog* history_dialog_new(GtkWindow* parent) {
     gtk_widget_set_margin_end(main_vbox, 20);
     gtk_window_set_child(dialog->window, main_vbox);
 
+    GtkWidget* header_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_box_append(GTK_BOX(main_vbox), header_box);
+
     GtkWidget* header = gtk_label_new("Match History");
     gtk_widget_add_css_class(header, "title-2");
     gtk_widget_set_halign(header, GTK_ALIGN_START);
-    gtk_widget_set_margin_bottom(header, 10);
-    gtk_box_append(GTK_BOX(main_vbox), header);
+    gtk_widget_set_hexpand(header, TRUE); // Push button to right
+    gtk_box_append(GTK_BOX(header_box), header);
+
+    GtkWidget* btn_import = gtk_button_new_with_label("Import Game");
+    gtk_widget_add_css_class(btn_import, "suggested-action"); 
+    // We need to pass g_app_state to import_dialog_show.
+    // Since history_dialog_new doesn't take AppState, we use the global g_app_state.
+    // Alternatively, we could attach it to the button data.
+    // For now, let's allow a static callback that uses g_app_state.
+    g_signal_connect(btn_import, "clicked", G_CALLBACK(import_btn_clicked), NULL);
+    gtk_box_append(GTK_BOX(header_box), btn_import);
 
     GtkWidget* scrolled = gtk_scrolled_window_new();
     gtk_widget_set_vexpand(scrolled, TRUE);
+    
+    // NEW: Store reference for scroll detection
+    dialog->scrolled_window = scrolled;
+    
     // Add frame around list for depth
     GtkWidget* list_frame = gtk_frame_new(NULL);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), list_frame);
@@ -208,6 +281,14 @@ HistoryDialog* history_dialog_new(GtkWindow* parent) {
     gtk_frame_set_child(GTK_FRAME(list_frame), dialog->list_box);
     
     gtk_box_append(GTK_BOX(main_vbox), scrolled);
+    
+    // NEW: Connect scroll edge signal for infinite scroll
+    g_signal_connect(scrolled, "edge-reached", 
+                     G_CALLBACK(on_scroll_edge_reached), dialog);
+    
+    // NEW: Initialize pagination state
+    dialog->current_page = 0;
+    dialog->loading = false;
 
     g_signal_connect_swapped(dialog->window, "destroy", G_CALLBACK(history_dialog_free), dialog);
 
@@ -242,5 +323,13 @@ void history_dialog_set_replay_callback(HistoryDialog* dialog, GCallback callbac
 void history_dialog_free(HistoryDialog* dialog) {
     if (dialog) {
         g_free(dialog);
+    }
+}
+
+static void import_btn_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn; (void)user_data;
+    if (g_app_state) {
+        import_dialog_show(g_app_state);
+        // Note: history_dialog doesn't close here, we let import dialog handle success actions
     }
 }

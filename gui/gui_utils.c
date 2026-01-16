@@ -59,3 +59,22 @@ void gui_utils_setup_auto_focus_restore(GtkWindow *window) {
     // Handle programmatic destroy (if close-request wasn't triggered)
     g_signal_connect(window, "destroy", G_CALLBACK(on_window_destroy_focus_parent), NULL);
 }
+
+// Esc key controller
+static gboolean on_esc_close_controller_key_pressed(GtkEventControllerKey* controller, guint keyval, guint keycode, GdkModifierType state, gpointer user_data) {
+    (void)controller; (void)keycode; (void)state;
+    GtkWidget* window = (GtkWidget*)user_data;
+    if (keyval == GDK_KEY_Escape) {
+        gtk_window_close(GTK_WINDOW(window));
+        return TRUE;
+    }
+    return FALSE;
+}
+
+void gui_utils_add_esc_close(GtkWidget* window) {
+    if (!window || !GTK_IS_WINDOW(window)) return;
+    
+    GtkEventController* controller = gtk_event_controller_key_new();
+    g_signal_connect(controller, "key-pressed", G_CALLBACK(on_esc_close_controller_key_pressed), window);
+    gtk_widget_add_controller(window, controller);
+}

@@ -599,11 +599,11 @@ static void extract_json_str(const char* line, const char* key, char* dest, size
     }
 }
 
-static void on_import_finish(GObject* source, GAsyncResult* result, gpointer data) {
-    AppThemeDialog* dialog = (AppThemeDialog*)data;
-    GFile* file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, NULL);
-    if (file) {
-        char* path = g_file_get_path(file);
+#include "gui_file_dialog.h"
+
+static void on_import_path_selected(const char* path, gpointer user_data) {
+    AppThemeDialog* dialog = (AppThemeDialog*)user_data;
+    if (path) {
         FILE* f = fopen(path, "r");
         if (f) {
             char line[1024];
@@ -663,35 +663,26 @@ static void on_import_finish(GObject* source, GAsyncResult* result, gpointer dat
             theme_manager_set_theme_id(imported_theme.theme_id);
             load_theme_into_ui(dialog);
         }
-        g_free(path);
-        g_object_unref(file);
     }
-    g_object_unref(source);
 }
 
 static void on_import_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn;
     AppThemeDialog* dialog = (AppThemeDialog*)user_data;
-    GtkFileDialog* file_dialog = gtk_file_dialog_new();
-    GtkFileFilter* filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "App Theme (*.json)");
-    gtk_file_filter_add_pattern(filter, "*.json");
+    const char* patterns[] = { "*.json", NULL };
     
-    GListStore* filter_list = g_list_store_new(GTK_TYPE_FILE_FILTER);
-    g_list_store_append(filter_list, filter);
-    gtk_file_dialog_set_filters(file_dialog, G_LIST_MODEL(filter_list));
-    g_object_unref(filter_list);
-
     GtkWindow* w = dialog->window ? dialog->window : dialog->parent_window;
-    
-    gtk_file_dialog_open(file_dialog, w, NULL, on_import_finish, dialog);
+    gui_file_dialog_open(w,
+                        "Import App Theme",
+                        "App Theme (*.json)",
+                        patterns,
+                        on_import_path_selected,
+                        dialog);
 }
 
-static void on_export_finish(GObject* source, GAsyncResult* result, gpointer data) {
-    AppThemeDialog* dialog = (AppThemeDialog*)data;
-    GFile* file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(source), result, NULL);
-    if (file) {
-        char* path = g_file_get_path(file);
+static void on_export_path_selected(const char* path, gpointer user_data) {
+    AppThemeDialog* dialog = (AppThemeDialog*)user_data;
+    if (path) {
         FILE* f = fopen(path, "w");
         if (f) {
             fprintf(f, "{\n");
@@ -709,28 +700,22 @@ static void on_export_finish(GObject* source, GAsyncResult* result, gpointer dat
             fprintf(f, "}\n");
             fclose(f);
         }
-        g_free(path);
-        g_object_unref(file);
     }
-    g_object_unref(source);
 }
 
 static void on_export_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn;
     AppThemeDialog* dialog = (AppThemeDialog*)user_data;
-    GtkFileDialog* file_dialog = gtk_file_dialog_new();
-    gtk_file_dialog_set_initial_name(file_dialog, "theme.json");
-    GtkFileFilter* filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "App Theme (*.json)");
-    gtk_file_filter_add_pattern(filter, "*.json");
-    
-    GListStore* filter_list = g_list_store_new(GTK_TYPE_FILE_FILTER);
-    g_list_store_append(filter_list, filter);
-    gtk_file_dialog_set_filters(file_dialog, G_LIST_MODEL(filter_list));
-    g_object_unref(filter_list);
+    const char* patterns[] = { "*.json", NULL };
     
     GtkWindow* parent = dialog->window ? dialog->window : dialog->parent_window;
-    gtk_file_dialog_save(file_dialog, parent, NULL, on_export_finish, dialog);
+    gui_file_dialog_save(parent,
+                        "Export App Theme",
+                        "theme.json",
+                        "App Theme (*.json)",
+                        patterns,
+                        on_export_path_selected,
+                        dialog);
 }
 
 // ------------------------------------------------------------------------

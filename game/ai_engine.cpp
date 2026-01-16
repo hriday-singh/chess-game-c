@@ -19,7 +19,7 @@
 #include <fcntl.h>
 #endif
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 using namespace Stockfish;
 
@@ -55,6 +55,10 @@ struct EngineHandle {
     gint stdout_pipe;
     GIOChannel* out_channel;
     std::thread reader_thread;
+    
+    // NEW: Cached settings to avoid redundant UCI commands
+    int last_skill_level = -1;
+    bool uci_initialized = false;
 };
 
 // Internal streambufs
@@ -342,6 +346,39 @@ static inline int clampi(int v, int lo, int hi) {
     return (v < lo) ? lo : (v > hi) ? hi : v;
 }
 
+// NEW: Convert ELO rating to Stockfish Skill Level (0-20)
+// Non-static so it can be used by controller via header
+int ai_engine_elo_to_skill(int elo) {
+    // Clamp input
+    elo = clampi(elo, 200, 3600);
+    
+    // Logistic curve: center at 1600, smooth saturation
+    const double center = 1600.0;
+    const double k = 0.0035;
+    double raw = 20.0 / (1.0 + exp(-k * (elo - center)));
+    
+    // Round and clamp to valid range
+    int skill = (int)(raw + 0.5);
+    return clampi(skill, 0, 20);
+}
+
+bool ai_engine_wait_for_token(EngineHandle* handle, const char* token, int timeout_ms) {
+    if (!handle || !token) return false;
+    
+    int elapsed = 0;
+    while (elapsed < timeout_ms) {
+        char* line = ai_engine_try_get_response(handle);
+        if (line) {
+            bool match = (strncmp(line, token, strlen(token)) == 0);
+            ai_engine_free_response(line);
+            if (match) return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        elapsed += 10;
+    }
+    return false;
+}
+
 AiDifficultyParams ai_get_difficulty_params(int elo) {
     AiDifficultyParams p;
 
@@ -364,7 +401,18 @@ AiDifficultyParams ai_get_difficulty_params(int elo) {
 
     p.depth = depth;
     p.move_time_ms = ms;
+    p.target_elo = elo; // Store original ELO for skill mapping
     return p;
+}
+
+void ai_engine_ensure_uci(EngineHandle* handle) {
+    if (!handle) return;
+    if (!handle->uci_initialized) {
+        if (debug_mode) fprintf(stderr, "[AI Engine] Initializing UCI...\n");
+        ai_engine_send_command(handle, "uci");
+        ai_engine_wait_for_token(handle, "uciok", 2000);
+        handle->uci_initialized = true;
+    }
 }
 
 } // extern "C"

@@ -291,11 +291,9 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     gtk_widget_add_css_class(panel->mate_lbl, "mate-notice-v4");
     gtk_label_set_wrap(GTK_LABEL(panel->mate_lbl), TRUE);
     gtk_widget_set_visible(panel->mate_lbl, FALSE);
-    // gtk_box_append(GTK_BOX(eval_row), panel->mate_lbl);
+    gtk_box_append(GTK_BOX(eval_row), panel->mate_lbl);
     
-    // gtk_box_append(GTK_BOX(panel->pos_info), eval_row);
-    
-    // Clock Row Removed from side panel
+    gtk_box_append(GTK_BOX(panel->pos_info), eval_row);
     
     panel->hanging_lbl = gtk_label_new("HANGING | WHITE: 0  BLACK: 0"); 
     gtk_widget_add_css_class(panel->hanging_lbl, "hanging-text-v4");
@@ -303,16 +301,16 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     gtk_label_set_wrap(GTK_LABEL(panel->hanging_lbl), FALSE);
     gtk_widget_set_halign(panel->hanging_lbl, GTK_ALIGN_START);
     gtk_widget_set_visible(panel->hanging_lbl, FALSE); // DISABLE ANALYSIS: Hide Hanging Pieces
-    // gtk_box_append(GTK_BOX(panel->pos_info), panel->hanging_lbl);
+    gtk_box_append(GTK_BOX(panel->pos_info), panel->hanging_lbl);
     
     panel->analysis_side_lbl = gtk_label_new("Analysis for White");
     gtk_widget_add_css_class(panel->analysis_side_lbl, "analysis-side-lbl-v4");
     gtk_widget_set_halign(panel->analysis_side_lbl, GTK_ALIGN_START);
     gtk_widget_set_visible(panel->analysis_side_lbl, FALSE); // DISABLE ANALYSIS: Hide Analysis Side
-    // gtk_box_append(GTK_BOX(panel->pos_info), panel->analysis_side_lbl);
+    gtk_box_append(GTK_BOX(panel->pos_info), panel->analysis_side_lbl);
     
-    gtk_box_append(GTK_BOX(panel->main_col), panel->pos_info);
     // Removed as of now
+    // gtk_box_append(GTK_BOX(panel->main_col), panel->pos_info);
     // gtk_box_append(GTK_BOX(panel->main_col), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     
     // --- 2b. Feedback Zone (Middle) ---
@@ -332,8 +330,9 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     
     gtk_box_append(GTK_BOX(panel->feedback_zone), panel->feedback_rating_lbl);
     gtk_box_append(GTK_BOX(panel->feedback_zone), panel->feedback_desc_lbl);
-    gtk_box_append(GTK_BOX(panel->main_col), panel->feedback_zone);
+    
     // Removed as of now
+    // gtk_box_append(GTK_BOX(panel->main_col), panel->feedback_zone);
     // gtk_box_append(GTK_BOX(panel->main_col), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
     
     // --- 2c. Move History (Bottom) ---
@@ -398,7 +397,8 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     gtk_box_append(GTK_BOX(panel->analysis_stats_box), panel->win_prob_lbl);
     
     gtk_box_append(GTK_BOX(panel->analysis_control_box), panel->analysis_stats_box);
-    gtk_box_append(GTK_BOX(panel->main_col), panel->analysis_control_box);
+    // Removed as of now
+    // gtk_box_append(GTK_BOX(panel->main_col), panel->analysis_control_box);
 
     // --- 5. Move History List (Scrollable) ---(Moved to InfoPanel)
     

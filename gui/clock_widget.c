@@ -230,6 +230,9 @@ void clock_widget_set_disabled(ClockWidget* clock, bool disabled) {
         gtk_label_set_text(GTK_LABEL(clock->time_label), "00:00");
         gtk_widget_remove_css_class(clock->main_container, "active");
         clock->active = false;
+    } else {
+        // Reset last_time_ms to force next update to refresh display
+        clock->last_time_ms = -1;
     }
     gtk_widget_queue_draw(clock->analog_area);
 }

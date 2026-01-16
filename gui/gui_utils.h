@@ -44,4 +44,11 @@ void gui_utils_focus_parent(GtkWidget *context_widget);
  */
 void gui_utils_setup_auto_focus_restore(GtkWindow *window);
 
+/**
+ * @brief Adds a controller to close the window when Escape is pressed.
+ * 
+ * @param window The GtkWindow (or widget castable to GtkWindow/GtkWidget).
+ */
+void gui_utils_add_esc_close(GtkWidget* window);
+
 #endif // GUI_UTILS_H

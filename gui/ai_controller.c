@@ -1,6 +1,7 @@
 #include "ai_controller.h"
 #include <string.h>
 #include <stdio.h>
+#include <math.h>
 #include "move.h"
 #include <stdbool.h>
 
@@ -30,6 +31,7 @@ typedef struct {
     EngineHandle* engine;
     char* nnue_path;
     bool nnue_enabled;
+    int target_elo;  // NEW: For non-advanced skill mapping
     AiMoveReadyCallback callback;
     gpointer user_data;
     guint64 gen;
@@ -108,10 +110,16 @@ static gpointer ai_think_thread(gpointer user_data) {
 
     if (debug_mode) printf("[AI Thread] Engine Setup: FEN=%s\n", data->fen);
 
+    // NEW: Determine mode based on params (target_elo is 0 only in advanced mode)
+    bool is_advanced_mode = (data->target_elo == 0);
+
     if (data->nnue_enabled && data->nnue_path) {
         ai_engine_set_option(data->engine, "Use NNUE", "true");
         ai_engine_set_option(data->engine, "EvalFile", data->nnue_path);
     }
+
+    // NEW: UCI initialization (once per engine)
+    ai_engine_ensure_uci(data->engine);
 
     // Stop and drain stale output
     ai_engine_send_command(data->engine, "stop");
@@ -127,11 +135,36 @@ static gpointer ai_think_thread(gpointer user_data) {
     }
     if (debug_mode && drained > 0) printf("[AI Thread] Drained %d stale messages.\n", drained);
 
+    // NEW: Apply Skill Level in non-advanced mode
+    if (!is_advanced_mode && data->target_elo > 0) {
+        // Compute skill from ELO using the shared helper
+        int skill = ai_engine_elo_to_skill(data->target_elo);
+                
+        if (debug_mode) printf("[AI Thread] Non-Advanced Mode: ELO=%d -> Skill=%d\n", data->target_elo, skill);
+        
+        // Set Skill Level option
+        char skill_str[16];
+        snprintf(skill_str, sizeof(skill_str), "%d", skill);
+        
+        printf("[DEBUG] Setting Skill Level: %s (Elo: %d)\n", skill_str, data->target_elo);
+        ai_engine_set_option(data->engine, "Skill Level", skill_str);
+        ai_engine_send_command(data->engine, "isready");
+        ai_engine_wait_for_token(data->engine, "readyok", 2000);
+    }
+
     ai_engine_send_command(data->engine, pos_cmd);
 
+    // NEW: Go command based on mode
     char go_cmd[128];
-    if (data->params.depth > 0) snprintf(go_cmd, sizeof(go_cmd), "go depth %d", data->params.depth);
-    else snprintf(go_cmd, sizeof(go_cmd), "go movetime %d", data->params.move_time_ms);
+    if (is_advanced_mode) {
+        snprintf(go_cmd, sizeof(go_cmd), "go depth %d", data->params.depth);
+        if (debug_mode) printf("[AI Thread] Advanced Mode: Using depth=%d\n", data->params.depth);
+    } else {
+        snprintf(go_cmd, sizeof(go_cmd), "go movetime %d", data->params.move_time_ms);
+        if (debug_mode) printf("[AI Thread] Non-Advanced Mode: Using movetime=%d\n", data->params.move_time_ms);
+    }
+    
+    printf("[DEBUG] Sending Logic Command: %s\n", go_cmd);
     ai_engine_send_command(data->engine, go_cmd);
 
     if (debug_mode) printf("[AI Thread] Thinking Command Sent: %s\n", go_cmd);
@@ -247,6 +280,7 @@ void ai_controller_request_move(AiController* controller,
     data->fen = fen;
     data->params = params;
     data->engine = engine;
+    data->target_elo = params.target_elo; // Copy target ELO
     data->callback = callback;
     data->user_data = user_data;
     data->gen = controller->think_gen;

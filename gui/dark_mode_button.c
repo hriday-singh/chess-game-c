@@ -256,7 +256,6 @@ static void update_overlay_position(DarkModePriv* priv) {
     SetWindowPos(hOverlay, HWND_TOP, target_x, target_y, target_w, target_h, flags);
 #else
     // Fallback for non-Windows (linux etc)
-    // ... Minimal implementation preserved ...
     if (!priv->overlay_window || !priv->widget) return;
     GtkWindow* main_win = GTK_WINDOW(gtk_widget_get_root(priv->widget));
     if (GTK_IS_WINDOW(main_win)) {

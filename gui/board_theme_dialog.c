@@ -264,51 +264,41 @@ static void on_reset_clicked(GtkButton* button, gpointer user_data) {
     refresh_dialog(dialog);
 }
 
-static void on_export_finish(GObject* source, GAsyncResult* result, gpointer data) {
-    BoardThemeDialog* dialog = (BoardThemeDialog*)data;
-    GFile* file = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(source), result, NULL);
-    if (file) {
+#include "gui_file_dialog.h"
+
+static void on_export_path_selected(const char* path, gpointer user_data) {
+    BoardThemeDialog* dialog = (BoardThemeDialog*)user_data;
+    if (path) {
         char* json = theme_data_to_board_json(dialog->theme);
         if (json) {
-            char* path = g_file_get_path(file);
             FILE* f = fopen(path, "w");
             if (f) {
                 fputs(json, f);
                 fclose(f);
             }
-            g_free(path);
             free(json);
         }
-        g_object_unref(file);
     }
-    g_object_unref(source);
 }
 
 static void on_export_clicked(GtkButton* button, gpointer user_data) {
     (void)button;
     BoardThemeDialog* dialog = (BoardThemeDialog*)user_data;
-    GtkFileDialog* file_dialog = gtk_file_dialog_new();
-    gtk_file_dialog_set_initial_name(file_dialog, "board_theme.chessboard");
-    
-    GtkFileFilter* filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "Chess Board Theme (*.chessboard)");
-    gtk_file_filter_add_pattern(filter, "*.chessboard");
-    
-    GListStore* filter_list = g_list_store_new(GTK_TYPE_FILE_FILTER);
-    g_list_store_append(filter_list, filter);
-    gtk_file_dialog_set_filters(file_dialog, G_LIST_MODEL(filter_list));
-    g_object_unref(filter_list);
+    const char* patterns[] = { "*.chessboard", NULL };
     
     GtkWindow* w = dialog->window ? dialog->window : dialog->parent_window;
-    gtk_file_dialog_save(file_dialog, w, NULL, 
-                         on_export_finish, dialog);
+    gui_file_dialog_save(w,
+                        "Export Board Theme",
+                        "board_theme.chessboard",
+                        "Chess Board Theme (*.chessboard)",
+                        patterns,
+                        on_export_path_selected,
+                        dialog);
 }
 
-static void on_import_finish(GObject* source, GAsyncResult* result, gpointer data) {
-    BoardThemeDialog* dialog = (BoardThemeDialog*)data;
-    GFile* file = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(source), result, NULL);
-    if (file) {
-        char* path = g_file_get_path(file);
+static void on_import_path_selected(const char* path, gpointer user_data) {
+    BoardThemeDialog* dialog = (BoardThemeDialog*)user_data;
+    if (path) {
         FILE* f = fopen(path, "r");
         if (f) {
             fseek(f, 0, SEEK_END);
@@ -341,29 +331,21 @@ static void on_import_finish(GObject* source, GAsyncResult* result, gpointer dat
             }
             fclose(f);
         }
-        g_free(path);
-        g_object_unref(file);
     }
-    g_object_unref(source);
 }
 
 static void on_import_clicked(GtkButton* button, gpointer user_data) {
     (void)button;
     BoardThemeDialog* dialog = (BoardThemeDialog*)user_data;
-    GtkFileDialog* file_dialog = gtk_file_dialog_new();
-    
-    GtkFileFilter* filter = gtk_file_filter_new();
-    gtk_file_filter_set_name(filter, "Chess Board Theme (*.chessboard)");
-    gtk_file_filter_add_pattern(filter, "*.chessboard");
-    
-    GListStore* filter_list = g_list_store_new(GTK_TYPE_FILE_FILTER);
-    g_list_store_append(filter_list, filter);
-    gtk_file_dialog_set_filters(file_dialog, G_LIST_MODEL(filter_list));
-    g_object_unref(filter_list);
+    const char* patterns[] = { "*.chessboard", NULL };
     
     GtkWindow* w = dialog->window ? dialog->window : dialog->parent_window;
-    gtk_file_dialog_open(file_dialog, w, NULL,
-                         on_import_finish, dialog);
+    gui_file_dialog_open(w,
+                        "Import Board Theme",
+                        "Chess Board Theme (*.chessboard)",
+                        patterns,
+                        on_import_path_selected,
+                        dialog);
 }
 
 static void refresh_dialog(BoardThemeDialog* dialog) {
