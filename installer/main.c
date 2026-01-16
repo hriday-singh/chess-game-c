@@ -27,16 +27,13 @@ LRESULT CALLBACK ModeSelectionProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             }
 
             // Title
-            HFONT hTitleFont = CreateFontA(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, 
-                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, 
-                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, "Segoe UI");
-            
             HWND hTitle = CreateWindow("STATIC", "Welcome to HalChess", WS_CHILD | WS_VISIBLE | SS_CENTER, 
                 0, 60, 680, 50, hwnd, (HMENU)ID_LBL_TITLE, NULL, NULL);
-            SendMessage(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
+            Installer_ApplyFont(hTitle, Installer_GetFontTitle());
 
-            CreateWindow("STATIC", isUpdate ? "Existing installation detected" : "Please select an installation mode", WS_CHILD | WS_VISIBLE | SS_CENTER, 
-                0, 120, 680, 20, hwnd, NULL, NULL, NULL);
+            HWND hDesc = CreateWindow("STATIC", isUpdate ? "Existing installation detected" : "Please select an installation mode", WS_CHILD | WS_VISIBLE | SS_CENTER, 
+                0, 120, 680, 30, hwnd, NULL, NULL, NULL);
+            Installer_ApplyFont(hDesc, Installer_GetFontNormal());
 
             // Buttons - Wider and centered
             int btnWidth = 260;
@@ -46,16 +43,22 @@ LRESULT CALLBACK ModeSelectionProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             int startX = (700 - totalWidth) / 2;
 
             CreateWindow("BUTTON", "Fast Install\n(Portable Mode)", 
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_MULTILINE, 
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_MULTILINE, 
                 startX, 180, btnWidth, btnHeight, hwnd, (HMENU)ID_BTN_FAST, NULL, NULL);
 
             CreateWindow("BUTTON", isUpdate ? "Update / Uninstall\n(Advanced Mode)" : "Custom Install\n(Wizard Mode)", 
-                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_MULTILINE, 
+                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_MULTILINE, 
                 startX + btnWidth + spacing, 180, btnWidth, btnHeight, hwnd, (HMENU)ID_BTN_CUSTOM, NULL, NULL);
 
-            // Apply font to others
-            Installer_ApplySystemFont(hwnd);
             return 0;
+        }
+
+        case WM_DRAWITEM: {
+            DRAWITEMSTRUCT* dis = (DRAWITEMSTRUCT*)lParam;
+            if (dis->CtlType == ODT_BUTTON) {
+                Installer_DrawRoundedButton(dis, RGB(250, 250, 250), RGB(20, 20, 20), Installer_GetFontButton());
+            }
+            return TRUE;
         }
 
         case WM_COMMAND:

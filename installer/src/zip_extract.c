@@ -37,7 +37,7 @@ bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_
         }
 
         if (cb) {
-             char status[MAX_PATH + 64];
+             char status[2048];
              snprintf(status, sizeof(status), "Extracting: %s", file_stat.m_filename);
              cb((i * 100) / file_count, status, user_data);
         }
@@ -115,9 +115,12 @@ bool System_LaunchProcess(const char* exe_path) {
 
     printf("Launching: %s (CWD: %s)\n", exe_path, working_dir);
 
+    char cmd_line[MAX_PATH + 8];
+    snprintf(cmd_line, sizeof(cmd_line), "\"%s\"", exe_path);
+
     if (!CreateProcessA(
         NULL,           // No module name (use command line)
-        (LPSTR)exe_path,// Command line
+        cmd_line,       // Command line (with quotes)
         NULL,           // Process handle not inheritable
         NULL,           // Thread handle not inheritable
         FALSE,          // Set handle inheritance to FALSE

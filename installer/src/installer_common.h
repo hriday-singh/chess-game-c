@@ -20,9 +20,13 @@ bool System_LaunchProcess(const char* exe_path);
 
 // Basic UI Helpers
 void Installer_InitUI(void);
-void Installer_ApplySystemFont(HWND div);
+void Installer_ApplySystemFont(HWND divisor);
+void Installer_ApplyFont(HWND hwnd, HFONT hFont);
 void Installer_CenterWindow(HWND hwnd);
-HFONT Installer_GetFont(void);
+HFONT Installer_GetFontTitle(void);
+HFONT Installer_GetFontNormal(void);
+HFONT Installer_GetFontButton(void);
+void Installer_DrawRoundedButton(DRAWITEMSTRUCT* dis, COLORREF bgColor, COLORREF textColor, HFONT hFont);
 
 // High-Level Workflows
 // Run the FastTrack installation (install to CWD\HalChess, launch immediately)

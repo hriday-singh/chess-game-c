@@ -10,7 +10,9 @@
 // UI HELPERS
 // =================================================================================
 
-static HFONT g_hFont = NULL;
+static HFONT g_hFontTitle = NULL;
+static HFONT g_hFontNormal = NULL;
+static HFONT g_hFontButton = NULL;
 
 void Installer_InitUI(void) {
     INITCOMMONCONTROLSEX icex;
@@ -19,29 +21,41 @@ void Installer_InitUI(void) {
     InitCommonControlsEx(&icex);
 
     // Create a modern system font (Segoe UI)
-    NONCLIENTMETRICSA ncm;
-    ncm.cbSize = sizeof(NONCLIENTMETRICSA);
-    if (SystemParametersInfoA(SPI_GETNONCLIENTMETRICS, sizeof(NONCLIENTMETRICSA), &ncm, 0)) {
-        g_hFont = CreateFontIndirectA(&ncm.lfMessageFont);
-    } else {
-        // Fallback
-        g_hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-    }
+    LOGFONTA lf;
+    memset(&lf, 0, sizeof(lf));
+    lf.lfHeight = -32; // Title: ~24pt
+    lf.lfWidth = 0;
+    lf.lfWeight = FW_BOLD;
+    lf.lfCharSet = DEFAULT_CHARSET;
+    snprintf(lf.lfFaceName, sizeof(lf.lfFaceName), "Segoe UI");
+    g_hFontTitle = CreateFontIndirectA(&lf);
+
+    lf.lfHeight = -20; // Normal: ~15pt
+    lf.lfWeight = FW_NORMAL;
+    g_hFontNormal = CreateFontIndirectA(&lf);
+
+    lf.lfHeight = -22; // Button: ~16pt
+    lf.lfWeight = FW_SEMIBOLD;
+    g_hFontButton = CreateFontIndirectA(&lf);
 }
 
-HFONT Installer_GetFont(void) {
-    return g_hFont;
+HFONT Installer_GetFontTitle(void) { return g_hFontTitle; }
+HFONT Installer_GetFontNormal(void) { return g_hFontNormal; }
+HFONT Installer_GetFontButton(void) { return g_hFontButton; }
+
+void Installer_ApplyFont(HWND hwnd, HFONT hFont) {
+    if (hFont) {
+        SendMessage(hwnd, WM_SETFONT, (WPARAM)hFont, TRUE);
+    }
 }
 
 void Installer_ApplySystemFont(HWND hwnd) {
-    if (g_hFont) {
-        SendMessage(hwnd, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-    }
+    Installer_ApplyFont(hwnd, g_hFontNormal);
     
-    // Apply to children
+    // Apply to children (fallback logic)
     HWND hChild = GetWindow(hwnd, GW_CHILD);
     while (hChild) {
-        SendMessage(hChild, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        SendMessage(hChild, WM_SETFONT, (WPARAM)g_hFontNormal, TRUE);
         hChild = GetWindow(hChild, GW_HWNDNEXT);
     }
 }
@@ -61,6 +75,53 @@ void Installer_CenterWindow(HWND hwnd) {
     SetWindowPos(hwnd, HWND_TOP, x, y, 0, 0, SWP_NOSIZE);
 }
 
+void Installer_DrawRoundedButton(DRAWITEMSTRUCT* dis, COLORREF bgColor, COLORREF textColor, HFONT hFont) {
+    HDC hdc = dis->hDC;
+    RECT rc = dis->rcItem;
+    BOOL isPressed = dis->itemState & ODS_SELECTED;
+    // BOOL isHovered = dis->itemState & ODS_HOTLIGHT; 
+
+    // Fill background
+    FillRect(hdc, &rc, (HBRUSH)GetStockObject(WHITE_BRUSH));
+
+    // Draw rounded box
+    HBRUSH hBrush = CreateSolidBrush(isPressed ? RGB(220, 220, 220) : bgColor);
+    HPEN hPen = CreatePen(PS_SOLID, 1, textColor);
+    SelectObject(hdc, hBrush);
+    SelectObject(hdc, hPen);
+
+    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 15, 15);
+
+    // Draw Text
+    SetBkMode(hdc, TRANSPARENT);
+    SetTextColor(hdc, textColor);
+    SelectObject(hdc, hFont ? hFont : g_hFontNormal);
+
+    char text[256];
+    int len = GetWindowTextA(dis->hwndItem, text, sizeof(text));
+    
+    // Calculate required rect for vertical centering
+    RECT textRc = rc;
+    // DT_WORDBREAK | DT_CALCRECT calculates the height needed
+    DrawTextA(hdc, text, len, &textRc, DT_CENTER | DT_WORDBREAK | DT_CALCRECT);
+    
+    int textHeight = textRc.bottom - textRc.top;
+    int boxHeight = rc.bottom - rc.top;
+    int yOffset = (boxHeight - textHeight) / 2;
+    
+    RECT centeredRc = rc;
+    centeredRc.top += yOffset;
+    centeredRc.bottom = centeredRc.top + textHeight;
+
+    DrawTextA(hdc, text, len, &centeredRc, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+
+    DeleteObject(hBrush);
+    DeleteObject(hPen);
+}
+
+// Forward Declarations
+static HRESULT CreateLink(LPCSTR lpszPathObj, LPCSTR lpszPathLink, LPCSTR lpszDesc);
+
 // =================================================================================
 // FAST TRACK LOGIC
 // =================================================================================
@@ -73,6 +134,7 @@ typedef struct {
     HWND hwnd;
     HWND hProgress;
     HWND hStatus;
+    HWND hInfoStatus; // "Setting up portable..." label
     HWND hLaunchBtn;
     char installDir[MAX_PATH];
     BOOL success;
@@ -82,7 +144,7 @@ static void FastTrack_ProgressCb(int pct, const char* status, void* user_data) {
     FastTrackContext* ctx = (FastTrackContext*)user_data;
     if (ctx && ctx->hProgress) {
         PostMessage(ctx->hProgress, PBM_SETPOS, (WPARAM)pct, 0);
-        SetWindowTextA(ctx->hStatus, status);
+        if (ctx->hStatus) SetWindowTextA(ctx->hStatus, status);
     }
 }
 
@@ -109,10 +171,18 @@ static DWORD WINAPI FastTrack_Worker(LPVOID lpParam) {
     } else {
         ctx->success = TRUE;
         
-        // Show Launch Button and hide progress
+        // Show Launch Button and hide progress/info
         ShowWindow(ctx->hProgress, SW_HIDE);
+        if (ctx->hInfoStatus) ShowWindow(ctx->hInfoStatus, SW_HIDE);
         SetWindowTextA(ctx->hStatus, "Installation Successful!");
         
+        // Create Local Shortcut in the portable folder
+        char shortcutPath[MAX_PATH];
+        char exePath[MAX_PATH];
+        snprintf(exePath, sizeof(exePath), "%s\\HalChess.exe", ctx->installDir);
+        snprintf(shortcutPath, sizeof(shortcutPath), "%s\\Run HalChess.lnk", ctx->installDir);
+        CreateLink(exePath, shortcutPath, "Launch HalChess Portable");
+
         // Create Launch Button at center bottom
         ctx->hLaunchBtn = CreateWindow("BUTTON", "Launch HalChess Now", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 
             175, 250, 250, 60, ctx->hwnd, (HMENU)ID_FT_LAUNCH, GetModuleHandle(NULL), NULL);
@@ -156,16 +226,23 @@ int ExecuteFastTrack(void) {
 
     FastTrackContext ctx;
     memset(&ctx, 0, sizeof(ctx));
+    if (strlen(current_dir) + 10 >= sizeof(ctx.installDir)) {
+        return 1; // Path too long
+    }
     snprintf(ctx.installDir, sizeof(ctx.installDir), "%s\\HalChess", current_dir);
 
-    WNDCLASSA wc;
+    WNDCLASSEXA wc;
     memset(&wc, 0, sizeof(wc));
+    wc.cbSize = sizeof(WNDCLASSEXA);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = FastTrackProc;
     wc.hInstance = GetModuleHandle(NULL);
     wc.lpszClassName = "HalChessFastTrackClass";
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    RegisterClassA(&wc);
+    wc.hIcon = LoadIcon(wc.hInstance, MAKEINTRESOURCE(1));
+    wc.hIconSm = (HICON)LoadImage(wc.hInstance, MAKEINTRESOURCE(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
+    RegisterClassExA(&wc);
 
     HWND hwnd = CreateWindowA("HalChessFastTrackClass", "Installing HalChess (Portable)", 
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, 
@@ -174,7 +251,7 @@ int ExecuteFastTrack(void) {
     Installer_CenterWindow(hwnd);
     Installer_ApplySystemFont(hwnd);
 
-    CreateWindow("STATIC", "Setting up portable installation. Please wait...", WS_CHILD | WS_VISIBLE | SS_CENTER, 
+    ctx.hInfoStatus = CreateWindow("STATIC", "Setting up portable installation. Please wait...", WS_CHILD | WS_VISIBLE | SS_CENTER, 
         20, 60, 560, 40, hwnd, NULL, NULL, NULL);
 
     ctx.hProgress = CreateWindow(PROGRESS_CLASS, "", WS_CHILD | WS_VISIBLE | PBS_SMOOTH, 
@@ -232,6 +309,11 @@ static HRESULT CreateLink(LPCSTR lpszPathObj, LPCSTR lpszPathLink, LPCSTR lpszDe
         psl->lpVtbl->SetDescription(psl, lpszDesc);
         
         char workingDir[MAX_PATH];
+        if (strlen(lpszPathObj) >= sizeof(workingDir)) {
+             psl->lpVtbl->Release(psl);
+             CoUninitialize();
+             return E_FAIL;
+        }
         snprintf(workingDir, sizeof(workingDir), "%s", lpszPathObj);
         char* last_slash = strrchr(workingDir, '\\');
         if (last_slash) *last_slash = '\0';
@@ -275,7 +357,9 @@ static void DoBrowse(HWND hwndParent) {
         SHGetPathFromIDListA(pidl, path);
         if (strstr(path, "HalChess") == NULL) {
             size_t current_len = strlen(path);
-            snprintf(path + current_len, sizeof(path) - current_len, "\\HalChess");
+            if (current_len + 10 < sizeof(path)) {
+                snprintf(path + current_len, sizeof(path) - current_len, "\\HalChess");
+            }
         }
         SetWindowTextA(g_hEditPath, path);
         CoTaskMemFree(pidl);
@@ -326,10 +410,12 @@ static DWORD WINAPI InstallThread(LPVOID lpParam) {
          if (strlen(path) + 15 < MAX_PATH) {
             snprintf(targetPath, MAX_PATH, "%s\\HalChess.exe", path);
          
-            if (SHGetFolderPathA(NULL, CSIDL_DESKTOP, NULL, 0, linkPath) == S_OK) {
+          if (SHGetFolderPathA(NULL, CSIDL_DESKTOP, NULL, 0, linkPath) == S_OK) {
                 size_t current_len = strlen(linkPath);
-                snprintf(linkPath + current_len, sizeof(linkPath) - current_len, "\\HalChess.lnk");
-                CreateLink(targetPath, linkPath, "Play HalChess");
+                if (current_len + 15 < sizeof(linkPath)) {
+                    snprintf(linkPath + current_len, sizeof(linkPath) - current_len, "\\HalChess.lnk");
+                    CreateLink(targetPath, linkPath, "Play HalChess");
+                }
             }
          }
     }
@@ -353,6 +439,7 @@ static DWORD WINAPI InstallThread(LPVOID lpParam) {
 // Recursively delete directory
 static void RecursiveDelete(const char* path) {
     char searchPath[MAX_PATH];
+    if (strlen(path) + 5 >= sizeof(searchPath)) return;
     snprintf(searchPath, sizeof(searchPath), "%s\\*.*", path);
 
     WIN32_FIND_DATAA fd;
@@ -361,14 +448,16 @@ static void RecursiveDelete(const char* path) {
 
     do {
         if (strcmp(fd.cFileName, ".") != 0 && strcmp(fd.cFileName, "..") != 0) {
-            char filePath[MAX_PATH + 32];
-            snprintf(filePath, sizeof(filePath), "%s\\%s", path, fd.cFileName);
-            
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-                RecursiveDelete(filePath);
-                RemoveDirectoryA(filePath);
-            } else {
-                DeleteFileA(filePath);
+            char filePath[2048];
+            if (strlen(path) + strlen(fd.cFileName) + 2 < sizeof(filePath)) {
+                snprintf(filePath, sizeof(filePath), "%s\\%s", path, fd.cFileName);
+                
+                if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                    RecursiveDelete(filePath);
+                    RemoveDirectoryA(filePath);
+                } else {
+                    DeleteFileA(filePath);
+                }
             }
         }
     } while (FindNextFileA(hFind, &fd));
@@ -395,8 +484,10 @@ static DWORD WINAPI UninstallThread(LPVOID lpParam) {
     char desktopPath[MAX_PATH];
     if (SHGetFolderPathA(NULL, CSIDL_DESKTOP, NULL, 0, desktopPath) == S_OK) {
         char linkPath[MAX_PATH + 32];
-        snprintf(linkPath, sizeof(linkPath), "%s\\HalChess.lnk", desktopPath);
-        DeleteFileA(linkPath);
+        if (strlen(desktopPath) + 15 < sizeof(linkPath)) {
+            snprintf(linkPath, sizeof(linkPath), "%s\\HalChess.lnk", desktopPath);
+            DeleteFileA(linkPath);
+        }
     }
 
     // 2. Delete Files
@@ -421,13 +512,17 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
 
             if (SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, defaultPath) == S_OK) {
                 size_t current_len = strlen(defaultPath);
-                snprintf(defaultPath + current_len, sizeof(defaultPath) - current_len, "\\HalChess");
-                
-                // Check if exists
-                char exeCheck[MAX_PATH + 32];
-                snprintf(exeCheck, sizeof(exeCheck), "%s\\HalChess.exe", defaultPath);
-                if (GetFileAttributesA(exeCheck) != INVALID_FILE_ATTRIBUTES) {
-                    isUpdate = TRUE;
+                if (current_len + 10 < sizeof(defaultPath)) {
+                    snprintf(defaultPath + current_len, sizeof(defaultPath) - current_len, "\\HalChess");
+                    
+                    // Check if exists
+                    char exeCheck[MAX_PATH + 32];
+                    if (strlen(defaultPath) + 15 < sizeof(exeCheck)) {
+                        snprintf(exeCheck, sizeof(exeCheck), "%s\\HalChess.exe", defaultPath);
+                        if (GetFileAttributesA(exeCheck) != INVALID_FILE_ATTRIBUTES) {
+                            isUpdate = TRUE;
+                        }
+                    }
                 }
             } else {
                 snprintf(defaultPath, sizeof(defaultPath), "C:\\HalChess");
@@ -436,20 +531,25 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             // --- Layout: Airy and Spacious (700x500) ---
             
             // Install Location Label
-            CreateWindow("STATIC", "Installation Directory:", WS_CHILD | WS_VISIBLE, 40, 40, 300, 30, hwnd, NULL, NULL, NULL);
+            HWND hLocLabel = CreateWindow("STATIC", "Installation Directory:", WS_CHILD | WS_VISIBLE, 40, 40, 300, 30, hwnd, NULL, NULL, NULL);
+            Installer_ApplyFont(hLocLabel, Installer_GetFontNormal());
             
             // Edit Path
             g_hEditPath = CreateWindow("EDIT", defaultPath, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL, 40, 75, 500, 35, hwnd, (HMENU)ID_EDIT_PATH, NULL, NULL);
+            Installer_ApplyFont(g_hEditPath, Installer_GetFontNormal());
             
             // Browse Button
-            CreateWindow("BUTTON", "Browse...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 550, 75, 100, 35, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
+            HWND hBrowse = CreateWindow("BUTTON", "Browse...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 550, 75, 100, 35, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
+            Installer_ApplyFont(hBrowse, Installer_GetFontButton());
 
             // Shortcuts
-            CreateWindow("BUTTON", "Create Desktop Shortcut", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 40, 140, 400, 30, hwnd, (HMENU)ID_CHECK_SHORTCUT, NULL, NULL);
+            HWND hShortcut = CreateWindow("BUTTON", "Create Desktop Shortcut", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 40, 140, 400, 30, hwnd, (HMENU)ID_CHECK_SHORTCUT, NULL, NULL);
+            Installer_ApplyFont(hShortcut, Installer_GetFontNormal());
             CheckDlgButton(hwnd, ID_CHECK_SHORTCUT, BST_CHECKED);
 
             // Run After Install
-            CreateWindow("BUTTON", "Run HalChess after installation", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 40, 185, 400, 30, hwnd, (HMENU)ID_CHECK_RUN, NULL, NULL);
+            HWND hRun = CreateWindow("BUTTON", "Run HalChess after installation", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 40, 185, 400, 30, hwnd, (HMENU)ID_CHECK_RUN, NULL, NULL);
+            Installer_ApplyFont(hRun, Installer_GetFontNormal());
             CheckDlgButton(hwnd, ID_CHECK_RUN, BST_CHECKED);
 
             // Progress Bar
@@ -459,19 +559,25 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             int btnY = 350;
             if (isUpdate) {
                 // Update and Uninstall buttons side by side
-                g_hBtnInstall = CreateWindow("BUTTON", "Update Now", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 180, btnY, 150, 50, hwnd, (HMENU)ID_BTN_INSTALL, NULL, NULL);
-                CreateWindow("BUTTON", "Uninstall", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 370, btnY, 150, 50, hwnd, (HMENU)999, NULL, NULL);
+                g_hBtnInstall = CreateWindow("BUTTON", "Update Now", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 180, btnY, 150, 50, hwnd, (HMENU)ID_BTN_INSTALL, NULL, NULL);
+                CreateWindow("BUTTON", "Uninstall", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 370, btnY, 150, 50, hwnd, (HMENU)999, NULL, NULL);
             } else {
                 // Centered Install button
-                g_hBtnInstall = CreateWindow("BUTTON", "Install Now", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 275, btnY, 150, 50, hwnd, (HMENU)ID_BTN_INSTALL, NULL, NULL);
+                g_hBtnInstall = CreateWindow("BUTTON", "Install Now", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 275, btnY, 150, 50, hwnd, (HMENU)ID_BTN_INSTALL, NULL, NULL);
             }
-
+ 
             // Status Static
             g_hStatus = CreateWindow("STATIC", "", WS_CHILD | WS_VISIBLE | SS_CENTER, 40, 420, 610, 30, hwnd, (HMENU)ID_STATIC_STATUS, NULL, NULL);
+            Installer_ApplyFont(g_hStatus, Installer_GetFontNormal());
             
-            // Set Font for all again to be sure
-            Installer_ApplySystemFont(hwnd);
             return 0;
+        }
+        case WM_DRAWITEM: {
+            DRAWITEMSTRUCT* dis = (DRAWITEMSTRUCT*)lParam;
+            if (dis->CtlType == ODT_BUTTON) {
+                Installer_DrawRoundedButton(dis, RGB(250, 250, 250), RGB(20, 20, 20), Installer_GetFontButton());
+            }
+            return TRUE;
         }
         case WM_COMMAND:
             if (LOWORD(wParam) == ID_BTN_BROWSE) {
@@ -495,16 +601,19 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
 int ExecuteCustomSetup(HINSTANCE hInstance) {
     Installer_InitUI();
 
-    WNDCLASSA wc;
+    WNDCLASSEXA wc;
     memset(&wc, 0, sizeof(wc));
+    wc.cbSize = sizeof(WNDCLASSEXA);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = SetupWindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = "HalChessSetupClass";
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
     wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(1));
+    wc.hIconSm = (HICON)LoadImage(hInstance, MAKEINTRESOURCE(1), IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
     
-    RegisterClassA(&wc);
+    RegisterClassExA(&wc);
 
     // Spacious Window Size (700x500)
     HWND hwnd = CreateWindowA("HalChessSetupClass", "HalChess Setup Wizard", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, 
