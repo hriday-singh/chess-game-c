@@ -73,6 +73,10 @@ LRESULT CALLBACK ModeSelectionProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
             }
             break;
 
+        case WM_CTLCOLORSTATIC:
+            SetBkMode((HDC)wParam, TRANSPARENT);
+            return (LRESULT)GetStockObject(WHITE_BRUSH);
+
         case WM_DESTROY:
             PostQuitMessage(0);
             return 0;

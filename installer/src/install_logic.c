@@ -177,8 +177,8 @@ static DWORD WINAPI FastTrack_Worker(LPVOID lpParam) {
         SetWindowTextA(ctx->hStatus, "Installation Successful!");
         
         // Create Local Shortcut in the portable folder
-        char shortcutPath[MAX_PATH];
-        char exePath[MAX_PATH];
+        char shortcutPath[MAX_PATH + 64];
+        char exePath[MAX_PATH + 64];
         snprintf(exePath, sizeof(exePath), "%s\\HalChess.exe", ctx->installDir);
         snprintf(shortcutPath, sizeof(shortcutPath), "%s\\Run HalChess.lnk", ctx->installDir);
         CreateLink(exePath, shortcutPath, "Launch HalChess Portable");
@@ -210,6 +210,9 @@ static LRESULT CALLBACK FastTrackProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
                 PostQuitMessage(0);
             }
             break;
+        case WM_CTLCOLORSTATIC:
+            SetBkMode((HDC)wParam, TRANSPARENT);
+            return (LRESULT)GetStockObject(WHITE_BRUSH);
         case WM_CLOSE:
             DestroyWindow(hwnd);
             return 0;
@@ -448,7 +451,7 @@ static void RecursiveDelete(const char* path) {
 
     do {
         if (strcmp(fd.cFileName, ".") != 0 && strcmp(fd.cFileName, "..") != 0) {
-            char filePath[2048];
+            char filePath[4096];
             if (strlen(path) + strlen(fd.cFileName) + 2 < sizeof(filePath)) {
                 snprintf(filePath, sizeof(filePath), "%s\\%s", path, fd.cFileName);
                 
@@ -579,6 +582,9 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             }
             return TRUE;
         }
+        case WM_CTLCOLORSTATIC:
+            SetBkMode((HDC)wParam, TRANSPARENT);
+            return (LRESULT)GetStockObject(WHITE_BRUSH);
         case WM_COMMAND:
             if (LOWORD(wParam) == ID_BTN_BROWSE) {
                 DoBrowse(hwnd);
