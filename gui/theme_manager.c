@@ -877,8 +877,7 @@ void theme_manager_set_theme_id(const char* id) {
     
     AppConfig* cfg = config_get();
     if (cfg) {
-        strncpy(cfg->theme, id, sizeof(cfg->theme) - 1);
-        cfg->theme[sizeof(cfg->theme) - 1] = '\0';
+        snprintf(cfg->theme, sizeof(cfg->theme), "%s", id);
     }
     
     update_provider();

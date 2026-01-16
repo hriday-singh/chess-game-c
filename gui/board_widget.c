@@ -281,6 +281,12 @@ static void execute_move_with_updates(BoardWidget* board, Move* move) {
     }
     
     // 3. Refresh Board
+    // Update internal last move state for highlighting
+    board->lastMoveFromRow = move->from_sq / 8;
+    board->lastMoveFromCol = move->from_sq % 8;
+    board->lastMoveToRow = move->to_sq / 8;
+    board->lastMoveToCol = move->to_sq % 8;
+    
     refresh_board(board);
     
     // Clear selection/valid moves as move is done
@@ -873,6 +879,9 @@ static void on_drag_press(GtkGestureClick* gesture, int n_press, double x, doubl
     
     // Prepare drag if piece belongs to current player
     if (piece && piece->owner == board->logic->turn) {
+        // Start the clock on first interaction/toggle if needed
+        gamelogic_start_clock_on_interaction(board->logic);
+
         board->dragPrepared = true;  // Mark as prepared, but NOT dragging yet
         board->isDragging = false;   // Not dragging until mouse moves
         board->dragSourceRow = r;  // Store logical coordinates
@@ -1137,6 +1146,9 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
         if (board->validMovesCount == 0) {
             board->selectedRow = -1;
             board->selectedCol = -1;
+        } else {
+             // Valid selection made - Ensure clock is running!
+             gamelogic_ensure_clock_running(board->logic);
         }
         
         refresh_board(board);
@@ -1155,22 +1167,41 @@ static void on_square_clicked(GtkGestureClick* gesture, int n_press, double x, d
             }
         }
         
-        if (isValid && moveToMake) {
-             // Tutorial Restriction Check on Execution
-            if (board->restrictMoves) {
-                int r1 = moveToMake->from_sq / 8, c1 = moveToMake->from_sq % 8;
-                int r2 = moveToMake->to_sq / 8, c2 = moveToMake->to_sq % 8;
-                if (r1 != board->allowedStartRow ||
-                    c1 != board->allowedStartCol ||
-                    r2 != board->allowedEndRow ||
-                    c2 != board->allowedEndCol) {
-                    if (board->invalidMoveCb) {
-                        board->invalidMoveCb(board->invalidMoveData);
-                    }
-                    move_free(moveToMake);
-                    moveToMake = NULL;
-                    isValid = false;
+        if (!isValid) {
+            // Check if user clicked on another friendly piece (Switch Selection)
+            Piece* clickedPiece = board->logic->board[logicalR][logicalC];
+            if (clickedPiece && clickedPiece->owner == board->logic->turn) {
+                // Switch selection!
+                board->selectedRow = logicalR;
+                board->selectedCol = logicalC;
+                free_valid_moves(board);
+                board->validMoves = gamelogic_get_valid_moves_for_piece(
+                    board->logic, logicalR, logicalC, &board->validMovesCount);
+                
+                // Ensure clock running on switch too (redundant if already running but safe)
+                if (board->validMovesCount > 0) {
+                    gamelogic_ensure_clock_running(board->logic);
                 }
+                
+                refresh_board(board);
+                return;
+            }
+        }
+        
+        // Tutorial Restriction Check on Execution
+        if (isValid && moveToMake && board->restrictMoves) {
+            int r1 = moveToMake->from_sq / 8, c1 = moveToMake->from_sq % 8;
+            int r2 = moveToMake->to_sq / 8, c2 = moveToMake->to_sq % 8;
+            if (r1 != board->allowedStartRow ||
+                c1 != board->allowedStartCol ||
+                r2 != board->allowedEndRow ||
+                c2 != board->allowedEndCol) {
+                if (board->invalidMoveCb) {
+                    board->invalidMoveCb(board->invalidMoveData);
+                }
+                move_free(moveToMake);
+                moveToMake = NULL;
+                isValid = false;
             }
         }
 
@@ -1729,4 +1760,24 @@ void board_widget_set_interactive(GtkWidget* board_widget, bool interactive) {
             board_widget_reset_selection(board_widget);
         }
     }
+}
+
+// Cancel any ongoing animation immediately
+void board_widget_cancel_animation(GtkWidget* board_widget) {
+    BoardWidget* board = find_board_data(board_widget);
+    if (!board) return;
+
+    if (board->animTickId > 0) {
+        g_source_remove(board->animTickId);
+        board->animTickId = 0;
+    }
+    
+    board->isAnimating = false;
+    if (board->animOverlay) {
+        gtk_widget_unparent(board->animOverlay); 
+        board->animOverlay = NULL;
+    }
+    
+    // Force immediate refresh to ensure pieces act normal
+    refresh_board(board);
 }

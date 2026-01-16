@@ -53,8 +53,15 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
          }
     }
 
+    // Validate result_reason to prevent FEN/garbage display
+    const char* reason = m->result_reason;
+    // Common valid codes. If it looks like FEN (contains /) or is excessively long/suspicious, hide it.
+    if (strchr(reason, '/') || strstr(reason, "BNR") || strlen(reason) > 30) {
+        reason = "Unknown";
+    }
+
     snprintf(summary, sizeof(summary), "<b>%s</b>  <span alpha='45%%'>|</span>  %s (%s)", 
-             mode_str, readable_result, m->result_reason);
+             mode_str, readable_result, reason);
     
     GtkWidget* summary_lbl = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(summary_lbl), summary);
@@ -98,13 +105,46 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
     return frame; // Return frame instead of box
 }
 
+static void refresh_match_list(HistoryDialog* dialog) {
+    if (!dialog || !dialog->list_box) return;
+
+    // Clear existing
+    GtkWidget* child;
+    while ((child = gtk_widget_get_first_child(dialog->list_box)) != NULL) {
+        gtk_list_box_remove(GTK_LIST_BOX(dialog->list_box), child);
+    }
+
+    int count = 0;
+    MatchHistoryEntry* matches = match_history_get_list(&count);
+    
+    if (count == 0) {
+        GtkWidget* empty_lbl = gtk_label_new("No matches played yet.");
+        gtk_widget_add_css_class(empty_lbl, "dim-label");
+        gtk_widget_set_margin_top(empty_lbl, 20);
+        gtk_widget_set_margin_bottom(empty_lbl, 20);
+        gtk_list_box_append(GTK_LIST_BOX(dialog->list_box), empty_lbl);
+    } else {
+        for (int i = count - 1; i >= 0; i--) {
+            GtkWidget* row_content = create_match_row(&matches[i], dialog);
+            
+            // Explicitly create row wrapper to disable interaction with the row itself
+            GtkWidget* row = gtk_list_box_row_new();
+            gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), row_content);
+            gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(row), FALSE);
+            gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(row), FALSE);
+            
+            gtk_list_box_append(GTK_LIST_BOX(dialog->list_box), row);
+        }
+    }
+}
+
 static void on_delete_clicked(GtkButton* btn, gpointer user_data) {
     HistoryDialog* dialog = (HistoryDialog*)user_data;
     const char* id = (const char*)g_object_get_data(G_OBJECT(btn), "match-id");
     if (id) {
         match_history_delete(id);
-        // Refresh list
-        history_dialog_show(dialog);
+        // Refresh list content ONLY, do not re-present window which can toggle focus state
+        refresh_match_list(dialog);
     }
 }
 
@@ -167,27 +207,7 @@ HistoryDialog* history_dialog_new(GtkWindow* parent) {
 void history_dialog_show(HistoryDialog* dialog) {
     if (!dialog) return;
 
-    // Clear existing
-    GtkWidget* child;
-    while ((child = gtk_widget_get_first_child(dialog->list_box)) != NULL) {
-        gtk_list_box_remove(GTK_LIST_BOX(dialog->list_box), child);
-    }
-
-    int count = 0;
-    MatchHistoryEntry* matches = match_history_get_list(&count);
-    
-    if (count == 0) {
-        GtkWidget* empty_lbl = gtk_label_new("No matches played yet.");
-        gtk_widget_add_css_class(empty_lbl, "dim-label");
-        gtk_widget_set_margin_top(empty_lbl, 20);
-        gtk_widget_set_margin_bottom(empty_lbl, 20);
-        gtk_list_box_append(GTK_LIST_BOX(dialog->list_box), empty_lbl);
-    } else {
-        for (int i = count - 1; i >= 0; i--) {
-            GtkWidget* row = create_match_row(&matches[i], dialog);
-            gtk_list_box_append(GTK_LIST_BOX(dialog->list_box), row);
-        }
-    }
+    refresh_match_list(dialog);
 
     gtk_widget_set_visible(GTK_WIDGET(dialog->window), TRUE);
     gtk_window_present(dialog->window);

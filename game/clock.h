@@ -42,4 +42,7 @@ void clock_set(ClockState* clock, int64_t time_ms, int64_t inc_ms);
 // Get formatted string (MM:SS)
 void clock_get_string(int64_t time_ms, char* buf, size_t size);
 
+// Get monotonic time in ms
+int64_t clock_get_current_time_ms(void);
+
 #endif // CLOCK_H

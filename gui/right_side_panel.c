@@ -218,19 +218,11 @@ static gboolean scroll_to_row_idle(gpointer user_data) {
 
 static gboolean scroll_to_top_idle(gpointer user_data) {
     RightSidePanel* panel = (RightSidePanel*)user_data;
-    if (!panel || !panel->history_scrolled) {
-        if (debug_mode) printf("[RightSidePanel] scroll_to_top_idle: Invalid panel or scrolled window\n");
-        return G_SOURCE_REMOVE;
-    }
+    if (!panel || !panel->history_scrolled) return G_SOURCE_REMOVE;
     
     GtkAdjustment* adj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(panel->history_scrolled));
     if (adj) {
-        double lower = gtk_adjustment_get_lower(adj);
-        double current = gtk_adjustment_get_value(adj);
-        if (debug_mode) printf("[DEBUG] scroll_to_top_idle: Setting value to %.2f (current: %.2f)\n", lower, current);
-        gtk_adjustment_set_value(adj, lower);
-    } else {
-        if (debug_mode) printf("[DEBUG] scroll_to_top_idle: No adjustment found\n");
+        gtk_adjustment_set_value(adj, gtk_adjustment_get_lower(adj));
     }
     return G_SOURCE_REMOVE;
 }
@@ -811,9 +803,8 @@ void right_side_panel_add_move_notation(RightSidePanel* panel, const char* notat
 }
 
 void right_side_panel_scroll_to_top(RightSidePanel* panel) {
-    if (!panel || !panel->history_scrolled) return;
-    GtkAdjustment* adj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(panel->history_scrolled));
-    gtk_adjustment_set_value(adj, gtk_adjustment_get_lower(adj));
+    if (!panel) return;
+    g_idle_add(scroll_to_top_idle, panel);
 }
 
 void right_side_panel_add_move(RightSidePanel* panel, Move move, int m_num, Player p) {
@@ -926,10 +917,9 @@ static void set_pill_active(RightSidePanel* panel, int ply_index, bool active) {
 void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index) {
     if (!panel) return;
 
-    // During replay: do NOT allow anyone to clear highlight
-    if (panel->replay_lock && ply_index < 0) {
-        return;
-    }
+    // During replay: we MUST allow -1 (Start Position).
+    // The previous check prevented clearing highlight at start.
+    // if (panel->replay_lock && ply_index < 0) return; // REMOVED
 
     // Performance OPTIMIZATION: O(1) update instead of O(N) traversal
     // 1. Unhighlight previous
@@ -947,10 +937,8 @@ void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index) {
     panel->locked_ply = ply_index;
 
     // 3. Auto-scroll: In Replay Mode, always scroll to top. Otherwise, scroll to active row.
-    if (panel->replay_lock) {
-         printf("[DEBUG] highlight_ply: Replay lock active, queuing scroll_to_top_idle\n");
-         g_idle_add(scroll_to_top_idle, panel);
-    } else if (ply_index >= 0) {
+    // 3. Auto-scroll: follow the active row
+    if (ply_index >= 0) {
         ScrollData* data = g_new0(ScrollData, 1);
         data->panel = panel;
         data->ply_index = ply_index;

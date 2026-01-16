@@ -8,7 +8,7 @@
 #endif
 
 // Helper to get current time in MS
-static int64_t get_current_time_ms(void) {
+int64_t clock_get_current_time_ms(void) {
 #ifdef _WIN32
     static int64_t frequency = 0;
     if (frequency == 0) {
@@ -82,7 +82,7 @@ void clock_set(ClockState* clock, int64_t time_ms, int64_t inc_ms) {
 bool clock_tick(ClockState* clock, Player current_turn) {
     if (!clock || !clock->enabled || !clock->active) return false;
     
-    int64_t now = get_current_time_ms();
+    int64_t now = clock_get_current_time_ms();
     if (clock->last_tick_time == 0) {
         clock->last_tick_time = now;
         return false;
@@ -125,7 +125,7 @@ void clock_press(ClockState* clock, Player just_moved) {
     // Ensure we don't restart tick calculation from a stale time
     // But actually, update loop handles tick.
     // Just ensure the delta doesn't jump.
-    clock->last_tick_time = get_current_time_ms();
+    clock->last_tick_time = clock_get_current_time_ms();
     
     // If not active (first move), activate it
     if (!clock->active) {
@@ -143,6 +143,8 @@ void clock_get_string(int64_t time_ms, char* buf, size_t size) {
     int64_t total_sec = (time_ms + 999) / 1000;
     int32_t minutes = (int32_t)(total_sec / 60);
     int32_t seconds = (int32_t)(total_sec % 60);
+    
+    if (minutes > 999) minutes = 999;
     
     // Force standard MM:SS format. For > 99m it will still show e.g. 120:30
     snprintf(buf, size, "%02d:%02d", minutes, seconds);

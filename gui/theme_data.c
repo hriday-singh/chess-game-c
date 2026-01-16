@@ -110,8 +110,7 @@ static char* extract_json_value(const char* json, const char* key) {
     size_t len = end - start;
     char* result = (char*)malloc(len + 1);
     if (result) {
-        strncpy(result, start, len);
-        result[len] = '\0';
+        snprintf(result, len + 1, "%s", start);
     }
     return result;
 }

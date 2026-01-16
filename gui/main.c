@@ -167,6 +167,9 @@ static gboolean clock_tick_callback(gpointer user_data) {
     // Only tick if game is not over
     if (state->logic->isGameOver) return G_SOURCE_CONTINUE;
 
+    // Do NOT tick clock during Replay Mode
+    if (state->is_replaying) return G_SOURCE_CONTINUE;
+
     // CvC Mode: Only tick if RUNNING
     if (state->logic->gameMode == GAME_MODE_CVC && state->cvc_match_state != CVC_STATE_RUNNING) {
         // Skip tick but keep timer alive
@@ -269,14 +272,24 @@ static void record_match_history(AppState* state, const char* reason) {
     int plies = gamelogic_get_move_count(state->logic);
     // User requested: games that ended with some result OR matches that went over 5 pairs (10 plies)
     if (state->is_replaying) return;
-    bool is_result = (strcmp(reason, "Checkmate") == 0 || strcmp(reason, "Stalemate") == 0);
+    bool is_result = (strcmp(reason, "Checkmate") == 0 || strcmp(reason, "Stalemate") == 0 || strcmp(reason, "Timeout") == 0);
     // Generalize 10-ply (5 pairs) rule for ALL non-result saves (Reset, Shutdown, etc.)
     if (!is_result && plies < 10) return;
 
     MatchHistoryEntry entry = {0};
     snprintf(entry.id, sizeof(entry.id), "m_%ld", (long)time(NULL));
     entry.timestamp = (int64_t)time(NULL);
+    // New Timestamps
+    entry.created_at_ms = state->logic->created_at_ms;
+    entry.started_at_ms = state->logic->started_at_ms;
+    entry.ended_at_ms = (int64_t)time(NULL) * 1000;
+
     entry.game_mode = (int)state->logic->gameMode;
+    
+    // Clock Snapshot
+    entry.clock.enabled = state->logic->clock.enabled;
+    entry.clock.initial_ms = state->logic->clock_initial_ms;     // Saved from config setting
+    entry.clock.increment_ms = state->logic->clock_increment_ms; // Saved from config setting
     
     AppConfig* cfg = config_get();
     
@@ -289,8 +302,7 @@ static void record_match_history(AppState* state, const char* reason) {
         entry.white.movetime = cfg->int_movetime;
         entry.white.engine_type = custom ? 1 : 0;
         if (custom) {
-            strncpy(entry.white.engine_path, cfg->custom_engine_path, sizeof(entry.white.engine_path) - 1);
-            entry.white.engine_path[sizeof(entry.white.engine_path) - 1] = '\0';
+            snprintf(entry.white.engine_path, sizeof(entry.white.engine_path), "%s", cfg->custom_engine_path);
         }
     }
 
@@ -302,20 +314,22 @@ static void record_match_history(AppState* state, const char* reason) {
         entry.black.movetime = cfg->custom_movetime;
         entry.black.engine_type = custom ? 1 : 0;
         if (custom) {
-            strncpy(entry.black.engine_path, cfg->custom_engine_path, sizeof(entry.black.engine_path) - 1);
-            entry.black.engine_path[sizeof(entry.black.engine_path) - 1] = '\0';
+            snprintf(entry.black.engine_path, sizeof(entry.black.engine_path), "%s", cfg->custom_engine_path);
         }
     }
 
     // Result Logic
-    strncpy(entry.result_reason, reason, sizeof(entry.result_reason)-1);
+    snprintf(entry.result_reason, sizeof(entry.result_reason), "%s", reason);
     if (strcmp(reason, "Checkmate") == 0) {
         // Current turn is the one who just LOST (king is in checkmate)
-        strncpy(entry.result, (state->logic->turn == PLAYER_BLACK) ? "1-0" : "0-1", 15);
+        snprintf(entry.result, sizeof(entry.result), "%s", (state->logic->turn == PLAYER_BLACK) ? "1-0" : "0-1");
+    } else if (strcmp(reason, "Timeout") == 0) {
+        // Flagged player is the loser
+        snprintf(entry.result, sizeof(entry.result), "%s", (state->logic->clock.flagged_player == PLAYER_BLACK) ? "1-0" : "0-1");
     } else if (strcmp(reason, "Stalemate") == 0) {
-        strncpy(entry.result, "1/2-1/2", 15);
+        snprintf(entry.result, sizeof(entry.result), "%s", "1/2-1/2");
     } else {
-        strncpy(entry.result, "*", 15);
+        snprintf(entry.result, sizeof(entry.result), "%s", "*");
     }
 
     // Start FEN
@@ -330,7 +344,18 @@ static void record_match_history(AppState* state, const char* reason) {
         move_to_uci(&historical_move, uci);
         g_string_append(uci_str, uci);
     }
+
     entry.moves_uci = uci_str->str;
+
+    // Think Times
+    if (state->logic->think_time_count > 0 && state->logic->think_times) {
+        // Allocate space for copy
+        entry.think_time_count = state->logic->think_time_count;
+        entry.think_time_ms = malloc(entry.think_time_count * sizeof(int));
+        if (entry.think_time_ms) {
+            memcpy(entry.think_time_ms, state->logic->think_times, entry.think_time_count * sizeof(int));
+        }
+    }
 
     entry.move_count = plies;
     
@@ -366,6 +391,8 @@ static void update_ui_callback(void) {
                 record_match_history(state, "Checkmate");
             } else if (strstr(status, "Stalemate")) {
                 record_match_history(state, "Stalemate");
+            } else if (strstr(status, "on time")) {
+                record_match_history(state, "Timeout");
             } else {
                 record_match_history(state, "Game Over");
             }
@@ -418,6 +445,21 @@ static void update_ui_callback(void) {
     // 5. Board Grid Refresh
     if (state->gui.board) {
         board_widget_refresh(state->gui.board);
+        
+        // Sync Last Move Highlight
+        int count = gamelogic_get_move_count(state->logic);
+        if (count > 0) {
+            Move m = gamelogic_get_last_move(state->logic);
+            // Assuming get_last_move returns valid move
+            int from_r = m.from_sq / 8;
+            int from_c = m.from_sq % 8;
+            int to_r   = m.to_sq / 8;
+            int to_c   = m.to_sq % 8;
+            board_widget_set_last_move(state->gui.board, from_r, from_c, to_r, to_c);
+        } else {
+            // No moves (Start or Reset) - Clear highlights
+            board_widget_set_last_move(state->gui.board, -1, -1, -1, -1);
+        }
     }
     
     // 6. AI & Match Orchestration
@@ -500,6 +542,16 @@ static void on_undo_move(gpointer user_data) {
 
     // Force re-analysis of the restored position
     sync_live_analysis(state);
+    
+    // Explicitly update clock widgets to show restored time immediately
+    if (state->logic && state->gui.top_clock && state->gui.bottom_clock) {
+         bool flipped = board_widget_is_flipped(state->gui.board);
+         ClockWidget* white_clk = flipped ? state->gui.top_clock : state->gui.bottom_clock;
+         ClockWidget* black_clk = flipped ? state->gui.bottom_clock : state->gui.top_clock;
+         
+         clock_widget_update(white_clk, state->logic->clock.white_time_ms, state->logic->clock.initial_time_ms, false);
+         clock_widget_update(black_clk, state->logic->clock.black_time_ms, state->logic->clock.initial_time_ms, false);
+    }
 }
 
 // Callback for game reset
@@ -521,6 +573,16 @@ static void on_game_reset(gpointer user_data) {
     }
 
     gamelogic_reset(state->logic);
+
+    // Apply Clock Settings from Config
+    AppConfig* cfg = config_get();
+    if (cfg->clock_minutes > 0 || cfg->clock_increment > 0) {
+        gamelogic_set_clock(state->logic, cfg->clock_minutes, cfg->clock_increment);
+    } else {
+        // Ensure clock is disabled if set to 0/No Clock
+        clock_reset(&state->logic->clock, 0, 0);
+    }
+
     state->match_saved = false;
     // Sync flip with player side (fix for Play as Black/Random)
     bool flip = (state->logic->playerSide == PLAYER_BLACK);
@@ -535,7 +597,17 @@ static void on_game_reset(gpointer user_data) {
         right_side_panel_clear_history(state->gui.right_side_panel);
     }
     sync_live_analysis(state);
-    if (state->gui.info_panel) { // Added NULL check
+    // Inserting clock resets here:
+    if (state->gui.top_clock && state->gui.bottom_clock) {
+        int64_t init_time = state->logic ? state->logic->clock_initial_ms : 0;
+        // White starts, so nobody is "active" until first move/click in many modes, 
+        // or White is active if auto-start. logic->clock.active tells us.
+        // Usually reset means active=false.
+        clock_widget_update(state->gui.top_clock, init_time, init_time, false);
+        clock_widget_update(state->gui.bottom_clock, init_time, init_time, false);
+    }
+
+    if (state->gui.info_panel) { 
         info_panel_update_status(state->gui.info_panel);
         info_panel_set_cvc_state(state->gui.info_panel, CVC_STATE_STOPPED);
     }
@@ -914,7 +986,13 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
     // 4. Load Match (Controller will trigger UI updates which now find initialized widgets)
     state->is_replaying = true;
     state->replay_match_id = g_strdup(match_id);
-    replay_controller_load_match(state->replay_controller, entry->moves_uci, entry->start_fen);
+    replay_controller_load_match(state->replay_controller, entry->moves_uci, entry->start_fen,
+                                 entry->think_time_ms, entry->think_time_count,
+                                 entry->started_at_ms, entry->ended_at_ms,
+                                 entry->clock.enabled, entry->clock.initial_ms, entry->clock.increment_ms);
+                                 
+    // Pass result metadata for display at end of replay
+    replay_controller_set_result(state->replay_controller, entry->result, entry->result_reason);
     
     // 5. Update Side Panel visuals
     if (state->gui.right_side_panel) {
@@ -965,7 +1043,10 @@ static void on_exit_replay(GSimpleAction* action, GVariant* parameter, gpointer 
 
     // Clear yellow highlights from replay
     board_widget_set_last_move(state->gui.board, -1, -1, -1, -1);
-
+    
+    // Stop any piece animations immediately
+    board_widget_cancel_animation(state->gui.board);
+    
     // Reset game to initial state
     on_game_reset(state);
 

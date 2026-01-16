@@ -19,6 +19,8 @@ Move* move_create(uint8_t from, uint8_t to) {
         m->prevCastlingRights = 0;
         m->prevEnPassantCol = -1;
         m->prevHalfmoveClock = 0;
+        m->prevWhiteTimeMs = 0;
+        m->prevBlackTimeMs = 0;
     }
     return m;
 }

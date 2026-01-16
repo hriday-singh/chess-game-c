@@ -458,8 +458,7 @@ static void* worker_func(void* data) {
          * But we need history. */
         
         if (i > 0) {
-            strcat(move_list_str, " ");
-            strcat(move_list_str, job->uci_moves[i-1]);
+            snprintf(move_list_str, sizeof(move_list_str), " %s", job->uci_moves[i-1]);
         }
         
         /* Send Position */
@@ -468,7 +467,7 @@ static void* worker_func(void* data) {
              /* Handle non-standard start if needed */
         } 
         /* Use startpos assumption for now or fen */
-        if (i == 0) strcpy(move_list_str, ""); 
+        if (i == 0) move_list_str[0] = '\0'; 
         
         /* NOTE: We must send entire history */
         /* Re-building move_list_str buffer logic carefully: */

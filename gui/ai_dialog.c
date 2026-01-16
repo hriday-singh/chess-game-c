@@ -1228,8 +1228,7 @@ void ai_dialog_save_config(AiDialog* dialog, void* config_struct) {
     const char* path = ai_dialog_get_nnue_path(dialog, &nnue_on);
     cfg->nnue_enabled = nnue_on;
     if (path) {
-        strncpy(cfg->nnue_path, path, sizeof(cfg->nnue_path) - 1);
-        cfg->nnue_path[sizeof(cfg->nnue_path) - 1] = '\0';
+        snprintf(cfg->nnue_path, sizeof(cfg->nnue_path), "%s", path);
     } else {
         cfg->nnue_path[0] = '\0';
     }
@@ -1237,8 +1236,7 @@ void ai_dialog_save_config(AiDialog* dialog, void* config_struct) {
     // Custom
     const char* custom_path = ai_dialog_get_custom_path(dialog);
     if (custom_path) {
-        strncpy(cfg->custom_engine_path, custom_path, sizeof(cfg->custom_engine_path) - 1);
-        cfg->custom_engine_path[sizeof(cfg->custom_engine_path) - 1] = '\0';
+        snprintf(cfg->custom_engine_path, sizeof(cfg->custom_engine_path), "%s", custom_path);
     } else {
         cfg->custom_engine_path[0] = '\0';
     }

@@ -72,6 +72,9 @@ void board_widget_set_interactive(GtkWidget* board_widget, bool interactive);
 // Helper to check if board is flipped (wrapper for get_flipped)
 bool board_widget_is_flipped(GtkWidget* board_widget);
 
+// Cancel any ongoing animation immediately
+void board_widget_cancel_animation(GtkWidget* board_widget);
+
 #endif // BOARD_WIDGET_H
 
 

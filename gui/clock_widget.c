@@ -132,6 +132,10 @@ GtkWidget* clock_widget_get_widget(ClockWidget* clock) {
     return clock ? clock->container : NULL;
 }
 
+Player clock_widget_get_side(ClockWidget* clock) {
+    return clock ? clock->side : PLAYER_WHITE;
+}
+
 void clock_widget_update(ClockWidget* clock, int64_t time_ms, int64_t initial_time_ms, bool is_active) {
     if (!clock || clock->disabled) return;
     
@@ -150,7 +154,11 @@ void clock_widget_update(ClockWidget* clock, int64_t time_ms, int64_t initial_ti
         gtk_widget_queue_draw(clock->analog_area);
     }
     
-    if (clock->last_time_ms == -1 || (time_ms / 1000) != (clock->last_time_ms / 1000)) {
+    // Use the same ceiling logic as clock_get_string to detect if the display string significantly changes
+    int64_t current_display_sec = (time_ms + 999) / 1000;
+    int64_t last_display_sec = (clock->last_time_ms + 999) / 1000;
+    
+    if (clock->last_time_ms == -1 || current_display_sec != last_display_sec) {
         char buf[32];
         clock_get_string(time_ms, buf, sizeof(buf));
         gtk_label_set_text(GTK_LABEL(clock->time_label), buf);

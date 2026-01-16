@@ -12,6 +12,9 @@ ClockWidget* clock_widget_new(Player side);
 // Get the top-level GtkWidget (box) for packing
 GtkWidget* clock_widget_get_widget(ClockWidget* clock);
 
+// Get the side (Player) associated with this clock
+Player clock_widget_get_side(ClockWidget* clock);
+
 // Update time and state
 // time_ms: current time in milliseconds
 // initial_time_ms: starting time for calculating progress/period

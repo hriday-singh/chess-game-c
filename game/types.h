@@ -9,6 +9,8 @@ typedef enum {
     PLAYER_BLACK = 1
 } Player;
 
+#define PLAYER_NONE ((Player)-1)
+
 typedef enum {
     PIECE_KING = 0,
     PIECE_QUEEN = 1,
@@ -54,6 +56,8 @@ typedef struct {
     uint8_t prevCastlingRights;
     int8_t prevEnPassantCol;
     int prevHalfmoveClock;
+    int64_t prevWhiteTimeMs;
+    int64_t prevBlackTimeMs;
 } Move;
 
 // Position Snapshot

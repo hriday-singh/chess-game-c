@@ -136,6 +136,27 @@ make all
 
 Any deviation is a failure of process.
 
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+**DONT USE THE TERMINAL. OFF LIMITS.**
+
+If its not clear
+**DONT USE THE TERMINAL. OFF LIMITS.**
+
 ---
 
 ### 2.4 Approval Gates for Major Changes
@@ -332,6 +353,43 @@ This is a request for **visibility**, not guesswork.
 * Mark new code with `// NEW:`
 * Mark temporary code with `// Legacy:` or `// TODO:`
 * Use section dividers where helpful
+
+---
+
+### 7.4 Safety Standards (Mandatory)
+
+* **Strict Ban on Unsafe String Functions**:
+    *   Do NOT use: `strcpy`, `strcat`, `sprintf`, `vsprintf`, `gets`, `strtok`.
+    *   **Reason**: These functions do not check buffer bounds and are primary causes of buffer overflows.
+
+* **Mandatory Replacements**:
+    *   Use `snprintf` for formatting and concatenation.
+    *   Use `strncpy` (with explicit null-termination) or `snprintf` for copying.
+    *   Use `fgets` instead of `gets`.
+    *   Use `strtok_r` (or a safe re-entrant equivalent) instead of `strtok`.
+
+* **Examples**:
+
+    **[BANNED] Deprecated/Unsafe:**
+    ```c
+    char buf[64];
+    strcpy(buf, input);          // UNSAFE: Overflow if input > 64
+    sprintf(buf, "%s", input);   // UNSAFE: Overflow possible
+    strcat(buf, suffix);         // UNSAFE: No bounds check
+    ```
+
+    **[REQUIRED] Safe Alternative:**
+    ```c
+    char buf[64];
+    // Always use snprintf with sizeof()
+    snprintf(buf, sizeof(buf), "%s", input);
+    
+    // Or if concatenating:
+    int len = strlen(buf);
+    if (len < sizeof(buf)) {
+        snprintf(buf + len, sizeof(buf) - len, "%s", suffix);
+    }
+    ```
 
 ---
 

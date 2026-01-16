@@ -117,14 +117,31 @@ typedef struct {
 
 typedef struct {
     char id[64];
-    int64_t timestamp;
+    int64_t timestamp;      // Legacy (keep for now)
+    int64_t created_at_ms;  // Creation time
+    int64_t started_at_ms;  // Actual start time
+    int64_t ended_at_ms;    // Game end time
+
     int game_mode;
+    
+    // Clock Snapshot used for this match
+    struct {
+        bool enabled;
+        int initial_ms;
+        int increment_ms;
+    } clock;
+
     MatchPlayerConfig white;
     MatchPlayerConfig black;
     char result[16];        // "1-0", "0-1", "1/2-1/2", "*"
-    char result_reason[64]; // "Checkmate", "Stalemate", "Reset", "Incomplete"
+    char result_reason[64]; // "Checkmate", "Stalemate", "Reset", "Incomplete", "Timeout"
     int move_count;
     char* moves_uci;        // Allocated string of moves "e2e4 e7e5 g1f3 ..."
+    
+    // Think times per ply (optional)
+    int* think_time_ms;
+    int think_time_count;
+
     char start_fen[256];
     char final_fen[256];
 } MatchHistoryEntry;

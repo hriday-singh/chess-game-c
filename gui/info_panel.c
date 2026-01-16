@@ -603,7 +603,9 @@ static void update_status_display(InfoPanel* panel) {
     if (!panel || !panel->logic || !panel->status_label) return;
     
     const char* status = gamelogic_get_status_message(panel->logic);
-    gtk_label_set_text(GTK_LABEL(panel->status_label), status);
+    if (panel->status_label && GTK_IS_LABEL(panel->status_label)) {
+        gtk_label_set_text(GTK_LABEL(panel->status_label), status);
+    }
 }
 
 // Update captured pieces labels with relative points
@@ -927,15 +929,8 @@ static void reset_game(InfoPanel* panel) {
         panel->game_reset_callback(panel->game_reset_callback_data);
     }
     
-    // Apply Clock Settings
-    AppConfig* cfg = config_get();
-    if (cfg->clock_minutes > 0 || cfg->clock_increment > 0) {
-        gamelogic_set_clock(panel->logic, cfg->clock_minutes, cfg->clock_increment);
-    } else {
-        // Ensure clock is disabled
-        clock_reset(&panel->logic->clock, 0, 0);
-    }
 }
+
 
 // Game mode dropdown callback - reset game on change
 static void on_game_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_data) {
@@ -1187,6 +1182,10 @@ static void on_clock_preset_changed(GObject* obj, GParamSpec* pspec, gpointer us
             on_reset_clicked(NULL, panel);
         }
     } else {
+        if (panel->status_label && GTK_IS_LABEL(panel->status_label)) {
+            // If checkmate, we might want to append " - Checkmate" or similar if not in status_text
+            // But logic->statusMessage usually says "Checkmate: White won"
+        }
         // If switched to custom, we might want to load current values from spin buttons
         // But usually we just let the user edit them.
         on_clock_custom_changed(NULL, panel);

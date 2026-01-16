@@ -20,6 +20,19 @@ struct GameLogic {
     char statusMessage[256];
     char start_fen[256];
     
+    // Time Tracking
+    int64_t created_at_ms;
+    int64_t started_at_ms;
+    int64_t turn_start_time;
+    
+    int* think_times; // Array of stored think times per ply
+    int think_time_count;
+    int think_time_capacity;
+    
+    // Clock Persistence
+    int clock_initial_ms;
+    int clock_increment_ms;
+    
     // Position attributes
     uint8_t castlingRights; // Bitmask: WK=1, WQ=2, BK=4, BQ=8
     int8_t enPassantCol;    // -1 if none
@@ -118,5 +131,7 @@ void gamelogic_rebuild_history(GameLogic* logic, Move** moves, int count);
 bool gamelogic_tick_clock(GameLogic* logic);
 void gamelogic_set_clock(GameLogic* logic, int minutes, int increment);
 void gamelogic_set_custom_clock(GameLogic* logic, int64_t time_ms, int64_t inc_ms);
+void gamelogic_ensure_clock_running(GameLogic* logic);
+void gamelogic_start_clock_on_interaction(GameLogic* logic);
 
 #endif // GAMELOGIC_H

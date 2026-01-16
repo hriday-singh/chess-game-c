@@ -434,8 +434,7 @@ void settings_dialog_open_page(SettingsDialog* dialog, const char* page_name) {
     
     // Save to persistence
     if (dialog->app_state) {
-        strncpy(dialog->app_state->last_settings_page, page_name, 31);
-        dialog->app_state->last_settings_page[31] = '\0';
+        snprintf(dialog->app_state->last_settings_page, sizeof(dialog->app_state->last_settings_page), "%s", page_name);
     }
     
     // Also update sidebar selection if possible

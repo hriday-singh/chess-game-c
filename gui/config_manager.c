@@ -138,8 +138,7 @@ static void parse_string_val(char* val_start, char* dest, size_t max_len) {
     if (val_end) {
         size_t val_len = val_end - val_start;
         if (val_len >= max_len) val_len = max_len - 1;
-        strncpy(dest, val_start, val_len);
-        dest[val_len] = '\0';
+        snprintf(dest, max_len, "%.*s", (int)val_len, val_start);
     }
 }
 
@@ -155,7 +154,7 @@ static void parse_line(char* line) {
     
     size_t key_len = key_end - key_start;
     if (key_len >= sizeof(key)) key_len = sizeof(key) - 1;
-    strncpy(key, key_start, key_len);
+    snprintf(key, sizeof(key), "%.*s", (int)key_len, key_start);
     
     // Find value (after colon)
     char* colon = strchr(key_end, ':');
@@ -398,8 +397,7 @@ static void extract_json_str(const char* line, const char* key, char* dest, size
                 if (val_end) {
                     size_t len = val_end - val_start;
                     if (len >= dest_size) len = dest_size - 1;
-                    strncpy(dest, val_start, len);
-                    dest[len] = '\0';
+                    snprintf(dest, dest_size, "%.*s", (int)len, val_start);
                 }
             }
         }
@@ -587,6 +585,10 @@ void match_history_free_entry(MatchHistoryEntry* entry) {
         free(entry->moves_uci);
         entry->moves_uci = NULL;
     }
+    if (entry && entry->think_time_ms) {
+        free(entry->think_time_ms);
+        entry->think_time_ms = NULL;
+    }
 }
 
 static void save_single_match(MatchHistoryEntry* m) {
@@ -607,7 +609,17 @@ static void save_single_match(MatchHistoryEntry* m) {
     fprintf(f, "{\n");
     fprintf(f, "  \"id\": \"%s\",\n", m->id);
     fprintf(f, "  \"timestamp\": %lld,\n", (long long)m->timestamp);
+    fprintf(f, "  \"created_at_ms\": %lld,\n", (long long)m->created_at_ms);
+    fprintf(f, "  \"started_at_ms\": %lld,\n", (long long)m->started_at_ms);
+    fprintf(f, "  \"ended_at_ms\": %lld,\n", (long long)m->ended_at_ms);
     fprintf(f, "  \"game_mode\": %d,\n", m->game_mode);
+    
+    // Clock Settings
+    fprintf(f, "  \"clock\": {\n");
+    fprintf(f, "    \"enabled\": %s,\n", m->clock.enabled ? "true" : "false");
+    fprintf(f, "    \"initial_ms\": %d,\n", m->clock.initial_ms);
+    fprintf(f, "    \"increment_ms\": %d\n", m->clock.increment_ms);
+    fprintf(f, "  },\n");
     
     fprintf(f, "  \"white\": {\n");
     fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
@@ -622,36 +634,63 @@ static void save_single_match(MatchHistoryEntry* m) {
     fprintf(f, "  \"result\": \"%s\",\n", m->result);
     fprintf(f, "  \"result_reason\": \"%s\",\n", m->result_reason);
     fprintf(f, "  \"move_count\": %d,\n", m->move_count);
-    fprintf(f, "  \"move_count\": %d,\n", m->move_count);
     fprintf(f, "  \"moves_uci\": \"%s\",\n", m->moves_uci ? m->moves_uci : "");
+    
+    // Think Times
+    if (m->think_time_count > 0 && m->think_time_ms) {
+        fprintf(f, "  \"think_time_ms\": [");
+        for (int i = 0; i < m->think_time_count; i++) {
+            fprintf(f, "%d%s", m->think_time_ms[i], (i < m->think_time_count - 1) ? ", " : "");
+        }
+        fprintf(f, "],\n");
+    }
     fprintf(f, "  \"start_fen\": \"%s\",\n", m->start_fen);
     fprintf(f, "  \"final_fen\": \"%s\"\n", m->final_fen);
     fprintf(f, "}\n");
     
     fclose(f);
     if (debug_mode){
-         printf("[ConfigManager] Match History saved to: %s\n", match_path);
-         printf("  \"id\": \"%s\",\n", m->id);
-         printf("  \"timestamp\": %lld,\n", (long long)m->timestamp);
-         printf("  \"game_mode\": %d,\n", m->game_mode);
-    
-         printf("  \"white\": {\n");
-         printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-            m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.movetime, m->white.engine_type, m->white.engine_path);
-         printf("  },\n");
-    
-         printf("  \"black\": {\n");
-         printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-            m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.movetime, m->black.engine_type, m->black.engine_path);
-         printf("  },\n");
-    
-         printf("  \"result\": \"%s\",\n", m->result);
-         printf("  \"result_reason\": \"%s\",\n", m->result_reason);
-         printf("  \"move_count\": %d,\n", m->move_count);
-         printf("  \"moves_uci\": \"%s\",\n", m->moves_uci);
-
-         printf("  \"start_fen\": \"%s\",\n", m->start_fen);
-         printf("  \"final_fen\": \"%s\"\n", m->final_fen);
+        printf("[ConfigManager] Match History saved to: %s\n", match_path);
+        printf("  \"id\": \"%s\",\n", m->id);
+        printf("  \"timestamp\": %lld,\n", (long long)m->timestamp);
+        printf("  \"created_at_ms\": %lld,\n", (long long)m->created_at_ms);
+        printf("  \"started_at_ms\": %lld,\n", (long long)m->started_at_ms);
+        printf("  \"ended_at_ms\": %lld,\n", (long long)m->ended_at_ms);
+        printf("  \"game_mode\": %d,\n", m->game_mode);
+        
+        // Clock Settings
+        printf("  \"clock\": {\n");
+        printf("    \"enabled\": %s,\n", m->clock.enabled ? "true" : "false");
+        printf("    \"initial_ms\": %d,\n", m->clock.initial_ms);
+        printf("    \"increment_ms\": %d\n", m->clock.increment_ms);
+        printf("  },\n");
+        
+        printf("  \"white\": {\n");
+        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+                m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.movetime, m->white.engine_type, m->white.engine_path);
+        printf("  },\n");
+        
+        printf("  \"black\": {\n");
+        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+                m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.movetime, m->black.engine_type, m->black.engine_path);
+        printf("  },\n");
+        
+        printf("  \"result\": \"%s\",\n", m->result);
+        printf("  \"result_reason\": \"%s\",\n", m->result_reason);
+        printf("  \"move_count\": %d,\n", m->move_count);
+        printf("  \"moves_uci\": \"%s\",\n", m->moves_uci ? m->moves_uci : "");
+        
+        // Think Times
+        if (m->think_time_count > 0 && m->think_time_ms) {
+            printf("  \"think_time_ms\": [");
+            for (int i = 0; i < m->think_time_count; i++) {
+                printf("%d%s", m->think_time_ms[i], (i < m->think_time_count - 1) ? ", " : "");
+            }
+            printf("],\n");
+        }
+        printf("  \"start_fen\": \"%s\",\n", m->start_fen);
+        printf("  \"final_fen\": \"%s\"\n", m->final_fen);
+        printf("}\n");
     }
 }
 
@@ -660,6 +699,26 @@ void match_history_init(void) {
     g_history_capacity = 50;
     g_history_list = calloc(g_history_capacity, sizeof(MatchHistoryEntry));
     match_history_load_all();
+}
+
+/* Portable strtok_r implementation for Windows/MinGW */
+static char* strtok_r_portable(char *str, const char *delim, char **saveptr) {
+    char *token;
+    if (str == NULL) str = *saveptr;
+    str += strspn(str, delim);
+    if (*str == '\0') {
+        *saveptr = str;
+        return NULL;
+    }
+    token = str;
+    str = str + strcspn(str, delim);
+    if (*str == '\0') {
+        *saveptr = str;
+    } else {
+        *str = '\0';
+        *saveptr = str + 1;
+    }
+    return token;
 }
 
 static void parse_match_file(const char* path) {
@@ -673,6 +732,8 @@ static void parse_match_file(const char* path) {
 
     MatchHistoryEntry* m = &g_history_list[g_history_count++];
     memset(m, 0, sizeof(MatchHistoryEntry));
+    // Defaults for back-compat
+    m->clock.enabled = false;
 
     // Force ID from filename to ensure sync (Fix deletion bug)
     // Extract basename: "C:/.../matches/m_123.json" -> "m_123"
@@ -699,6 +760,58 @@ static void parse_match_file(const char* path) {
         if (strstr(line, "\"timestamp\"")) {
             char* p = strchr(line, ':');
             if (p) m->timestamp = (int64_t)strtoll(p + 1, NULL, 10);
+        }
+        else if (strstr(line, "\"created_at_ms\"")) {
+            char* p = strchr(line, ':');
+            if (p) m->created_at_ms = (int64_t)strtoll(p + 1, NULL, 10);
+        }
+        else if (strstr(line, "\"started_at_ms\"")) {
+            char* p = strchr(line, ':');
+            if (p) m->started_at_ms = (int64_t)strtoll(p + 1, NULL, 10);
+        }
+        else if (strstr(line, "\"ended_at_ms\"")) {
+            char* p = strchr(line, ':');
+            if (p) m->ended_at_ms = (int64_t)strtoll(p + 1, NULL, 10);
+        }
+        // Clock parsing (simple recursive manual or simple line check if single line? no, it's multiline)
+        // Since we are using fgets line by line, we check for "clock" block entry/exit or just keys
+        // Assuming "clock": { opens a block. But standard JSON parsing line-by-line is fragile.
+        // We'll trust keys are unique enough in this context.
+        else if (strstr(line, "\"initial_ms\"")) {
+             char* p = strchr(line, ':'); if(p) m->clock.initial_ms = atoi(p+1);
+        }
+        else if (strstr(line, "\"increment_ms\"")) {
+             char* p = strchr(line, ':'); if(p) m->clock.increment_ms = atoi(p+1);
+        }
+        else if (strstr(line, "\"enabled\"")) {
+             if (strstr(line, "true")) m->clock.enabled = true;
+             else if (strstr(line, "false")) m->clock.enabled = false;
+        }
+        // Think time array parsing (single line array supported: "think_time_ms": [1, 2, 3...],)
+        else if (strstr(line, "\"think_time_ms\"")) {
+            char* start = strchr(line, '[');
+            if (start) {
+                start++;
+                // Count basic elements roughly to alloc
+                int count = 0;
+                char* walk = start;
+                while (*walk && *walk != ']') {
+                    if (*walk == ',') count++;
+                    walk++;
+                }
+                count += 1; // n commas + 1 items
+                
+                m->think_time_ms = malloc(count * 2 * sizeof(int)); // Safely over-allocate
+                m->think_time_count = 0;
+                
+                char* saved_ptr = NULL;
+                // Fix: Include newline/CR/quote in delimiters to avoid parsing trailing newline as '0'
+                char* token = strtok_r_portable(start, ", ]\r\n\"", &saved_ptr);
+                while (token) {
+                     m->think_time_ms[m->think_time_count++] = atoi(token);
+                     token = strtok_r_portable(NULL, ", ]\r\n\"", &saved_ptr);
+                }
+            }
         }
         else if (strstr(line, "\"game_mode\"")) {
             char* p = strchr(line, ':');
@@ -728,28 +841,47 @@ static void parse_match_file(const char* path) {
     fclose(f);
     // Check this
     if (debug_mode){
-         printf("[ConfigManager] Match History loaded from: %s\n", path);
-         printf("  \"id\": \"%s\",\n", m->id);
-         printf("  \"timestamp\": %lld,\n", (long long)m->timestamp);
-         printf("  \"game_mode\": %d,\n", m->game_mode);
-    
-         printf("  \"white\": {\n");
-         printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-            m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.movetime, m->white.engine_type, m->white.engine_path);
-         printf("  },\n");
-    
-         printf("  \"black\": {\n");
-         printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-            m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.movetime, m->black.engine_type, m->black.engine_path);
-         printf("  },\n");
-    
-         printf("  \"result\": \"%s\",\n", m->result);
-         printf("  \"result_reason\": \"%s\",\n", m->result_reason);
-         printf("  \"move_count\": %d,\n", m->move_count);
-         printf("  \"moves_uci\": \"%s\",\n", m->moves_uci);
-
-         printf("  \"start_fen\": \"%s\",\n", m->start_fen);
-         printf("  \"final_fen\": \"%s\"\n", m->final_fen);
+        printf("[ConfigManager] Match History loaded from: %s\n", path); 
+        printf("  \"id\": \"%s\",\n", m->id);
+        printf("  \"timestamp\": %lld,\n", (long long)m->timestamp);
+        printf("  \"created_at_ms\": %lld,\n", (long long)m->created_at_ms);
+        printf("  \"started_at_ms\": %lld,\n", (long long)m->started_at_ms);
+        printf("  \"ended_at_ms\": %lld,\n", (long long)m->ended_at_ms);
+        printf("  \"game_mode\": %d,\n", m->game_mode);
+        
+        // Clock Settings
+        printf("  \"clock\": {\n");
+        printf("    \"enabled\": %s,\n", m->clock.enabled ? "true" : "false");
+        printf("    \"initial_ms\": %d,\n", m->clock.initial_ms);
+        printf("    \"increment_ms\": %d,\n", m->clock.increment_ms);
+        printf("  },\n");
+        
+        printf("  \"white\": {\n");
+        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+                m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.movetime, m->white.engine_type, m->white.engine_path);
+        printf("  },\n");
+        
+        printf("  \"black\": {\n");
+        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+                m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.movetime, m->black.engine_type, m->black.engine_path);
+        printf("  },\n");
+        
+        printf("  \"result\": \"%s\",\n", m->result);
+        printf("  \"result_reason\": \"%s\",\n", m->result_reason);
+        printf("  \"move_count\": %d,\n", m->move_count);
+        printf("  \"moves_uci\": \"%s\",\n", m->moves_uci ? m->moves_uci : "");
+        
+        // Think Times
+        if (m->think_time_count > 0 && m->think_time_ms) {
+            printf("  \"think_time_ms\": [");
+            for (int i = 0; i < m->think_time_count; i++) {
+                printf("%d%s", m->think_time_ms[i], (i < m->think_time_count - 1) ? ", " : "");
+            }
+            printf("],\n");
+        }
+        printf("  \"start_fen\": \"%s\",\n", m->start_fen);
+        printf("  \"final_fen\": \"%s\"\n", m->final_fen);
+        printf("}\n");
     }
 }
 

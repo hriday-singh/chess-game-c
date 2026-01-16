@@ -678,8 +678,7 @@ void board_theme_dialog_save_config(BoardThemeDialog* dialog, void* config_struc
         GListModel* model = gtk_drop_down_get_model(GTK_DROP_DOWN(dialog->template_combo));
         const char* name = gtk_string_list_get_string(GTK_STRING_LIST(model), selected);
         if (name) {
-            strncpy(cfg->board_theme_name, name, sizeof(cfg->board_theme_name) - 1);
-            cfg->board_theme_name[sizeof(cfg->board_theme_name) - 1] = '\0';
+            snprintf(cfg->board_theme_name, sizeof(cfg->board_theme_name), "%s", name);
         }
     } else {
         // Fallback if UI not created (should not happen if saving from dialog)

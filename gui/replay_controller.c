@@ -3,6 +3,7 @@
 #include "app_state.h"
 #include "../game/move.h"
 #include "board_widget.h"
+#include "clock_widget.h"
 #include "right_side_panel.h"
 #include "info_panel.h"
 #include "ai_analysis.h"
@@ -13,13 +14,39 @@ static bool debug_mode = true;
 
 // Forward decl for internal timer
 static gboolean replay_timer_callback(gpointer user_data);
+static gboolean replay_tick_callback(gpointer user_data);
+
+// Helper helper
+static void refresh_clock_display(ReplayController* self);
 
 ReplayController* replay_controller_new(GameLogic* logic, AppState* app_state) {
     ReplayController* self = g_new0(ReplayController, 1);
     self->logic = logic;
     self->app_state = app_state;
-    self->speed_ms = 800; // Default speed
+    self->speed_ms = 1000; // Default speed (1.0x base)
+    self->time_multiplier = 1.0;
     return self;
+}
+
+static void sync_board_highlights(ReplayController* self) {
+    if (!self || !self->app_state || !self->app_state->gui.board) return;
+
+    // Highlight the move leading to the current state
+    if (self->current_ply > 0 && self->moves && self->current_ply <= self->total_moves) {
+        Move* m = self->moves[self->current_ply - 1]; // Move index is ply - 1
+        int fr = m->from_sq / 8, fc = m->from_sq % 8;
+        int tr = m->to_sq / 8, tc = m->to_sq % 8;
+        board_widget_set_last_move(self->app_state->gui.board, fr, fc, tr, tc);
+    } else {
+        // Start of game (ply 0): Clear highlights
+        board_widget_set_last_move(self->app_state->gui.board, -1, -1, -1, -1);
+    }
+
+    // Sync Right Side Panel Highlight
+    if (self->app_state->gui.right_side_panel) {
+        int hl = (self->current_ply > 0) ? (self->current_ply - 1) : -1;
+        right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, hl);
+    }
 }
 
 static void replay_ui_update(ReplayController* self) {
@@ -34,7 +61,159 @@ static void replay_ui_update(ReplayController* self) {
     // 3. Update UI
     info_panel_update_replay_status(self->app_state->gui.info_panel, self->current_ply, self->total_moves);
     info_panel_refresh_graveyard(self->app_state->gui.info_panel);
+    info_panel_refresh_graveyard(self->app_state->gui.info_panel);
     info_panel_update_status(self->app_state->gui.info_panel);
+    
+    // Check if at End of Match -> Show Result Status
+    if (self->current_ply == self->total_moves) {
+         // Force status message in Logic so info panel picks it up?
+         // InfoPanel reads logic->statusMessage.
+         // "Game Over - White Won (Checkmate)"
+         // Parse result: "1-0" -> White Won
+         const char* winner = "Draw";
+         if (strcmp(self->result, "1-0") == 0) winner = "White Won";
+         else if (strcmp(self->result, "0-1") == 0) winner = "Black Won";
+         
+         const char* reason = (self->result_reason[0]) ? self->result_reason : "Game Over";
+         
+         // Direct print with precision limits to avoid truncation warnings and overflow
+         // Limit reason to 200 chars to ensure winner string fits in 256 bytes (statusMessage size)
+         snprintf(self->logic->statusMessage, sizeof(self->logic->statusMessage), 
+                  "%.200s - %s", reason, winner);
+         
+         self->logic->isGameOver = true; // Make sure panel shows it as finished
+         info_panel_update_status(self->app_state->gui.info_panel);
+    } 
+    
+    refresh_clock_display(self);
+    sync_board_highlights(self);
+}
+
+// Separate function for clock updates (called by tick timer)
+static void refresh_clock_display(ReplayController* self) {
+    if (!self || !self->app_state) return;
+    
+    ClockWidget* clocks[2] = { self->app_state->gui.top_clock, self->app_state->gui.bottom_clock };
+
+    if (clocks[0] && clocks[1]) {
+        // Fix for "00:00 at start":
+        // Always show clock at Move 0 if enabled, regardless of think time emulation status.
+        bool force_display = (self->clock_enabled && self->current_ply == 0);
+
+        if (!force_display && (!self->clock_enabled || !self->use_think_times)) {
+            // "Unitialized" state as requested
+            clock_widget_set_disabled(clocks[0], true);
+            clock_widget_set_disabled(clocks[1], true);
+        } else {
+            // Calculate virtual clock times
+            // Start with initial time
+            int64_t w_time = (int64_t)self->clock_initial_ms;
+            int64_t b_time = (int64_t)self->clock_initial_ms;
+            
+            // Replay moves up to current_ply to deduce time
+            for (int i = 0; i < self->current_ply; i++) {
+                if (i >= self->think_time_count) break;
+                
+                int duration = self->think_times[i];
+                // Determine mover from snapshot
+                Player mover = PLAYER_WHITE; 
+                if (self->snapshots && i < self->snapshot_count) {
+                    mover = self->snapshots[i].turn;
+                }
+
+                if (mover == PLAYER_WHITE) {
+                    w_time -= duration;
+                    if (w_time < 0) w_time = 0; 
+                    w_time += self->clock_increment_ms;
+                } else {
+                    b_time -= duration;
+                    if (b_time < 0) b_time = 0;
+                    b_time += self->clock_increment_ms;
+                }
+            }
+            
+            clock_widget_set_disabled(clocks[0], false);
+            clock_widget_set_disabled(clocks[1], false);
+            
+            // Active state
+            Player turn_now = (Player)-1;
+            if (self->current_ply < self->total_moves && self->snapshots) {
+                turn_now = self->snapshots[self->current_ply].turn;
+            }
+            
+            bool playing = self->is_playing && (turn_now != (Player)-1);
+            
+            for (int k=0; k<2; k++) {
+                Player side = clock_widget_get_side(clocks[k]);
+                int64_t t = (side == PLAYER_WHITE) ? w_time : b_time;
+                bool is_active = playing && (side == turn_now);
+                clock_widget_update(clocks[k], t, self->clock_initial_ms, is_active);
+            }
+        }
+    }
+}
+
+static gboolean replay_tick_callback(gpointer user_data) {
+    ReplayController* self = (ReplayController*)user_data;
+    if (!self || !self->is_playing) return G_SOURCE_REMOVE;
+    
+    // Calculate progress
+    int64_t now = g_get_monotonic_time(); // microseconds
+    int64_t elapsed_us = now - (self->move_start_time_monotonic);
+    int64_t elapsed_ms = elapsed_us / 1000;
+    
+    if (elapsed_ms < 0) elapsed_ms = 0;
+    
+    // Don't overshoot total delay for this move
+    int total_delay = 0;
+    if (self->use_think_times && self->think_times && self->current_ply < self->think_time_count) {
+         total_delay = self->think_times[self->current_ply];
+         if (total_delay < 100) total_delay = 100; // visual floor
+    } else {
+         total_delay = self->speed_ms;
+    }
+    
+    // Scale elapsed time to virtual time
+    elapsed_ms = (int64_t)(elapsed_ms * self->time_multiplier);
+    
+    if (elapsed_ms > total_delay) elapsed_ms = total_delay;
+
+    // Determine whose turn it is
+    Player turn_now = (Player)-1;
+    if (self->current_ply < self->total_moves && self->snapshots) {
+        turn_now = self->snapshots[self->current_ply].turn;
+    }
+    
+    if (turn_now == (Player)-1) return G_SOURCE_CONTINUE;
+    
+    // Update Active Clock
+    // Base time is precalc[current_ply].
+    // Current time = Base - elapsed.
+    
+    ClockWidget* clocks[2] = { self->app_state->gui.top_clock, self->app_state->gui.bottom_clock };
+    
+    if (self->precalc_white_time && self->precalc_black_time) {
+         int64_t w_time = self->precalc_white_time[self->current_ply];
+         int64_t b_time = self->precalc_black_time[self->current_ply];
+         
+         if (turn_now == PLAYER_WHITE) {
+             w_time -= elapsed_ms;
+             if (w_time < 0) w_time = 0;
+         } else {
+             b_time -= elapsed_ms;
+             if (b_time < 0) b_time = 0;
+         }
+         
+         // Update widgets
+         for (int k=0; k<2; k++) {
+            Player side = clock_widget_get_side(clocks[k]);
+            int64_t t = (side == PLAYER_WHITE) ? w_time : b_time;
+            bool is_active = (side == turn_now); // Playing implies active
+            clock_widget_update(clocks[k], t, self->clock_initial_ms, is_active);
+         }
+    }
+    
+    return G_SOURCE_CONTINUE;
 }
 
 void replay_controller_free(ReplayController* self) {
@@ -57,6 +236,11 @@ void replay_controller_free(ReplayController* self) {
     
     g_free(self->full_uci_history);
     
+    if (self->think_times) {
+        g_free(self->think_times);
+        self->think_times = NULL;
+    }
+    
     if (self->analysis_job) {
         ai_analysis_cancel(self->analysis_job);
         // Note: Thread might still be running. Ideally we join or wait.
@@ -67,14 +251,35 @@ void replay_controller_free(ReplayController* self) {
     if (self->analysis_result) {
         ai_analysis_result_unref(self->analysis_result);
     }
+
+    if (self->tick_timer_id > 0) {
+        g_source_remove(self->tick_timer_id);
+    }
+    if (self->precalc_white_time) g_free(self->precalc_white_time);
+    if (self->precalc_black_time) g_free(self->precalc_black_time);
     
     g_free(self);
 }
 
-void replay_controller_load_match(ReplayController* self, const char* moves_uci, const char* start_fen) {
+void replay_controller_load_match(ReplayController* self, const char* moves_uci, const char* start_fen, 
+                                  const int* think_times, int think_time_count, 
+                                  int64_t started_at, int64_t ended_at,
+                                  bool clock_enabled, int initial_ms, int increment_ms) {
     if (!self) return;
     
+    (void)started_at; (void)ended_at; // Validation logic optional/removed for now
+
+    if(debug_mode) {
+        printf("[ReplayController] Loading match with %d moves, %d think times, %d snapshots, %d ply.\n", 
+               self->total_moves, self->think_time_count, self->snapshot_count, self->current_ply);
+    }
+
     replay_controller_pause(self);
+    
+    // clock setup
+    self->clock_enabled = clock_enabled;
+    self->clock_initial_ms = initial_ms;
+    self->clock_increment_ms = increment_ms;
     
     // Clear existing snapshots
     if (self->snapshots) {
@@ -88,8 +293,27 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
     g_free(self->full_uci_history);
     self->full_uci_history = NULL;
     
+    // Clear think times
+    if (self->think_times) {
+        g_free(self->think_times);
+        self->think_times = NULL;
+    }
+    self->think_time_count = 0;
+    self->use_think_times = false; // Default to false until validated
+    
     self->total_moves = 0;
     self->current_ply = 0;
+
+    self->total_moves = 0;
+    self->current_ply = 0;
+    
+    if (self->precalc_white_time) g_free(self->precalc_white_time);
+    if (self->precalc_black_time) g_free(self->precalc_black_time);
+    self->precalc_white_time = NULL;
+    self->precalc_black_time = NULL;
+    
+    memset(self->result, 0, sizeof(self->result));
+    memset(self->result_reason, 0, sizeof(self->result_reason));
 
     // 1. Load Logic (UCI Only)
     if (moves_uci && strlen(moves_uci) > 0) {
@@ -106,6 +330,66 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
         for (int i = 0; i < self->total_moves; i++) {
             Move m = gamelogic_get_move_at(self->logic, i);
             self->moves[i] = move_copy(&m);
+        }
+    }
+
+    // 3. Validation & Think Time Setup
+    if (think_times && think_time_count == self->total_moves) {
+        // Basic Integrity Pass
+        bool valid = true;
+        int64_t total_think = 0;
+        
+        self->think_times = g_new0(int, think_time_count);
+        self->think_time_count = think_time_count;
+        
+        for (int i=0; i<think_time_count; i++) {
+            if (think_times[i] < 0) { 
+                valid = false; 
+                break; 
+            }
+            // Clamp for sanity (e.g. 100ms min, 60s max for replay flow?)
+            // User asked for "exact", but 0ms moves are weird. 
+            // We just store raw for now, logic below handles min delay.
+            self->think_times[i] = think_times[i];
+            total_think += think_times[i];
+        }
+        (void)total_think; // Silence unused warning if debug_mode is off
+        
+        // If clock is enabled, assume timestamps/duration checks are secondary to explicit think times
+        if (valid) {
+             self->use_think_times = true;
+             if (debug_mode) printf("[Replay] Real-time emulation enabled. Count: %d, Total Think: %lld ms\n", think_time_count, total_think);
+        } else {
+             if (debug_mode) printf("[Replay] Think times invalid, fallback to speed_ms.\n");
+        }
+    } else if (think_times && think_time_count == self->total_moves + 1 && think_times[think_time_count-1] == 0) {
+        // Auto-fix for "Trailing Zero" corruption (caused by previous parser bug)
+        if (debug_mode) printf("[Replay] Detected trailing zero corruption. Trimming last element.\n");
+
+        self->think_times = g_new0(int, self->total_moves);
+        self->think_time_count = self->total_moves;
+        
+        bool valid = true;
+        int64_t total_think = 0;
+        
+        for (int i=0; i<self->total_moves; i++) {
+            if (think_times[i] < 0) { valid = false; break; }
+            self->think_times[i] = think_times[i];
+            total_think += think_times[i];
+        }
+        
+        if (valid) {
+             self->use_think_times = true;
+             if (debug_mode) printf("[Replay] Real-time emulation enabled (Sanitized). Count: %d\n", self->think_time_count);
+        }
+    } else {
+        if (debug_mode) {
+             printf("[Replay] Think times not provided or count mismatch. (Provided: %p, Count: %d, Total Moves: %d)\n", 
+                    (void*)think_times, think_time_count, self->total_moves);
+             if (think_time_count != self->total_moves && think_time_count > 0) {
+                 printf("[Replay] WARNING: Think time count (%d) != Move count (%d). This usually means gamelogic didn't pop think time on undo.\n", 
+                        think_time_count, self->total_moves);
+             }
         }
     }
 
@@ -197,6 +481,61 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
         }
     }
     
+    // Pre-calculate Clock Times for every ply
+    // This allows O(1) clock display during jumps and precise countdowns.
+    if (self->clock_enabled) {
+        self->precalc_white_time = g_new0(int64_t, self->total_moves + 1);
+        self->precalc_black_time = g_new0(int64_t, self->total_moves + 1);
+        
+        int64_t w = self->clock_initial_ms;
+        int64_t b = self->clock_initial_ms;
+        
+        // Ply 0
+        self->precalc_white_time[0] = w;
+        self->precalc_black_time[0] = b;
+        
+        for (int i=0; i < self->total_moves; i++) {
+             // Calculate time AFTER ply i (which leads to state i+1)
+             // But wait, "precalc[i]" means Clock Time AT START of ply i.
+             // So precalc[0] is initial.
+             // Ply 0 (White about to move). 
+             // Move 0 happens. It takes T time.
+             // End of Move 0 (Start of Ply 1): W_new = W_old - T + Inc. B_new = B_old.
+             // So precalc[i+1] is derived from precalc[i] and think_times[i].
+             
+             int duration = 0;
+             if (self->think_times && i < self->think_time_count) duration = self->think_times[i];
+             // Clamp negative duration if corrupt?
+             if (duration < 0) duration = 0;
+             
+             Player mover = self->snapshots[i].turn; // Current turn at ply i
+             
+             if (mover == PLAYER_WHITE) {
+                 w -= duration;
+                 if (w < 0) w = 0;
+                 w += self->clock_increment_ms;
+             } else {
+                 b -= duration;
+                 if (b < 0) b = 0;
+                 b += self->clock_increment_ms;
+             }
+             
+             self->precalc_white_time[i+1] = w;
+             self->precalc_black_time[i+1] = b;
+        }
+    }
+    
+    // Copy result if available (passed from entry usually? No, entry passed fields.)
+    // Wait, load_match doesn't take result string.
+    // Need to update signature or header?
+    // User requested "Show Result Status".
+    // I can't update signature easily without breaking callers (main.c).
+    // Let's assume the caller will set the result fields manually after load?
+    // OR we infer from logic? Logic doesn't know "Timeout".
+    // I will read result from app_state->gui.history_dialog selection? No.
+    // MatchHistoryEntry pointer is safer.
+    // I will modify main.c to set these fields on the controller directly after load!
+
     // Initialize highlighting to first move (ply 0)
     if (self->app_state && self->app_state->gui.right_side_panel) {
         // Ensure replay lock is ON so we can scroll to top
@@ -209,6 +548,13 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
     replay_ui_update(self);
 }
 
+// Set result metadata (Called by app logic after load)
+void replay_controller_set_result(ReplayController* self, const char* result, const char* reason) {
+    if (!self) return;
+    if (result) snprintf(self->result, sizeof(self->result), "%s", result);
+    if (reason) snprintf(self->result_reason, sizeof(self->result_reason), "%s", reason);
+}
+
 void replay_controller_start(ReplayController* self) {
     if (!self) return;
     self->current_ply = 0;
@@ -219,12 +565,8 @@ void replay_controller_start(ReplayController* self) {
     }
     if (self->app_state) {
          board_widget_reset_selection(self->app_state->gui.board);
-         board_widget_set_last_move(self->app_state->gui.board, -1, -1, -1, -1); // Clear highlights at start
          board_widget_refresh(self->app_state->gui.board);
-         if (self->app_state->gui.right_side_panel) {
-            int hl = (self->current_ply > 0) ? (self->current_ply - 1) : -1;
-             right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, hl);
-         }
+         // Highlights synced in replay_ui_update
     }
     replay_ui_update(self);
 }
@@ -251,7 +593,24 @@ void replay_controller_play(ReplayController* self) {
     }
     
     self->is_playing = true;
-    self->timer_id = g_timeout_add(self->speed_ms, replay_timer_callback, self);
+    
+    // Determine initial delay
+    int nominal_delay = self->speed_ms;
+    if (self->use_think_times && self->think_times && self->current_ply < self->think_time_count) {
+        nominal_delay = self->think_times[self->current_ply];
+        if (nominal_delay < 100) nominal_delay = 100; // Minimum visual floor
+    }
+    
+    // Apply speed multiplier
+    int effective_delay = (int)(nominal_delay / self->time_multiplier);
+    if (effective_delay < 10) effective_delay = 10; // Safety floor
+
+    self->timer_id = g_timeout_add(effective_delay, replay_timer_callback, self);
+    self->move_start_time_monotonic = g_get_monotonic_time();
+    
+    if (self->tick_timer_id == 0) {
+        self->tick_timer_id = g_timeout_add(50, replay_tick_callback, self); // 20fps for clock
+    }
     
     // Update UI Play/Pause button state (will be handled by signal/caller or direct UI update if we had ref)
     // Ideally, we fire a callback or update a linked UI. 
@@ -273,6 +632,12 @@ void replay_controller_pause(ReplayController* self) {
         g_source_remove(self->timer_id);
         self->timer_id = 0;
     }
+    if (self->tick_timer_id > 0) {
+        g_source_remove(self->tick_timer_id);
+        self->tick_timer_id = 0;
+    }
+    // Update clock one last time to snap to exact values
+    refresh_clock_display(self);
     if (self->app_state && self->app_state->gui.info_panel) {
         info_panel_show_replay_controls(self->app_state->gui.info_panel, TRUE);
     }
@@ -289,15 +654,57 @@ bool replay_controller_is_playing(ReplayController* self) {
 
 void replay_controller_set_speed(ReplayController* self, int ms) {
     if (!self) return;
-    if (ms < 350) ms = 350; // Minimum speed limit
-    if (ms > 5000) ms = 5000;
+    if (ms < 10) ms = 10; // Safety
     
-    self->speed_ms = ms;
+    // Derived from UI logic: Base(1.0x) = 1000ms.
+    // ms parameter is "target delay for 1.0x move if manual".
+    // multiplier = 1000 / ms.
+    if (ms <= 0) ms = 1000;
+    double new_multiplier = 1000.0 / (double)ms;
+    
+    // If checking against current, we can skip? No, always apply.
+    
+    // To assume smooth clock transition:
+    // CurrentVirtual = (Now - Start) * OldMult
+    // NewStart = Now - (CurrentVirtual / NewMult)
+    if (self->is_playing) {
+        int64_t now = g_get_monotonic_time();
+        int64_t elapsed_us = now - self->move_start_time_monotonic;
+        double current_virtual_us = elapsed_us * self->time_multiplier;
+        
+        int64_t virtual_start_offset = (int64_t)(current_virtual_us / new_multiplier);
+        self->move_start_time_monotonic = now - virtual_start_offset;
+    }
+
+    self->time_multiplier = new_multiplier;
+    self->speed_ms = 1000; // Fixed base for manual operations
+    // NOTE: We do NOT disable use_think_times anymore, allowing scaling of think times!
+    // self->use_think_times = false; 
     
     // If playing, update timer
     if (self->is_playing) {
         if (self->timer_id > 0) g_source_remove(self->timer_id);
-        self->timer_id = g_timeout_add(self->speed_ms, replay_timer_callback, self);
+        
+        // Calculate remaining delay for current move
+        // Nominal (Unscaled) Total Delay
+        int nominal_total = self->speed_ms;
+        if (self->use_think_times && self->think_times && self->current_ply < self->think_time_count) {
+            nominal_total = self->think_times[self->current_ply];
+            if (nominal_total < 100) nominal_total = 100;
+        }
+
+        // How much Virtual Time already happened?
+        int64_t now = g_get_monotonic_time();
+        int64_t current_virtual_ms = (int64_t)((now - self->move_start_time_monotonic) / 1000.0 * self->time_multiplier);
+        
+        int virtual_remaining = nominal_total - (int)current_virtual_ms;
+        if (virtual_remaining < 0) virtual_remaining = 0;
+        
+        // Convert remaining virtual to real time
+        int real_remaining = (int)(virtual_remaining / self->time_multiplier);
+        if (real_remaining < 10) real_remaining = 10; // fire soon
+        
+        self->timer_id = g_timeout_add(real_remaining, replay_timer_callback, self);
     }
 }
 
@@ -328,19 +735,7 @@ void replay_controller_next(ReplayController* self) {
     }
     
     // Clear board selection/highlights
-    if (self->app_state && self->app_state->gui.board) {
-        board_widget_reset_selection(self->app_state->gui.board);
-        // Set yellow highlight for the move we just made
-        if (next_move) {
-            int fromRow = next_move->from_sq / 8, fromCol = next_move->from_sq % 8;
-            int toRow = next_move->to_sq / 8, toCol = next_move->to_sq % 8;
-            board_widget_set_last_move(self->app_state->gui.board, fromRow, fromCol, toRow, toCol);
-        }
-    }
-    
-    // Update Sync
-    int hl = (self->current_ply > 0) ? (self->current_ply - 1) : -1;
-    right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, hl);
+    // Highlights synced in replay_ui_update
     replay_ui_update(self);
 }
 
@@ -348,32 +743,15 @@ void replay_controller_prev(ReplayController* self) {
     if (self->current_ply <= 0) return;
     
     self->current_ply--;
-    if (self->app_state) {
-        board_widget_reset_selection(self->app_state->gui.board);
-        // Set yellow highlight for position we are GOING to
-        if (self->current_ply > 0 && self->moves && self->current_ply <= self->total_moves) {
-            Move* currentMove = self->moves[self->current_ply - 1];
-            int fromRow = currentMove->from_sq / 8, fromCol = currentMove->from_sq % 8;
-            int toRow = currentMove->to_sq / 8, toCol = currentMove->to_sq % 8;
-            board_widget_set_last_move(self->app_state->gui.board, fromRow, fromCol, toRow, toCol);
-        } else {
-            // At start, clear highlights
-            board_widget_set_last_move(self->app_state->gui.board, -1, -1, -1, -1);
-        }
-    }
-
     if (self->snapshots) {
         gamelogic_restore_snapshot(self->logic, &self->snapshots[self->current_ply]);
     } else {
         gamelogic_undo_move(self->logic);
     }
-    
+
     if (self->app_state) {
         board_widget_refresh(self->app_state->gui.board);
-        if (self->app_state->gui.right_side_panel) {
-            int hl = (self->current_ply > 0) ? (self->current_ply - 1) : -1;
-            right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, hl);
-        }
+        // Highlights synced in replay_ui_update
     }
     replay_ui_update(self);
 }
@@ -387,16 +765,7 @@ void replay_controller_seek(ReplayController* self, int ply) {
     
     if (self->app_state) {
         board_widget_reset_selection(self->app_state->gui.board);
-        // Set yellow highlight for position we are GOING to
-        if (ply > 0 && self->moves && ply <= self->total_moves) {
-            Move* currentMove = self->moves[ply - 1];
-            int fromRow = currentMove->from_sq / 8, fromCol = currentMove->from_sq % 8;
-            int toRow = currentMove->to_sq / 8, toCol = currentMove->to_sq % 8;
-            board_widget_set_last_move(self->app_state->gui.board, fromRow, fromCol, toRow, toCol);
-        } else {
-            // At start, clear highlights
-            board_widget_set_last_move(self->app_state->gui.board, -1, -1, -1, -1);
-        }
+        // Highlights synced in replay_ui_update
     }
 
     if (self->snapshots) {
@@ -420,10 +789,7 @@ void replay_controller_seek(ReplayController* self, int ply) {
     
     if (self->app_state) {
         board_widget_refresh(self->app_state->gui.board);
-        if (self->app_state->gui.right_side_panel) {
-            int hl = (self->current_ply > 0) ? (self->current_ply - 1) : -1;
-            right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, hl);
-        }
+        // Highlights synced in replay_ui_update
     }
     replay_ui_update(self);
 }
@@ -467,7 +833,35 @@ static gboolean replay_timer_callback(gpointer user_data) {
     
     replay_controller_next(self);
     
-    return G_SOURCE_CONTINUE;
+    // Critical: Reset clock animation anchor for the NEW move we just started
+    self->move_start_time_monotonic = g_get_monotonic_time();
+    
+    // Schedule next
+    if (self->is_playing && self->current_ply < self->total_moves) {
+         int nominal_delay = self->speed_ms;
+         if (self->use_think_times && self->think_times && self->current_ply < self->think_time_count) {
+             nominal_delay = self->think_times[self->current_ply];
+             // Clamp visual floor
+             if (nominal_delay < 200) nominal_delay = 200; 
+         }
+         
+         if (debug_mode) {
+             printf("[Replay] Ply %d -> Nominal: %d ms, Multiplier: %.2f\n", 
+                    self->current_ply, nominal_delay, self->time_multiplier);
+         }
+         
+         int effective_delay = (int)(nominal_delay / self->time_multiplier);
+         if (effective_delay < 10) effective_delay = 10;
+
+         self->timer_id = g_timeout_add(effective_delay, replay_timer_callback, self);
+    } else {
+         self->timer_id = 0;
+         self->is_playing = false;
+         // Ensure clock snaps to final
+         refresh_clock_display(self);
+    }
+    
+    return G_SOURCE_REMOVE; // We manually re-scheduled above with variable delay
 }
 
 /* --- AI Analysis Integration --- */

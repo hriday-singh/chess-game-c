@@ -1030,8 +1030,7 @@ void piece_theme_dialog_save_config(PieceThemeDialog* dialog, void* config_struc
     // Use ThemeData font name as it holds the active set name
     const char* set_name = theme_data_get_font_name(dialog->theme);
     if (set_name) {
-        strncpy(cfg->piece_set, set_name, sizeof(cfg->piece_set) - 1);
-        cfg->piece_set[sizeof(cfg->piece_set) - 1] = '\0';
+        snprintf(cfg->piece_set, sizeof(cfg->piece_set), "%s", set_name);
     }
     
     // Save Colors and Widths
