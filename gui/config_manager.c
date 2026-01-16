@@ -18,7 +18,7 @@
 #define MKDIR(path) mkdir(path, 0755)
 #endif
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 // Global configuration instance
 static AppConfig g_config;
@@ -752,11 +752,15 @@ static void parse_match_file(const char* path) {
     char* ext = strstr(m->id, ".json");
     if (ext) *ext = '\0';
 
+    int context = 0; // 0: Root, 1: White, 2: Black, 3: Clock
     char line[4096];
     while (fgets(line, sizeof(line), f)) {
-        // Skip "id" parsing from file to avoid corruption/desync
-        // if (strstr(line, "\"id\"")) extract_json_str(line, "id", m->id, sizeof(m->id));
-        
+        // Context switching
+        if (strstr(line, "\"white\": {")) context = 1;
+        else if (strstr(line, "\"black\": {")) context = 2;
+        else if (strstr(line, "\"clock\": {")) context = 3;
+        else if (strchr(line, '}') && context != 0) context = 0;
+
         if (strstr(line, "\"timestamp\"")) {
             char* p = strchr(line, ':');
             if (p) m->timestamp = (int64_t)strtoll(p + 1, NULL, 10);
@@ -773,39 +777,67 @@ static void parse_match_file(const char* path) {
             char* p = strchr(line, ':');
             if (p) m->ended_at_ms = (int64_t)strtoll(p + 1, NULL, 10);
         }
-        // Clock parsing (simple recursive manual or simple line check if single line? no, it's multiline)
-        // Since we are using fgets line by line, we check for "clock" block entry/exit or just keys
-        // Assuming "clock": { opens a block. But standard JSON parsing line-by-line is fragile.
-        // We'll trust keys are unique enough in this context.
-        else if (strstr(line, "\"initial_ms\"")) {
-             char* p = strchr(line, ':'); if(p) m->clock.initial_ms = atoi(p+1);
+        else if (context == 3) { // Clock context
+            if (strstr(line, "\"initial_ms\"")) {
+                 char* p = strchr(line, ':'); if(p) m->clock.initial_ms = atoi(p+1);
+            }
+            else if (strstr(line, "\"increment_ms\"")) {
+                 char* p = strchr(line, ':'); if(p) m->clock.increment_ms = atoi(p+1);
+            }
+            else if (strstr(line, "\"enabled\"")) {
+                 if (strstr(line, "true")) m->clock.enabled = true;
+                 else if (strstr(line, "false")) m->clock.enabled = false;
+            }
         }
-        else if (strstr(line, "\"increment_ms\"")) {
-             char* p = strchr(line, ':'); if(p) m->clock.increment_ms = atoi(p+1);
+        else if (context == 1 || context == 2) { // Player context (White/Black)
+            MatchPlayerConfig* p_cfg = (context == 1) ? &m->white : &m->black;
+            
+            if (strstr(line, "\"is_ai\"")) {
+                if (strstr(line, "true")) p_cfg->is_ai = true;
+                else if (strstr(line, "false")) p_cfg->is_ai = false;
+            }
+            
+            if (strstr(line, "\"elo\"")) {
+                char* p = strstr(line, "\"elo\"");
+                p = strchr(p, ':'); if(p) p_cfg->elo = atoi(p+1);
+            }
+            
+            if (strstr(line, "\"depth\"")) {
+                char* p = strstr(line, "\"depth\"");
+                p = strchr(p, ':'); if(p) p_cfg->depth = atoi(p+1);
+            }
+            
+            if (strstr(line, "\"movetime\"")) {
+                char* p = strstr(line, "\"movetime\"");
+                p = strchr(p, ':'); if(p) p_cfg->movetime = atoi(p+1);
+            }
+            
+            if (strstr(line, "\"engine_type\"")) {
+                char* p = strstr(line, "\"engine_type\"");
+                p = strchr(p, ':'); if(p) p_cfg->engine_type = atoi(p+1);
+            }
+            
+            if (strstr(line, "\"engine_path\"")) {
+                extract_json_str(line, "engine_path", p_cfg->engine_path, sizeof(p_cfg->engine_path));
+            }
         }
-        else if (strstr(line, "\"enabled\"")) {
-             if (strstr(line, "true")) m->clock.enabled = true;
-             else if (strstr(line, "false")) m->clock.enabled = false;
-        }
-        // Think time array parsing (single line array supported: "think_time_ms": [1, 2, 3...],)
+        // Think time array parsing
         else if (strstr(line, "\"think_time_ms\"")) {
             char* start = strchr(line, '[');
             if (start) {
                 start++;
-                // Count basic elements roughly to alloc
                 int count = 0;
                 char* walk = start;
                 while (*walk && *walk != ']') {
                     if (*walk == ',') count++;
                     walk++;
                 }
-                count += 1; // n commas + 1 items
+                count += 1;
                 
-                m->think_time_ms = malloc(count * 2 * sizeof(int)); // Safely over-allocate
+                m->think_time_ms = malloc(count * 2 * sizeof(int));
                 m->think_time_count = 0;
                 
                 char* saved_ptr = NULL;
-                // Fix: Include newline/CR/quote in delimiters to avoid parsing trailing newline as '0'
                 char* token = strtok_r_portable(start, ", ]\r\n\"", &saved_ptr);
                 while (token) {
                      m->think_time_ms[m->think_time_count++] = atoi(token);
@@ -835,8 +867,6 @@ static void parse_match_file(const char* path) {
         }
         else if (strstr(line, "\"start_fen\"")) extract_json_str(line, "start_fen", m->start_fen, sizeof(m->start_fen));
         else if (strstr(line, "\"final_fen\"")) extract_json_str(line, "final_fen", m->final_fen, sizeof(m->final_fen));
-        
-        // Note: Simple parser only gets top level for now. Detailed white/black config can be added if needed for UI.
     }
     fclose(f);
     // Check this

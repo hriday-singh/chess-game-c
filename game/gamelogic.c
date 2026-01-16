@@ -1392,9 +1392,9 @@ void gamelogic_load_from_uci_moves(GameLogic* logic, const char* moves_uci, cons
         cursor += strspn(cursor, delims);
         if (!*cursor) break;
         
-        // Find token end
         size_t len = strcspn(cursor, delims);
         if (len > 0) {
+            char saved = cursor[len];
             cursor[len] = '\0';
             char* token = cursor;
             
@@ -1405,7 +1405,7 @@ void gamelogic_load_from_uci_moves(GameLogic* logic, const char* moves_uci, cons
             Move* matched_move = NULL;
             for (int i = 0; i < count; i++) {
                 char current_uci[8];
-                move_to_uci(legal_moves[i], current_uci); // Helper we just added
+                move_to_uci(legal_moves[i], current_uci);
                 if (strcmp(current_uci, token) == 0) {
                     matched_move = move_copy(legal_moves[i]);
                     break;
@@ -1417,19 +1417,20 @@ void gamelogic_load_from_uci_moves(GameLogic* logic, const char* moves_uci, cons
             if (legal_moves) free(legal_moves);
             
             if (matched_move) {
-                // Apply the move to the board
                 gamelogic_perform_move(logic, matched_move);
                 move_free(matched_move);
             } else {
                 if(debug_mode) fprintf(stderr, "[Gamelogic] Replay: Could not match UCI move '%s' at ply %d\n", 
                         token, ((Stack*)logic->moveHistory) ? ((Stack*)logic->moveHistory)->size : 0);
-                // Don't break automatically on error, maybe subsequent moves work? 
-                // But usually if one fails, the rest are invalid.
-                // Keeping original behavior: break
+                cursor[len] = saved; // Restore before break
                 break; 
             }
             
-            cursor += len + 1;
+            cursor[len] = saved;
+            cursor += len;
+            if (saved == '\0') break;
+        } else {
+            break;
         }
     }
     
@@ -1447,6 +1448,10 @@ void gamelogic_rebuild_history(GameLogic* logic, Move** moves, int count) {
             move_free(m);
         }
     }
+    
+    // Reset status flags
+    logic->isGameOver = false;
+    logic->statusMessage[0] = '\0';
     
     if (!moves || count <= 0) return;
     

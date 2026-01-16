@@ -247,13 +247,13 @@ static void on_right_panel_nav(const char* action, int ply_index, gpointer user_
         }
     } else if (strcmp(action, "prev") == 0) {
         if (state->is_replaying && state->replay_controller) {
-            replay_controller_prev(state->replay_controller);
+            replay_controller_prev(state->replay_controller, false);  // Manual navigation
         } else {
             gamelogic_undo_move(state->logic);
         }
     } else if (strcmp(action, "next") == 0) {
         if (state->is_replaying && state->replay_controller) {
-            replay_controller_next(state->replay_controller);
+            replay_controller_next(state->replay_controller, false);  // Manual navigation
         }
         // Normal mode has no redo
     } else if (strcmp(action, "start") == 0) {
@@ -583,6 +583,20 @@ static void on_game_reset(gpointer user_data) {
         clock_reset(&state->logic->clock, 0, 0);
     }
 
+    // Force immediate UI update for clock display
+    if (state->gui.top_clock && state->gui.bottom_clock) {
+        ClockState* clk = &state->logic->clock;
+        bool flipped = board_widget_is_flipped(state->gui.board);
+        ClockWidget* white_clk = flipped ? state->gui.top_clock : state->gui.bottom_clock;
+        ClockWidget* black_clk = flipped ? state->gui.bottom_clock : state->gui.top_clock;
+        
+        clock_widget_update(white_clk, clk->white_time_ms, clk->initial_time_ms, false);
+        clock_widget_update(black_clk, clk->black_time_ms, clk->initial_time_ms, false);
+        
+        clock_widget_set_disabled(white_clk, !clk->enabled);
+        clock_widget_set_disabled(black_clk, !clk->enabled);
+    }
+
     state->match_saved = false;
     // Sync flip with player side (fix for Play as Black/Random)
     bool flip = (state->logic->playerSide == PLAYER_BLACK);
@@ -605,6 +619,18 @@ static void on_game_reset(gpointer user_data) {
         // Usually reset means active=false.
         clock_widget_update(state->gui.top_clock, init_time, init_time, false);
         clock_widget_update(state->gui.bottom_clock, init_time, init_time, false);
+
+        // Set Names based on perspective
+        AppConfig* cfg = config_get();
+        clock_widget_set_name(state->gui.bottom_clock, "Player"); // Default human perspective
+        if (state->logic->gameMode == GAME_MODE_PVC) {
+            clock_widget_set_name(state->gui.top_clock, cfg->analysis_use_custom ? "Custom Engine" : "Inbuilt Stockfish Engine");
+        } else if (state->logic->gameMode == GAME_MODE_CVC) {
+            clock_widget_set_name(state->gui.bottom_clock, "Inbuilt Stockfish Engine");
+            clock_widget_set_name(state->gui.top_clock, "Custom Engine");
+        } else {
+            clock_widget_set_name(state->gui.top_clock, "Player");
+        }
     }
 
     if (state->gui.info_panel) { 
@@ -725,6 +751,7 @@ static void request_ai_move(AppState* state) {
     if(debug_mode) printf("[Main] AI: Requesting move from system...\n");
     if (!state->ai_controller) return;
     
+    if (state->is_replaying) return;
     if (ai_controller_is_thinking(state->ai_controller)) return;
     if (state->logic->isGameOver) return;
     
@@ -989,7 +1016,8 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
     replay_controller_load_match(state->replay_controller, entry->moves_uci, entry->start_fen,
                                  entry->think_time_ms, entry->think_time_count,
                                  entry->started_at_ms, entry->ended_at_ms,
-                                 entry->clock.enabled, entry->clock.initial_ms, entry->clock.increment_ms);
+                                 entry->clock.enabled, entry->clock.initial_ms, entry->clock.increment_ms,
+                                 entry->white, entry->black);
                                  
     // Pass result metadata for display at end of replay
     replay_controller_set_result(state->replay_controller, entry->result, entry->result_reason);
@@ -1252,9 +1280,10 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
 
     // Top Clock Row
     GtkWidget* top_clk = clock_widget_get_widget(state->gui.top_clock);
-    gtk_widget_set_margin_top(top_clk, 12);     // Padding from window top/header
-    gtk_widget_set_margin_bottom(top_clk, 0);   // Lose bottom padding (touch board)
-    gtk_widget_set_halign(top_clk, GTK_ALIGN_END);
+    gtk_widget_set_margin_top(top_clk, 12);
+    gtk_widget_set_margin_bottom(top_clk, 0);
+    gtk_widget_set_halign(top_clk, GTK_ALIGN_FILL);
+    gtk_widget_set_hexpand(top_clk, TRUE);
     gtk_box_append(GTK_BOX(board_area), top_clk);
 
     // Aspect Frame - Keeps board square
@@ -1268,9 +1297,10 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     
     // Bottom Clock Row
     GtkWidget* bot_clk = clock_widget_get_widget(state->gui.bottom_clock);
-    gtk_widget_set_margin_top(bot_clk, 0);      // Lose top padding (touch board)
-    gtk_widget_set_margin_bottom(bot_clk, 12);  // Padding from window bottom
-    gtk_widget_set_halign(bot_clk, GTK_ALIGN_END);
+    gtk_widget_set_margin_top(bot_clk, 0);
+    gtk_widget_set_margin_bottom(bot_clk, 12);
+    gtk_widget_set_halign(bot_clk, GTK_ALIGN_FILL);
+    gtk_widget_set_hexpand(bot_clk, TRUE);
     gtk_box_append(GTK_BOX(board_area), bot_clk);
     
     gtk_box_append(GTK_BOX(main_box), board_area);

@@ -4,6 +4,7 @@
 #include <gtk/gtk.h>
 #include <stdbool.h>
 #include "../game/types.h"
+#include "config_manager.h" // For MatchPlayerConfig
 
 // Forward declarations
 typedef struct AppState AppState;
@@ -59,6 +60,9 @@ typedef struct ReplayController {
     struct _AiAnalysisJob* analysis_job;
     struct GameAnalysisResult* analysis_result;
     
+    // Player Metadata
+    MatchPlayerConfig white_config;
+    MatchPlayerConfig black_config;
 } ReplayController;
 
 // Lifecycle
@@ -74,7 +78,8 @@ void replay_controller_enter_replay_mode(ReplayController* self);
 void replay_controller_load_match(ReplayController* self, const char* moves_uci, const char* start_fen, 
                                  const int* think_times, int think_time_count, 
                                  int64_t started_at, int64_t ended_at,
-                                 bool clock_enabled, int initial_ms, int increment_ms);
+                                 bool clock_enabled, int initial_ms, int increment_ms,
+                                 MatchPlayerConfig white, MatchPlayerConfig black);
 void replay_controller_set_result(ReplayController* self, const char* result, const char* reason);
 void replay_controller_exit(ReplayController* self);  // Exit replay mode
 
@@ -94,8 +99,8 @@ bool replay_controller_is_playing(ReplayController* self);
 void replay_controller_set_speed(ReplayController* self, int ms);
 
 // Navigation
-void replay_controller_next(ReplayController* self);
-void replay_controller_prev(ReplayController* self);
+void replay_controller_next(ReplayController* self, bool from_timer);
+void replay_controller_prev(ReplayController* self, bool from_timer);
 void replay_controller_seek(ReplayController* self, int ply);
 
 // "Start From Here" Logic

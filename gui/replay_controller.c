@@ -19,6 +19,14 @@ static gboolean replay_tick_callback(gpointer user_data);
 // Helper helper
 static void refresh_clock_display(ReplayController* self);
 
+static const char* get_name_for_config(MatchPlayerConfig cfg) {
+    if (cfg.is_ai) {
+        if (cfg.engine_type == 0) return "Inbuilt Stockfish Engine";
+        return "Custom Engine";
+    }
+    return "Player";
+}
+
 ReplayController* replay_controller_new(GameLogic* logic, AppState* app_state) {
     ReplayController* self = g_new0(ReplayController, 1);
     self->logic = logic;
@@ -264,14 +272,29 @@ void replay_controller_free(ReplayController* self) {
 void replay_controller_load_match(ReplayController* self, const char* moves_uci, const char* start_fen, 
                                   const int* think_times, int think_time_count, 
                                   int64_t started_at, int64_t ended_at,
-                                  bool clock_enabled, int initial_ms, int increment_ms) {
+                                  bool clock_enabled, int initial_ms, int increment_ms,
+                                  MatchPlayerConfig white, MatchPlayerConfig black) {
     if (!self) return;
+    
+    self->white_config = white;
+    self->black_config = black;
     
     (void)started_at; (void)ended_at; // Validation logic optional/removed for now
 
     if(debug_mode) {
-        printf("[ReplayController] Loading match with %d moves, %d think times, %d snapshots, %d ply.\n", 
-               self->total_moves, self->think_time_count, self->snapshot_count, self->current_ply);
+        printf("[ReplayController] Loading match:\n");
+        printf("  Moves UCI: %s\n", moves_uci ? moves_uci : "NULL");
+        printf("  Think Times Count: %d\n", think_time_count);
+        printf("  Start FEN: %s\n", start_fen ? start_fen : "Initial");
+        printf("  Timestamps: Started=%lld, Ended=%lld\n", (long long)started_at, (long long)ended_at);
+        printf("  Clock: %s (Initial: %d ms, Increment: %d ms)\n", 
+               clock_enabled ? "ENABLED" : "DISABLED", initial_ms, increment_ms);
+        printf("  White: %s (ELO=%d, Depth=%d, MoveTime=%d, Engine=%d, Path=%s)\n",
+               white.is_ai ? "AI" : "Human", white.elo, white.depth, white.movetime, 
+               white.engine_type, white.engine_path[0] != '\0' ? white.engine_path : "N/A");
+        printf("  Black: %s (ELO=%d, Depth=%d, MoveTime=%d, Engine=%d, Path=%s)\n",
+               black.is_ai ? "AI" : "Human", black.elo, black.depth, black.movetime, 
+               black.engine_type, black.engine_path[0] != '\0' ? black.engine_path : "N/A");
     }
 
     replay_controller_pause(self);
@@ -420,6 +443,49 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
         // Debug stack pointer indirectly via move count or internal inspection
         int current_count = gamelogic_get_move_count(self->logic);
         printf("  Move 0 Stack Count: %d (Should be 0)\n", current_count);
+    }
+    
+    // Auto-Set Perspective
+    bool flip = false;
+    if (!self->white_config.is_ai && self->black_config.is_ai) flip = false;     // Human is White
+    else if (self->white_config.is_ai && !self->black_config.is_ai) flip = true; // Human is Black
+    
+    if (self->app_state && self->app_state->gui.board) {
+        board_widget_set_flipped(self->app_state->gui.board, flip);
+    }
+    if (self->app_state && self->app_state->gui.right_side_panel) {
+        right_side_panel_set_flipped(self->app_state->gui.right_side_panel, flip);
+    }
+    
+    // Set Clock Names and Icons
+    if (self->app_state && self->app_state->gui.top_clock && self->app_state->gui.bottom_clock) {
+        ClockWidget* white_clk = flip ? self->app_state->gui.top_clock : self->app_state->gui.bottom_clock;
+        ClockWidget* black_clk = flip ? self->app_state->gui.bottom_clock : self->app_state->gui.top_clock;
+        
+        // Use the existing helper (I'll need to define it or find it)
+        // Actually I'll use the logic from get_name_for_config
+        char w_name[64], b_name[64];
+        if (self->white_config.is_ai) {
+             snprintf(w_name, sizeof(w_name), "%s", self->white_config.engine_type == 1 ? "Custom Engine" : "Inbuilt STOCKFISH ENGINE");
+        } else {
+             snprintf(w_name, sizeof(w_name), "Player");
+        }
+        
+        if (self->black_config.is_ai) {
+             snprintf(b_name, sizeof(b_name), "%s", self->black_config.engine_type == 1 ? "Custom Engine" : "Inbuilt STOCKFISH ENGINE");
+        } else {
+             snprintf(b_name, sizeof(b_name), "Player");
+        }
+        
+        clock_widget_set_name(white_clk, w_name);
+        clock_widget_set_name(black_clk, b_name);
+        
+        clock_widget_set_disabled(white_clk, !self->clock_enabled);
+        clock_widget_set_disabled(black_clk, !self->clock_enabled);
+
+        // Explicitly set initial times
+        clock_widget_update(white_clk, self->clock_initial_ms, self->clock_initial_ms, false);
+        clock_widget_update(black_clk, self->clock_initial_ms, self->clock_initial_ms, false);
     }
     
     // 3. Update UI: Regenerate SAN from Logic history
@@ -708,11 +774,15 @@ void replay_controller_set_speed(ReplayController* self, int ms) {
     }
 }
 
-void replay_controller_next(ReplayController* self) {
-    if (!self || self->current_ply >= self->total_moves) {
+void replay_controller_next(ReplayController* self, bool from_timer) {
+    if (!self) return;
+    
+    // Skip Delay: Only pause if this is manual navigation (not from timer)
+    if (self->is_playing && !from_timer) {
         replay_controller_pause(self);
-        return;
     }
+
+    if (self->current_ply >= self->total_moves) return;
     
     Move* next_move = self->moves[self->current_ply];
     
@@ -739,7 +809,14 @@ void replay_controller_next(ReplayController* self) {
     replay_ui_update(self);
 }
 
-void replay_controller_prev(ReplayController* self) {
+void replay_controller_prev(ReplayController* self, bool from_timer) {
+    if (!self) return;
+
+    // Skip Delay: Only pause if this is manual navigation (not from timer)
+    if (self->is_playing && !from_timer) {
+        replay_controller_pause(self);
+    }
+
     if (self->current_ply <= 0) return;
     
     self->current_ply--;
@@ -796,26 +873,200 @@ void replay_controller_seek(ReplayController* self, int ply) {
 
 // "Start From Here" Logic
 bool replay_controller_start_from_here(ReplayController* self, GameMode mode, Player side) {
-    if (!self || !self->logic) return false;
+    if (!self || !self->logic || !self->app_state) return false;
     
+    // 1. Stop Replay
     replay_controller_pause(self);
     
-    // 1. Logic State is already at self->current_ply.
-    // We just need to discard future moves and switch mode.
+    // 2. Truncate/Rebuild History
+    // The gamelogic currently holds the state at `current_ply`.
+    // We need to ensure the undo stack matches exactly moves[0..current_ply-1].
+    // `gamelogic_rebuild_history` does exactly this: clears stack and pushes the provided array.
+    if (self->moves && self->current_ply > 0) {
+        gamelogic_rebuild_history(self->logic, self->moves, self->current_ply);
+    } else {
+        // If at start (ply 0), clear history
+        gamelogic_rebuild_history(self->logic, NULL, 0);
+    }
     
+    // 3. Sync Clock
+    if (self->clock_enabled && self->precalc_white_time && self->precalc_black_time) {
+        // Restore time from precalculated values for the CURRENT ply (start of this turn)
+        int64_t w_time = self->precalc_white_time[self->current_ply];
+        int64_t b_time = self->precalc_black_time[self->current_ply];
+        
+        // Use custom clock setter to ensure precise restoration
+        gamelogic_set_custom_clock(self->logic, 0, 0); // Reset internal
+        self->logic->clock.white_time_ms = w_time;
+        self->logic->clock.black_time_ms = b_time;
+        self->logic->clock.initial_time_ms = self->clock_initial_ms;
+        self->logic->clock.increment_ms = self->clock_initial_ms; // Wait, increment field?
+        // logic struct has separate increment field
+        self->logic->clock_initial_ms = self->clock_initial_ms;
+        self->logic->clock_increment_ms = self->clock_increment_ms;
+        
+        self->logic->clock.enabled = true;
+        self->logic->clock.active = false; // Will activate on first move interaction
+        self->logic->clock.flagged_player = PLAYER_NONE;
+        self->logic->clock.last_tick_time = 0;
+        
+        // Also update widgets immediately to be sure
+        if (self->app_state->gui.top_clock && self->app_state->gui.bottom_clock) {
+             ClockWidget* clocks[2] = { self->app_state->gui.top_clock, self->app_state->gui.bottom_clock };
+             for(int k=0; k<2; k++) {
+                 Player clk_side = clock_widget_get_side(clocks[k]);
+                 int64_t t = (clk_side == PLAYER_WHITE) ? w_time : b_time;
+                 clock_widget_update(clocks[k], t, self->clock_initial_ms, false);
+                 clock_widget_set_disabled(clocks[k], false);
+             }
+        }
+    } else {
+        // No clock or clock disabled
+        self->logic->clock.enabled = false;
+        self->logic->clock.active = false;
+        if (self->app_state->gui.top_clock) clock_widget_set_disabled(self->app_state->gui.top_clock, true);
+        if (self->app_state->gui.bottom_clock) clock_widget_set_disabled(self->app_state->gui.bottom_clock, true);
+    }
+    
+    // 4. Set Gameplay State
     self->logic->gameMode = mode;
-    self->logic->playerSide = side;
+    self->logic->playerSide = side; 
     
-    // In CvC, side doesn't matter as much, but logic->playerSide stores main POV.
+    if (self->app_state->gui.info_panel) {
+        info_panel_set_game_mode(self->app_state->gui.info_panel, mode);
+        // We'll set the side once UI is ready to avoid double logic triggers
+    }
     
-    // 2. Clear history stacks in gamelogic?
-    // NO. We want to KEEP history up to this point so undo works!
-    // But GameLogic doesn't have a "future" stack once we start playing new moves.
-    // So simply by playing a NEW move, the branching happens naturally if logic supports it.
-    // Our GameLogic `perform_move` pushes to stack. It doesn't clear "future" because there is no future stack in GameLogic (only Undo stack).
-    // So we are good!
+    // Sync Game State: Re-calculate check/mate/status flags for the new position
+    gamelogic_update_game_state(self->logic);
     
-    // 3. UI Updates handled by caller (exit replay mode visuals)
+    // Sync Think Times: Ensure logic has history of think times up to current ply
+    if (self->think_times && self->current_ply > 0) {
+        // Ensure capacity
+        if (self->logic->think_time_capacity < self->current_ply) {
+            self->logic->think_time_capacity = self->current_ply + 32;
+            self->logic->think_times = g_realloc(self->logic->think_times, self->logic->think_time_capacity * sizeof(int));
+        }
+        
+        // Copy times
+        if (self->logic->think_times) {
+            // Safely copy available think times. 
+            // If current_ply > think_time_count (e.g. if partial data), fill with 0 or limit.
+            int count_to_copy = self->current_ply;
+            if (count_to_copy > self->think_time_count) count_to_copy = self->think_time_count;
+            
+            memcpy(self->logic->think_times, self->think_times, count_to_copy * sizeof(int));
+            
+            // Fill remainder with 0 if any
+            for (int i = count_to_copy; i < self->current_ply; i++) {
+                self->logic->think_times[i] = 0;
+            }
+            
+            self->logic->think_time_count = self->current_ply;
+        }
+    } else {
+        // No think times or at start
+        self->logic->think_time_count = 0;
+    }
+    
+    // 5. Exit Replay Mode (Set flag early to allow standard UI behaviors)
+    self->app_state->is_replaying = false;
+    self->app_state->match_saved = false; 
+    
+    // Free and detach replay match ID to prevent overwriting original file
+    if (self->app_state->replay_match_id) {
+        g_free(self->app_state->replay_match_id);
+    }
+    self->app_state->replay_match_id = NULL; 
+    
+    // 6. UI Updates
+    if (self->app_state->gui.board) {
+        board_widget_set_interactive(self->app_state->gui.board, TRUE);
+        
+        // Perspective: Flip board if playing as Black
+        board_widget_set_flipped(self->app_state->gui.board, side == PLAYER_BLACK);
+        
+        // Visual continuity: Highlight the move that just happened before this position
+        if (self->current_ply > 0) {
+            Move* last = self->moves[self->current_ply - 1];
+            board_widget_set_last_move(self->app_state->gui.board, 
+                                       last->from_sq / 8, last->from_sq % 8, 
+                                       last->to_sq / 8, last->to_sq % 8);
+        } else {
+             board_widget_set_last_move(self->app_state->gui.board, -1, -1, -1, -1);
+        }
+    }
+
+    if (self->app_state->gui.info_panel) {
+        info_panel_show_replay_controls(self->app_state->gui.info_panel, FALSE);
+        info_panel_update_status(self->app_state->gui.info_panel);
+        info_panel_refresh_graveyard(self->app_state->gui.info_panel);
+        
+        // Sync side dropdown with the new active side (human player)
+        // This is now safe as signals are blocked in info_panel.c
+        info_panel_set_player_side(self->app_state->gui.info_panel, side);
+        
+        // Restore CvC UI if needed
+        if (mode == GAME_MODE_CVC) {
+            info_panel_set_cvc_state(self->app_state->gui.info_panel, CVC_STATE_STOPPED);
+        }
+    }
+    
+    // Explicitly refresh board to show pieces at the new position
+    if (self->app_state->gui.board) {
+        board_widget_refresh(self->app_state->gui.board);
+    }
+    
+    if (self->app_state->gui.right_side_panel) {
+        // Sync panel perspective
+        right_side_panel_set_flipped(self->app_state->gui.right_side_panel, side == PLAYER_BLACK);
+
+        // Unlock history interactions
+        right_side_panel_set_replay_lock(self->app_state->gui.right_side_panel, false);
+        
+        // Truncate the visual history in the right panel to match current ply
+        right_side_panel_clear_history(self->app_state->gui.right_side_panel);
+        
+        // Re-populate from logic history
+        GameLogic* temp = gamelogic_create(); 
+        if (temp) {
+             if (self->logic->start_fen[0]) gamelogic_load_fen(temp, self->logic->start_fen);
+             else gamelogic_reset(temp);
+             
+             Player p = temp->turn;
+             int m_num = temp->fullmoveNumber;
+
+             for (int i = 0; i < self->current_ply; i++) {
+                 Move* m = self->moves[i];
+                 int r = m->from_sq/8; 
+                 int c = m->from_sq%8;
+                 PieceType pt = PIECE_PAWN;
+                 if (temp->board[r][c]) pt = temp->board[r][c]->type;
+                 
+                 char san[16];
+                 gamelogic_get_move_san(temp, m, san, sizeof(san));
+                 right_side_panel_add_move_notation(self->app_state->gui.right_side_panel, san, pt, m_num, p);
+                 gamelogic_perform_move(temp, m);
+                 
+                 if (p == PLAYER_BLACK) m_num++;
+                 p = (p == PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
+             }
+             gamelogic_free(temp);
+        }
+        
+        right_side_panel_scroll_to_bottom(self->app_state->gui.right_side_panel);
+    }
+    
+    // 7. Trigger Logic Resume
+    if (self->clock_enabled) {
+        self->logic->clock.active = true;
+        self->logic->clock.last_tick_time = clock_get_current_time_ms();
+    }
+    
+    // Trigger update callback to sync UI and trigger AI if it's the computer's turn
+    if (self->logic->updateCallback) {
+        self->logic->updateCallback();
+    }
     
     return true;
 }
@@ -831,7 +1082,7 @@ static gboolean replay_timer_callback(gpointer user_data) {
         return G_SOURCE_REMOVE;
     }
     
-    replay_controller_next(self);
+    replay_controller_next(self, true);  // from_timer = true
     
     // Critical: Reset clock animation anchor for the NEW move we just started
     self->move_start_time_monotonic = g_get_monotonic_time();
@@ -984,6 +1235,16 @@ void replay_controller_enter_replay_mode(ReplayController* self) {
     // Reset analysis UI state
     right_side_panel_set_analyzing_state(self->app_state->gui.right_side_panel, false);
     right_side_panel_set_analysis_result(self->app_state->gui.right_side_panel, self->analysis_result); // Show existing result if any
+
+    // Set Clock Names
+    if (self->app_state->gui.top_clock && self->app_state->gui.bottom_clock) {
+        bool flipped = board_widget_is_flipped(self->app_state->gui.board);
+        ClockWidget* white_clk = flipped ? self->app_state->gui.top_clock : self->app_state->gui.bottom_clock;
+        ClockWidget* black_clk = flipped ? self->app_state->gui.bottom_clock : self->app_state->gui.top_clock;
+        
+        clock_widget_set_name(white_clk, get_name_for_config(self->white_config));
+        clock_widget_set_name(black_clk, get_name_for_config(self->black_config));
+    }
 }
 
 static void on_analysis_complete(GameAnalysisResult* result, void* user_data) {

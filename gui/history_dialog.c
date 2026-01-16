@@ -35,20 +35,30 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
     const char* mode_str = (m->game_mode == 0) ? "PvP" : (m->game_mode == 1) ? "PvC" : "CvC";
     
     char readable_result[64];
-    if (strcmp(m->result, "1-0") == 0) snprintf(readable_result, sizeof(readable_result), "White Won");
-    else if (strcmp(m->result, "0-1") == 0) snprintf(readable_result, sizeof(readable_result), "Black Won");
-    else if (strcmp(m->result, "1/2-1/2") == 0) snprintf(readable_result, sizeof(readable_result), "Draw");
-    else snprintf(readable_result, sizeof(readable_result), "No Result");
     
-    // Enhancing text for PvC
+    // Determine player roles for White and Black
+    const char* white_role = m->white.is_ai ? "AI" : "Player";
+    const char* black_role = m->black.is_ai ? "AI" : "Player";
+    
+    // Build result text with roles
+    if (strcmp(m->result, "1-0") == 0) {
+        snprintf(readable_result, sizeof(readable_result), "White %s won", white_role);
+    } else if (strcmp(m->result, "0-1") == 0) {
+        snprintf(readable_result, sizeof(readable_result), "Black %s won", black_role);
+    } else if (strcmp(m->result, "1/2-1/2") == 0) {
+        snprintf(readable_result, sizeof(readable_result), "Draw");
+    } else {
+        snprintf(readable_result, sizeof(readable_result), "No Result");
+    }
+    
     if (m->game_mode == 1) { 
          if (m->black.is_ai && !m->white.is_ai) {
              // User is White
-             if (strcmp(m->result, "1-0") == 0) snprintf(readable_result, sizeof(readable_result), "You Won!");
+             if (strcmp(m->result, "1-0") == 0) snprintf(readable_result, sizeof(readable_result), "Player Won!");
              else if (strcmp(m->result, "0-1") == 0) snprintf(readable_result, sizeof(readable_result), "AI Won");
          } else if (m->white.is_ai && !m->black.is_ai) {
              // User is Black
-             if (strcmp(m->result, "0-1") == 0) snprintf(readable_result, sizeof(readable_result), "You Won!");
+             if (strcmp(m->result, "0-1") == 0) snprintf(readable_result, sizeof(readable_result), "Player Won!");
              else if (strcmp(m->result, "1-0") == 0) snprintf(readable_result, sizeof(readable_result), "AI Won");
          }
     }

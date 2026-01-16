@@ -1,8 +1,9 @@
 #include "right_side_panel.h"
+#include "gamelogic.h"
 #include <string.h>
 #include <stdio.h>
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 #define M_PI 3.14159265358979323846
 
 typedef struct {
@@ -225,6 +226,22 @@ static gboolean scroll_to_top_idle(gpointer user_data) {
         gtk_adjustment_set_value(adj, gtk_adjustment_get_lower(adj));
     }
     return G_SOURCE_REMOVE;
+}
+
+static gboolean scroll_to_bottom_idle(gpointer user_data) {
+    RightSidePanel* panel = (RightSidePanel*)user_data;
+    if (!panel || !panel->history_scrolled) return G_SOURCE_REMOVE;
+    
+    GtkAdjustment* adj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(panel->history_scrolled));
+    if (adj) {
+        gtk_adjustment_set_value(adj, gtk_adjustment_get_upper(adj) - gtk_adjustment_get_page_size(adj));
+    }
+    return G_SOURCE_REMOVE;
+}
+
+void right_side_panel_scroll_to_bottom(RightSidePanel* panel) {
+    if (!panel) return;
+    g_idle_add(scroll_to_bottom_idle, panel);
 }
 
 RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {

@@ -658,13 +658,16 @@ static const char *CSS_STRUCTURAL =
     
     // Clock CSS
     // --- Board Anchored Clock Pill ---
+    " .clock-widget-container { margin: 4px 0; }\n"
     " .clock-pill { background: @card_bg; border: 2px solid @border_color; border-radius: 50px; padding: 6px 18px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }\n"
-    " .clock-pill.active { border-color: @accent_color; box-shadow: 0 8px 20px alpha(@accent_color, 0.25); background: @bg_color; }\n"
-    " .clock-pill.active drawingarea { color: @accent_color; }\n"
+    " .clock-widget-container.active .clock-pill { border-color: @accent_color; box-shadow: 0 8px 20px alpha(@accent_color, 0.25); background: @bg_color; }\n"
+    " .clock-widget-container.active .clock-pill drawingarea { color: @accent_color; }\n"
+    " .clock-pill image { opacity: 0.6; transition: all 0.3s ease; }\n"
+    " .clock-widget-container.active .clock-pill image { opacity: 1.0; color: @accent_color; }\n"
     " .clock-player-name { font-weight: 800; font-size: 13px; text-transform: uppercase; color: @dim_label; opacity: 0.7; letter-spacing: 0.5px; }\n"
-    " .active .clock-player-name { color: @fg_color; opacity: 1.0; }\n"
+    " .clock-widget-container.active .clock-player-name { color: @fg_color; opacity: 1.0; }\n"
     " .clock-time { font-family: 'JetBrains Mono', 'Roboto Mono', monospace; font-size: 24px; font-weight: 800; color: @dim_label; min-width: 80px; }\n"
-    " .active .clock-time { color: @fg_color; }\n"
+    " .clock-widget-container.active .clock-time { color: @fg_color; }\n"
     
     " .feedback-zone-v4 { padding: 16px; margin: 12px; border-radius: 14px; border: 1.5px solid alpha(@border_color, 0.6); }\n"
     " .feedback-rating-v4 { font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 4px; }\n"

@@ -2,7 +2,6 @@
 #define RIGHT_SIDE_PANEL_H
 
 #include <gtk/gtk.h>
-#include "gamelogic.h"
 #include "theme_data.h"
 #include "ai_analysis.h" // Full include for GameAnalysisResult visibility
 
@@ -94,6 +93,7 @@ void right_side_panel_set_current_move(RightSidePanel* panel, int move_index);
 void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index);
 void right_side_panel_refresh(RightSidePanel* panel);
 void right_side_panel_scroll_to_top(RightSidePanel* panel);
+void right_side_panel_scroll_to_bottom(RightSidePanel* panel);
 
 void right_side_panel_set_nav_callback(RightSidePanel* panel, RightSidePanelNavCallback callback, gpointer user_data);
 void right_side_panel_set_analyze_callback(RightSidePanel* panel, GCallback callback, gpointer user_data);

@@ -2,7 +2,7 @@
 #define CLOCK_WIDGET_H
 
 #include <gtk/gtk.h>
-#include "../game/gamelogic.h" // For Player enum
+#include "../game/types.h" // For Player enum
 
 typedef struct _ClockWidget ClockWidget;
 
@@ -23,6 +23,9 @@ void clock_widget_update(ClockWidget* clock, int64_t time_ms, int64_t initial_ti
 
 // Set overall visibility (for Tutorial/Puzzle modes)
 void clock_widget_set_visible_state(ClockWidget* clock, bool visible);
+
+// Set player/engine name on the left
+void clock_widget_set_name(ClockWidget* clock, const char* name);
 
 // Set "Disabled/Zero" state (for Tutorial/Puzzle modes)
 void clock_widget_set_disabled(ClockWidget* clock, bool disabled);

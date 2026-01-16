@@ -1,4 +1,5 @@
 #include "clock_widget.h"
+#include "clock.h"
 #include <math.h>
 
 #ifndef M_PI
@@ -7,18 +8,24 @@
 
 // Internal structure
 struct _ClockWidget {
-    GtkWidget* container;   // The main pill box
-    GtkWidget* analog_area; // Drawing area for analog clock
-    GtkWidget* time_label;  // Digital time label
+    GtkWidget* main_container; // Parent box
+    GtkWidget* name_pill;      // Separated name pill
+    GtkWidget* clock_pill;     // Separated clock pill
     
-    Player side;            // Owner (White/Black)
-    bool active;            // Is currently active
-    bool disabled;          // Force zero/hidden state
-    int64_t last_time_ms;   // Last known time (for change detection)
-    int64_t initial_time_ms; // Starting time for the match/period
+    GtkWidget* icon_image;     // User/Bot icon
+    GtkWidget* name_label;     // Player/Engine name
+    
+    GtkWidget* analog_area;    // Drawing area for analog clock
+    GtkWidget* time_label;     // Digital time label
+    
+    Player side;               // Owner (White/Black)
+    bool active;               // Is currently active
+    bool disabled;             // Force zero/hidden state
+    int64_t last_time_ms;      // Last known time (for change detection)
+    int64_t initial_time_ms;    // Starting time for the match/period
     int64_t last_sync_system_us; // System time (monotonic) when last_time_ms was updated
     
-    guint tick_id;          // Animation tick callback ID
+    guint tick_id;             // Animation tick callback ID
 };
 
 // Draw the discrete analog clock
@@ -95,17 +102,35 @@ ClockWidget* clock_widget_new(Player side) {
     clock->side = side;
     clock->last_time_ms = -1;
     
-    // Container (Pill)
-    clock->container = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    gtk_widget_set_halign(clock->container, GTK_ALIGN_END); // Right aligned within its row
-    gtk_widget_set_valign(clock->container, GTK_ALIGN_CENTER);
+    // Main Container (Horizontal box to hold two pills)
+    clock->main_container = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_halign(clock->main_container, GTK_ALIGN_END); // Right aligned within its row
+    gtk_widget_set_valign(clock->main_container, GTK_ALIGN_CENTER);
+    gtk_widget_add_css_class(clock->main_container, "clock-widget-container");
+
+    // 1. Name Pill
+    clock->name_pill = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_add_css_class(clock->name_pill, "clock-pill");
+    gtk_widget_add_css_class(clock->name_pill, "name-pill");
     
-    // Styling classes
-    gtk_widget_add_css_class(clock->container, "clock-pill");
+    clock->icon_image = gtk_image_new_from_icon_name("avatar-default-symbolic");
+    gtk_image_set_pixel_size(GTK_IMAGE(clock->icon_image), 18);
+    gtk_box_append(GTK_BOX(clock->name_pill), clock->icon_image);
+    
+    clock->name_label = gtk_label_new("");
+    gtk_widget_add_css_class(clock->name_label, "clock-player-name");
+    gtk_label_set_xalign(GTK_LABEL(clock->name_label), 0.0);
+    gtk_box_append(GTK_BOX(clock->name_pill), clock->name_label);
+    
+    gtk_box_append(GTK_BOX(clock->main_container), clock->name_pill);
+
+    // 2. Clock Pill
+    clock->clock_pill = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_add_css_class(clock->clock_pill, "clock-pill");
     if (side == PLAYER_WHITE) {
-        gtk_widget_add_css_class(clock->container, "clock-white");
+        gtk_widget_add_css_class(clock->clock_pill, "clock-white");
     } else {
-        gtk_widget_add_css_class(clock->container, "clock-black");
+        gtk_widget_add_css_class(clock->clock_pill, "clock-black");
     }
     
     // Analog Clock Icon
@@ -113,23 +138,29 @@ ClockWidget* clock_widget_new(Player side) {
     gtk_widget_set_size_request(clock->analog_area, 18, 18);
     gtk_widget_set_valign(clock->analog_area, GTK_ALIGN_CENTER);
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(clock->analog_area), draw_analog, clock, NULL);
-    gtk_box_append(GTK_BOX(clock->container), clock->analog_area);
-
-    // Register tick callback for analog hand updates
-    clock->tick_id = gtk_widget_add_tick_callback(clock->analog_area, on_analog_tick, clock, NULL);
-    
+    gtk_box_append(GTK_BOX(clock->clock_pill), clock->analog_area);
 
     // Digital Label
     clock->time_label = gtk_label_new("00:00");
     gtk_widget_add_css_class(clock->time_label, "clock-time");
-    gtk_label_set_xalign(GTK_LABEL(clock->time_label), 1.0); // Right align text within the 80px block
-    gtk_box_append(GTK_BOX(clock->container), clock->time_label);
+    gtk_label_set_xalign(GTK_LABEL(clock->time_label), 1.0); // Right align text
+    gtk_box_append(GTK_BOX(clock->clock_pill), clock->time_label);
+    
+    // Add spacer to push pills to edges
+    GtkWidget* spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_set_hexpand(spacer, TRUE);
+    gtk_box_append(GTK_BOX(clock->main_container), spacer);
+    
+    gtk_box_append(GTK_BOX(clock->main_container), clock->clock_pill);
+
+    // Register tick callback for analog hand updates
+    clock->tick_id = gtk_widget_add_tick_callback(clock->analog_area, on_analog_tick, clock, NULL);
     
     return clock;
 }
 
 GtkWidget* clock_widget_get_widget(ClockWidget* clock) {
-    return clock ? clock->container : NULL;
+    return clock ? clock->main_container : NULL;
 }
 
 Player clock_widget_get_side(ClockWidget* clock) {
@@ -139,6 +170,10 @@ Player clock_widget_get_side(ClockWidget* clock) {
 void clock_widget_update(ClockWidget* clock, int64_t time_ms, int64_t initial_time_ms, bool is_active) {
     if (!clock || clock->disabled) return;
     
+    // Safety check: Ensure widgets are still valid (prevents shutdown errors)
+    if (!clock->time_label || !GTK_IS_LABEL(clock->time_label)) return;
+    if (!clock->main_container || !GTK_IS_WIDGET(clock->main_container)) return;
+    
     // Store initial time for rotation base
     clock->initial_time_ms = initial_time_ms;
 
@@ -146,12 +181,14 @@ void clock_widget_update(ClockWidget* clock, int64_t time_ms, int64_t initial_ti
     if (clock->active != is_active) {
         clock->active = is_active;
         if (is_active) {
-            gtk_widget_add_css_class(clock->container, "active");
+            gtk_widget_add_css_class(clock->main_container, "active");
         } else {
-            gtk_widget_remove_css_class(clock->container, "active");
+            gtk_widget_remove_css_class(clock->main_container, "active");
         }
         // Force redraw to show/hide the whole drawing area contents
-        gtk_widget_queue_draw(clock->analog_area);
+        if (clock->analog_area && GTK_IS_WIDGET(clock->analog_area)) {
+            gtk_widget_queue_draw(clock->analog_area);
+        }
     }
     
     // Use the same ceiling logic as clock_get_string to detect if the display string significantly changes
@@ -169,7 +206,21 @@ void clock_widget_update(ClockWidget* clock, int64_t time_ms, int64_t initial_ti
 
 void clock_widget_set_visible_state(ClockWidget* clock, bool visible) {
     if (!clock) return;
-    gtk_widget_set_visible(clock->container, visible);
+    gtk_widget_set_visible(clock->main_container, visible);
+}
+
+void clock_widget_set_name(ClockWidget* clock, const char* name) {
+    if (!clock) return;
+    gtk_label_set_text(GTK_LABEL(clock->name_label), name ? name : "");
+    
+    // Set Icon
+    if (name) {
+        if (strstr(name, "Engine") || strstr(name, "Stockfish") || strstr(name, "Bot")) {
+            gtk_image_set_from_icon_name(GTK_IMAGE(clock->icon_image), "computer-symbolic");
+        } else {
+            gtk_image_set_from_icon_name(GTK_IMAGE(clock->icon_image), "avatar-default-symbolic");
+        }
+    }
 }
 
 void clock_widget_set_disabled(ClockWidget* clock, bool disabled) {
@@ -177,7 +228,7 @@ void clock_widget_set_disabled(ClockWidget* clock, bool disabled) {
     clock->disabled = disabled;
     if (disabled) {
         gtk_label_set_text(GTK_LABEL(clock->time_label), "00:00");
-        gtk_widget_remove_css_class(clock->container, "active");
+        gtk_widget_remove_css_class(clock->main_container, "active");
         clock->active = false;
     }
     gtk_widget_queue_draw(clock->analog_area);

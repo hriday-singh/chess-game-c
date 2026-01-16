@@ -6,6 +6,7 @@
 #include "sound_engine.h"
 #include "gamelogic.h"
 #include "gamelogic.h"
+#include "gui_utils.h"
 #include <pango/pango.h>
 #include <glib.h>
 #include <stdlib.h>
@@ -362,37 +363,24 @@ static void update_captured_pieces(InfoPanel* panel) {
     gamelogic_get_captured_pieces(panel->logic, PLAYER_WHITE, panel->white_captures);
     gamelogic_get_captured_pieces(panel->logic, PLAYER_BLACK, panel->black_captures);
 
-    // Clear the capture boxes (GtkBox) - remove all children
-    GtkWidget* child = gtk_widget_get_first_child(panel->white_captures_box);
-    while (child) {
-        GtkWidget* next = gtk_widget_get_next_sibling(child);
-        gtk_box_remove(GTK_BOX(panel->white_captures_box), child);
-        child = next;
-    }
+    // Swap destination boxes if board is flipped
+    bool flipped = board_widget_is_flipped(panel->board_widget);
+    GtkWidget* w_box = flipped ? panel->black_captures_box : panel->white_captures_box;
+    GtkWidget* b_box = flipped ? panel->white_captures_box : panel->black_captures_box;
+    GtkWidget* rw_box = flipped ? panel->replay_ui.black_captures_box : panel->replay_ui.white_captures_box;
+    GtkWidget* rb_box = flipped ? panel->replay_ui.white_captures_box : panel->replay_ui.black_captures_box;
 
-    if (panel->replay_ui.white_captures_box) {
-        child = gtk_widget_get_first_child(panel->replay_ui.white_captures_box);
+    // Clear the capture boxes (GtkBox) - remove all children
+    GtkWidget* boxes[] = {panel->white_captures_box, panel->black_captures_box, 
+                          panel->replay_ui.white_captures_box, panel->replay_ui.black_captures_box};
+    for (int i = 0; i < 4; i++) {
+        if (!boxes[i]) continue;
+        GtkWidget* child = gtk_widget_get_first_child(boxes[i]);
         while (child) {
             GtkWidget* next = gtk_widget_get_next_sibling(child);
-            gtk_box_remove(GTK_BOX(panel->replay_ui.white_captures_box), child);
+            gtk_box_remove(GTK_BOX(boxes[i]), child);
             child = next;
         }
-    }
-
-    child = gtk_widget_get_first_child(panel->black_captures_box);
-    while (child) {
-        GtkWidget* next = gtk_widget_get_next_sibling(child);
-        gtk_box_remove(GTK_BOX(panel->black_captures_box), child);
-        child = next;
-    }
-
-    if (panel->replay_ui.black_captures_box) {
-         child = gtk_widget_get_first_child(panel->replay_ui.black_captures_box);
-         while (child) {
-             GtkWidget* next = gtk_widget_get_next_sibling(child);
-             gtk_box_remove(GTK_BOX(panel->replay_ui.black_captures_box), child);
-             child = next;
-         }
     }
     
     // Add white captures (pieces captured by white = black pieces) - max 7 pieces
@@ -404,11 +392,11 @@ static void update_captured_pieces(InfoPanel* panel) {
             total++;
             if (count < 6) {
                 GtkWidget* widget = create_piece_widget(panel, current->type, PLAYER_BLACK);
-                gtk_box_append(GTK_BOX(panel->white_captures_box), widget);
+                gtk_box_append(GTK_BOX(w_box), widget);
                 
-                if (panel->replay_ui.white_captures_box) {
+                if (rw_box) {
                     GtkWidget* r_widget = create_piece_widget(panel, current->type, PLAYER_BLACK);
-                    gtk_box_append(GTK_BOX(panel->replay_ui.white_captures_box), r_widget);
+                    gtk_box_append(GTK_BOX(rw_box), r_widget);
                 }
                 count++;
             }
@@ -420,12 +408,12 @@ static void update_captured_pieces(InfoPanel* panel) {
             snprintf(buffer, sizeof(buffer), "+%d", total - 6);
             GtkWidget* plus_label = gtk_label_new(buffer);
             gtk_widget_add_css_class(plus_label, "capture-count");
-            gtk_box_append(GTK_BOX(panel->white_captures_box), plus_label);
+            gtk_box_append(GTK_BOX(w_box), plus_label);
             
-            if (panel->replay_ui.white_captures_box) {
+            if (rw_box) {
                 GtkWidget* r_plus = gtk_label_new(buffer);
                 gtk_widget_add_css_class(r_plus, "capture-count");
-                gtk_box_append(GTK_BOX(panel->replay_ui.white_captures_box), r_plus);
+                gtk_box_append(GTK_BOX(rw_box), r_plus);
             }
         }
     }
@@ -439,11 +427,11 @@ static void update_captured_pieces(InfoPanel* panel) {
             total++;
             if (count < 6) {
                 GtkWidget* widget = create_piece_widget(panel, current->type, PLAYER_WHITE);
-                gtk_box_append(GTK_BOX(panel->black_captures_box), widget);
+                gtk_box_append(GTK_BOX(b_box), widget);
                 
-                if (panel->replay_ui.black_captures_box) {
+                if (rb_box) {
                     GtkWidget* r_widget = create_piece_widget(panel, current->type, PLAYER_WHITE);
-                    gtk_box_append(GTK_BOX(panel->replay_ui.black_captures_box), r_widget);
+                    gtk_box_append(GTK_BOX(rb_box), r_widget);
                 }
                 count++;
             }
@@ -455,12 +443,12 @@ static void update_captured_pieces(InfoPanel* panel) {
             snprintf(buffer, sizeof(buffer), "+%d", total - 6);
             GtkWidget* plus_label = gtk_label_new(buffer);
             gtk_widget_add_css_class(plus_label, "capture-count");
-            gtk_box_append(GTK_BOX(panel->black_captures_box), plus_label);
+            gtk_box_append(GTK_BOX(b_box), plus_label);
             
-            if (panel->replay_ui.black_captures_box) {
+            if (rb_box) {
                 GtkWidget* r_plus = gtk_label_new(buffer);
                 gtk_widget_add_css_class(r_plus, "capture-count");
-                gtk_box_append(GTK_BOX(panel->replay_ui.black_captures_box), r_plus);
+                gtk_box_append(GTK_BOX(rb_box), r_plus);
             }
         }
     }
@@ -612,6 +600,8 @@ static void update_status_display(InfoPanel* panel) {
 static void update_captured_labels(InfoPanel* panel) {
     if (!panel) return;
     
+    bool flipped = board_widget_is_flipped(panel->board_widget);
+
     // Calculate points
     int black_points = calculate_captured_points(panel->black_captures);
     int white_points = calculate_captured_points(panel->white_captures);
@@ -619,51 +609,56 @@ static void update_captured_labels(InfoPanel* panel) {
     // Calculate relative points (difference)
     int point_diff = white_points - black_points;
     
-    // Update labels with relative points (only show if non-zero)
+    // Determine which labels correspond to Black/White based on flipping
+    // panel->black_label is Top, panel->white_label is Bottom
+    GtkWidget* target_black = flipped ? panel->white_label : panel->black_label;
+    GtkWidget* target_white = flipped ? panel->black_label : panel->white_label;
+
+    GtkWidget* r_target_black = flipped ? panel->replay_ui.white_label : panel->replay_ui.black_label;
+    GtkWidget* r_target_white = flipped ? panel->replay_ui.black_label : panel->replay_ui.white_label;
+
+    // 1. Update Black Capturers
     char black_text[128];
-    // Reset classes first
-    gtk_widget_remove_css_class(panel->black_label, "captured-score-black");
-    
+    gtk_widget_remove_css_class(target_black, "captured-score-black");
+    if (r_target_black) gtk_widget_remove_css_class(r_target_black, "captured-score-black");
+
     if (point_diff < 0) {
         // Black is ahead
         int diff = -point_diff;
         snprintf(black_text, sizeof(black_text), "Captured by Black: +%d", diff);
-        gtk_label_set_text(GTK_LABEL(panel->black_label), black_text);
-        gtk_widget_add_css_class(panel->black_label, "captured-score-black");
+        gtk_label_set_text(GTK_LABEL(target_black), black_text);
+        gtk_widget_add_css_class(target_black, "captured-score-black");
         
-        if (panel->replay_ui.black_label) {
-            gtk_label_set_text(GTK_LABEL(panel->replay_ui.black_label), black_text);
-            gtk_widget_add_css_class(panel->replay_ui.black_label, "captured-score-black");
+        if (r_target_black) {
+            gtk_label_set_text(GTK_LABEL(r_target_black), black_text);
+            gtk_widget_add_css_class(r_target_black, "captured-score-black");
         }
     } else {
-        // Black is not ahead, show nothing
-        gtk_label_set_text(GTK_LABEL(panel->black_label), "Captured by Black:");
-        if (panel->replay_ui.black_label) {
-             gtk_label_set_text(GTK_LABEL(panel->replay_ui.black_label), "Captured by Black:");
-             gtk_widget_remove_css_class(panel->replay_ui.black_label, "captured-score-black");
+        gtk_label_set_text(GTK_LABEL(target_black), "Captured by Black:");
+        if (r_target_black) {
+             gtk_label_set_text(GTK_LABEL(r_target_black), "Captured by Black:");
         }
     }
     
+    // 2. Update White Capturers
     char white_text[128];
-    // Reset classes
-    gtk_widget_remove_css_class(panel->white_label, "captured-score-white");
-    if (panel->replay_ui.white_label) gtk_widget_remove_css_class(panel->replay_ui.white_label, "captured-score-white");
+    gtk_widget_remove_css_class(target_white, "captured-score-white");
+    if (r_target_white) gtk_widget_remove_css_class(r_target_white, "captured-score-white");
 
     if (point_diff > 0) {
         // White is ahead
         snprintf(white_text, sizeof(white_text), "Captured by White: +%d", point_diff);
-        gtk_label_set_text(GTK_LABEL(panel->white_label), white_text);
-        gtk_widget_add_css_class(panel->white_label, "captured-score-white");
+        gtk_label_set_text(GTK_LABEL(target_white), white_text);
+        gtk_widget_add_css_class(target_white, "captured-score-white");
         
-        if (panel->replay_ui.white_label) {
-            gtk_label_set_text(GTK_LABEL(panel->replay_ui.white_label), white_text);
-            gtk_widget_add_css_class(panel->replay_ui.white_label, "captured-score-white");
+        if (r_target_white) {
+            gtk_label_set_text(GTK_LABEL(r_target_white), white_text);
+            gtk_widget_add_css_class(r_target_white, "captured-score-white");
         }
     } else {
-        // White is not ahead, show nothing
-        gtk_label_set_text(GTK_LABEL(panel->white_label), "Captured by White:");
-        if (panel->replay_ui.white_label) {
-             gtk_label_set_text(GTK_LABEL(panel->replay_ui.white_label), "Captured by White:");
+        gtk_label_set_text(GTK_LABEL(target_white), "Captured by White:");
+        if (r_target_white) {
+             gtk_label_set_text(GTK_LABEL(r_target_white), "Captured by White:");
         }
     }
 }
@@ -804,9 +799,62 @@ static void on_elo_adjustment_changed(GtkAdjustment* adj, gpointer user_data) {
     reset_game(panel);
 }
 
+// Callback for save dialog response
+static void on_save_dialog_response(GObject* source, GAsyncResult* result, gpointer user_data) {
+    GtkAlertDialog* dialog = GTK_ALERT_DIALOG(source);
+    InfoPanel* panel = (InfoPanel*)user_data;
+    
+    GError* error = NULL;
+    int response = gtk_alert_dialog_choose_finish(dialog, result, &error);
+    
+    if (error) {
+        g_error_free(error);
+        return;  // User cancelled or error occurred
+    }
+    
+    // Response: 0 = Yes (save), 1 = No (don't save)
+    // Note: Actual saving would need to be implemented via callback to main.c
+    // For now, both options proceed with reset
+    if (response == 0 || response == 1) {
+        // User made a choice, proceed with reset
+        reset_game(panel);
+    }
+    // Cancelled: Do nothing
+}
+
+// Show save confirmation dialog
+static void show_save_before_reset_dialog(InfoPanel* panel) {
+    if (!panel || !panel->board_widget) return;
+    
+    GtkWindow* parent = gui_utils_get_root_window(panel->board_widget);
+    if (!parent) return;
+    
+    GtkAlertDialog* dialog = gtk_alert_dialog_new("%s", "Save Game?");
+    gtk_alert_dialog_set_detail(dialog, "Would you like to save this game to your match history before starting a new one?");
+    
+    const char* buttons[] = {"Yes", "No", NULL};
+    gtk_alert_dialog_set_buttons(dialog, buttons);
+    gtk_alert_dialog_set_cancel_button(dialog, 1);  // No button index
+    gtk_alert_dialog_set_default_button(dialog, 0);  // Yes is default
+    
+    gtk_alert_dialog_choose(dialog, parent, NULL, on_save_dialog_response, panel);
+}
+
 static void on_reset_clicked(GtkButton* button, gpointer user_data) {
     (void)button;
     InfoPanel* panel = (InfoPanel*)user_data;
+    
+    // Check if there are at least 5 complete moves (10 plies)
+    if (panel && panel->logic) {
+        int move_count = gamelogic_get_move_count(panel->logic);
+        if (move_count >= 10) {
+            // Show save dialog
+            show_save_before_reset_dialog(panel);
+            return;
+        }
+    }
+    
+    // Less than 5 moves, reset directly without asking
     sound_engine_play(SOUND_RESET);
     reset_game(panel);
 }
@@ -2119,7 +2167,19 @@ void info_panel_set_game_mode(GtkWidget* info_panel, GameMode mode) {
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
     if (!panel || !panel->game_mode_dropdown) return;
     
+    g_signal_handlers_block_by_func(panel->game_mode_dropdown, on_game_mode_changed, panel);
     gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->game_mode_dropdown), (guint)mode);
+    g_signal_handlers_unblock_by_func(panel->game_mode_dropdown, on_game_mode_changed, panel);
+}
+
+void info_panel_set_player_side(GtkWidget* info_panel, Player side) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+    if (!panel || !panel->play_as_dropdown) return;
+    
+    // 0: White, 1: Black, 2: Random
+    g_signal_handlers_block_by_func(panel->play_as_dropdown, on_play_as_changed, panel);
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->play_as_dropdown), (side == PLAYER_BLACK) ? 1 : 0);
+    g_signal_handlers_unblock_by_func(panel->play_as_dropdown, on_play_as_changed, panel);
 }
 
 bool info_panel_is_custom_selected(GtkWidget* info_panel, bool for_black) {
@@ -2212,7 +2272,7 @@ static void on_replay_prev_clicked(GtkButton* btn, gpointer user_data) {
     GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
     if (!root) return;
     AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
-    if (state && state->replay_controller) replay_controller_prev(state->replay_controller);
+    if (state && state->replay_controller) replay_controller_prev(state->replay_controller, false);  // Manual navigation
 }
 
 static void on_replay_next_clicked(GtkButton* btn, gpointer user_data) {
@@ -2220,7 +2280,7 @@ static void on_replay_next_clicked(GtkButton* btn, gpointer user_data) {
     GtkWidget* root = gtk_widget_get_ancestor(GTK_WIDGET(btn), GTK_TYPE_SCROLLED_WINDOW);
     if (!root) return;
     AppState* state = (AppState*)g_object_get_data(G_OBJECT(root), "app_state");
-    if (state && state->replay_controller) replay_controller_next(state->replay_controller);
+    if (state && state->replay_controller) replay_controller_next(state->replay_controller, false);  // Manual navigation
 }
 
 static void on_replay_start_clicked(GtkButton* btn, gpointer user_data) {

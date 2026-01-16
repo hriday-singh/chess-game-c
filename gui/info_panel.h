@@ -50,6 +50,7 @@ void info_panel_set_puzzle_list_callback(GtkWidget* info_panel, GCallback on_sel
 void info_panel_refresh_graveyard(GtkWidget* info_panel);
 
 void info_panel_set_game_mode(GtkWidget* info_panel, GameMode mode);
+void info_panel_set_player_side(GtkWidget* info_panel, Player side);
 
 // Callback for game reset/side change to trigger AI
 typedef void (*GameResetCallback)(gpointer user_data);

@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Console Packager (Files/Folders → 1 Copyable Text)</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#121926; --panel2:#0f1623; --text:#e6edf3;
+      --muted:#9fb0c0; --accent:#4aa3ff; --ok:#2dd4bf; --warn:#fbbf24; --bad:#fb7185;
+      --border:#223046; --shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background: linear-gradient(180deg, var(--bg), #070a0f);
+      color:var(--text);
+    }
+    header{
+      padding:18px 18px 10px;
+      max-width:1200px; margin:0 auto;
+    }
+    h1{margin:0 0 6px; font-size:18px; font-weight:700}
+    .sub{color:var(--muted); font-size:13px; line-height:1.4}
+    main{
+      max-width:1200px; margin:0 auto; padding:12px 18px 26px;
+      display:grid; gap:14px;
+      grid-template-columns: 420px 1fr;
+    }
+    @media (max-width: 1000px){ main{grid-template-columns:1fr} }
+    .card{
+      background: linear-gradient(180deg, var(--panel), var(--panel2));
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .card .hd{
+      padding:12px 12px 10px;
+      border-bottom:1px solid var(--border);
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+    }
+    .card .hd .title{
+      font-size:13px; font-weight:700; letter-spacing:.2px;
+    }
+    .card .bd{ padding:12px; }
+    .row{display:flex; gap:10px; flex-wrap:wrap}
+    button, .btn{
+      appearance:none; border:1px solid var(--border);
+      background:#0c1320; color:var(--text);
+      padding:9px 11px; border-radius:10px;
+      font-size:12.5px; font-weight:650;
+      cursor:pointer;
+    }
+    button:hover{border-color:#2f4362}
+    .btn-primary{border-color:rgba(74,163,255,.6); background:rgba(74,163,255,.12)}
+    .btn-ok{border-color:rgba(45,212,191,.6); background:rgba(45,212,191,.10)}
+    .btn-warn{border-color:rgba(251,191,36,.6); background:rgba(251,191,36,.08)}
+    .btn-bad{border-color:rgba(251,113,133,.6); background:rgba(251,113,133,.08)}
+    .pill{
+      font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid var(--border);
+      color:var(--muted);
+    }
+    .drop{
+      border:1.5px dashed #355075;
+      border-radius:12px;
+      padding:14px;
+      background: rgba(74,163,255,.06);
+      color:var(--muted);
+      min-height:110px;
+      display:flex; flex-direction:column; justify-content:center; gap:10px;
+      text-align:center;
+    }
+    .drop.dragover{ border-color: var(--accent); color: var(--text); background: rgba(74,163,255,.12); }
+    .muted{color:var(--muted); font-size:12px; line-height:1.45}
+    .kv{
+      display:grid; grid-template-columns: 1fr auto;
+      gap:8px 10px; align-items:center;
+      margin-top:10px;
+    }
+    label{font-size:12px; color:var(--muted)}
+    input[type="number"], input[type="text"]{
+      width:100%; border:1px solid var(--border); background:#0b1220;
+      color:var(--text); padding:8px 9px; border-radius:10px;
+      font-size:12.5px;
+    }
+    .list{
+      margin:0; padding:0; list-style:none;
+      display:flex; flex-direction:column; gap:8px;
+      max-height:420px; overflow:auto;
+    }
+    .fileItem{
+      border:1px solid var(--border); border-radius:12px; padding:10px;
+      background: rgba(255,255,255,.02);
+      display:grid; grid-template-columns: 1fr auto; gap:8px;
+    }
+    .fileItem .name{font-size:12.5px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+    .fileItem .meta{font-size:11px; color:var(--muted)}
+    .fileItem .tag{
+      font-size:11px; padding:4px 7px; border-radius:999px;
+      border:1px solid var(--border);
+      height:fit-content;
+      color:var(--muted);
+      max-width:170px;
+      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+    textarea{
+      width:100%; min-height:520px; resize:vertical;
+      border:1px solid var(--border); background:#070b12; color:var(--text);
+      padding:12px; border-radius:12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size:12px; line-height:1.45;
+      white-space:pre;
+    }
+    .status{
+      font-size:12px; color:var(--muted);
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    }
+    .status .dot{width:8px; height:8px; border-radius:50%; background:var(--muted)}
+    .status .dot.ok{background:var(--ok)}
+    .status .dot.warn{background:var(--warn)}
+    .status .dot.bad{background:var(--bad)}
+    .help{font-size:12px; color:var(--muted); margin-top:8px}
+    .small{font-size:11px; color:var(--muted)}
+    .sep{height:1px; background:var(--border); margin:10px 0}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;}
+  </style>
+</head>
+
+<body>
+<header>
+  <h1>AI Console Packager</h1>
+  <div class="sub">
+    Drag & drop files/folders → get one clean text dump for AI consoles.
+    Output order: Tree/Summary first, then full contents.
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <div class="hd">
+      <div class="title">Input</div>
+      <span class="pill" id="countPill">0 files</span>
+    </div>
+    <div class="bd">
+      <div class="drop" id="dropZone">
+        <div style="font-weight:700;color:var(--text);">Drag & Drop files here</div>
+        <div class="muted">Or use the buttons below. Folder picking works in Chrome/Edge via “Select Folder”.</div>
+        <div class="row" style="justify-content:center;">
+          <button class="btn-primary" id="btnPickFiles">Choose Files</button>
+          <button class="btn-primary" id="btnPickFolder" title="Chrome/Edge: select folder">Select Folder</button>
+        </div>
+      </div>
+
+      <div class="kv">
+        <div>
+          <label for="projectName">Title (optional)</label>
+          <input id="projectName" type="text" placeholder="e.g., Stockfish tuning pack / CV code submission" />
+        </div>
+        <div>
+          <label for="maxBytes">Max read / file (bytes)</label>
+          <input id="maxBytes" type="number" min="1024" step="1024" value="200000" />
+          <div class="small">Default: 200,000 (~200 KB). Big files get truncated safely.</div>
+        </div>
+      </div>
+
+      <div class="kv">
+        <div>
+          <label for="includeBinary">Binary handling</label>
+          <input id="includeBinary" type="text" value="skip" />
+          <div class="small">Set to: skip | note | base64 (base64 can get huge)</div>
+        </div>
+        <div>
+          <label for="lineLimit">Optional line cap (0 = none)</label>
+          <input id="lineLimit" type="number" min="0" step="100" value="0" />
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="row">
+        <button class="btn-ok" id="btnGenerate">Generate Output</button>
+        <button class="btn" id="btnClear">Clear</button>
+      </div>
+
+      <div class="help">
+        Tips:
+        <ul style="margin:8px 0 0 18px; padding:0;">
+          <li>Folder selection preserves relative paths via <span class="mono">webkitRelativePath</span>.</li>
+          <li>Text files are read as UTF-8. Unknown/binary files are handled by your setting.</li>
+          <li>The “Tree” section comes first, then “Full Contents”.</li>
+        </ul>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="status" id="status">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Ready.</span>
+      </div>
+
+      <div class="sep"></div>
+
+      <div style="font-size:13px; font-weight:700; margin-bottom:8px;">Queued Files</div>
+      <ul class="list" id="fileList"></ul>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="hd">
+      <div class="title">Output (Tree first → then contents)</div>
+      <div class="row">
+        <button class="btn-ok" id="btnCopy">Copy</button>
+        <button class="btn" id="btnDownload">Download .txt</button>
+      </div>
+    </div>
+    <div class="bd">
+      <textarea id="output" spellcheck="false" placeholder="Click “Generate Output” to build the dump..."></textarea>
+      <div class="small" style="margin-top:8px;">
+        Copy button uses clipboard API (works on https or localhost; some browsers may prompt).
+      </div>
+    </div>
+  </section>
+</main>
+
+<input id="fileInput" type="file" multiple hidden />
+<input id="folderInput" type="file" webkitdirectory directory multiple hidden />
+
+<script>
+(() => {
+  const dropZone = document.getElementById('dropZone');
+  const btnPickFiles = document.getElementById('btnPickFiles');
+  const btnPickFolder = document.getElementById('btnPickFolder');
+  const fileInput = document.getElementById('fileInput');
+  const folderInput = document.getElementById('folderInput');
+  const fileListEl = document.getElementById('fileList');
+  const countPill = document.getElementById('countPill');
+
+  const btnGenerate = document.getElementById('btnGenerate');
+  const btnClear = document.getElementById('btnClear');
+  const btnCopy = document.getElementById('btnCopy');
+  const btnDownload = document.getElementById('btnDownload');
+
+  const outputEl = document.getElementById('output');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+
+  const projectNameEl = document.getElementById('projectName');
+  const maxBytesEl = document.getElementById('maxBytes');
+  const includeBinaryEl = document.getElementById('includeBinary');
+  const lineLimitEl = document.getElementById('lineLimit');
+
+  /** Internal store */
+  let files = [];
+
+  function setStatus(kind, msg){
+    statusDot.className = 'dot' + (kind ? (' ' + kind) : '');
+    statusText.textContent = msg;
+  }
+
+  function humanBytes(n){
+    if (!Number.isFinite(n)) return '' + n;
+    const units = ['B','KB','MB','GB'];
+    let u = 0; let x = n;
+    while (x >= 1024 && u < units.length - 1){ x /= 1024; u++; }
+    return (u === 0 ? x.toFixed(0) : x.toFixed(2)) + ' ' + units[u];
+  }
+
+  function normPath(p){
+    return (p || '').replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/^\/+/, '');
+  }
+
+  function getDisplayPath(f){
+    const rel = normPath(f.webkitRelativePath);
+    return rel || f.name;
+  }
+
+  function detectTextLikelyByName(name){
+    const lower = name.toLowerCase();
+    const textExts = [
+      'txt','md','markdown','json','yaml','yml','xml','csv','tsv',
+      'js','ts','jsx','tsx','c','h','cpp','hpp','cc','java','py','rb','go','rs',
+      'html','htm','css','scss','less',
+      'ini','conf','config','toml','env','gitignore','gitattributes',
+      'sql','sh','bat','ps1','vb','vbs','cs','php','pl','lua',
+      'makefile','cmake','gradle','properties','log'
+    ];
+    if (lower === 'makefile' || lower.endsWith('/makefile')) return true;
+    const m = lower.match(/\.([a-z0-9]+)$/);
+    if (!m) return false;
+    return textExts.includes(m[1]);
+  }
+
+  async function readFileAsText(f, maxBytes){
+    const slice = f.slice(0, maxBytes);
+    const buf = await slice.arrayBuffer();
+    const u8 = new Uint8Array(buf);
+
+    let nulCount = 0, ctrlCount = 0;
+    const sample = u8.subarray(0, Math.min(u8.length, 8192));
+    for (let i=0;i<sample.length;i++){
+      const b = sample[i];
+      if (b === 0) nulCount++;
+      if (b < 9 || (b > 13 && b < 32)) ctrlCount++;
+    }
+    const isBinaryish = (nulCount > 0) || (ctrlCount / Math.max(1, sample.length) > 0.08);
+
+    const dec = new TextDecoder('utf-8', { fatal:false });
+    const text = dec.decode(u8);
+
+    return { text, isBinaryish, bytesRead: u8.length };
+  }
+
+  function capLines(text, lineLimit){
+    if (!lineLimit || lineLimit <= 0) return {text, capped:false, removed:0};
+    const lines = text.split(/\r?\n/);
+    if (lines.length <= lineLimit) return {text, capped:false, removed:0};
+    const kept = lines.slice(0, lineLimit).join('\n');
+    return {text: kept, capped:true, removed: lines.length - lineLimit};
+  }
+
+  function renderFileList(){
+    fileListEl.innerHTML = '';
+    const sorted = [...files].sort((a,b) => getDisplayPath(a).localeCompare(getDisplayPath(b)));
+    for (const f of sorted){
+      const li = document.createElement('li');
+      li.className = 'fileItem';
+      const left = document.createElement('div');
+
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.title = getDisplayPath(f);
+      name.textContent = getDisplayPath(f);
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = `${humanBytes(f.size)} • ${f.type || 'unknown type'}`;
+
+      left.appendChild(name);
+      left.appendChild(meta);
+
+      const tag = document.createElement('div');
+      tag.className = 'tag';
+      tag.textContent = (f.webkitRelativePath && f.webkitRelativePath.includes('/')) ? 'folder path kept' : 'flat file';
+
+      li.appendChild(left);
+      li.appendChild(tag);
+
+      fileListEl.appendChild(li);
+    }
+    countPill.textContent = `${files.length} file${files.length===1?'':'s'}`;
+  }
+
+  function mergeFiles(newFiles){
+    const map = new Map(files.map(f => [getDisplayPath(f), f]));
+    for (const f of newFiles){
+      map.set(getDisplayPath(f), f);
+    }
+    files = Array.from(map.values());
+    renderFileList();
+  }
+
+  // ==========================================================
+  // DRAG & DROP SUPPORT (NEW / INCLUDED)
+  // ==========================================================
+  // Prevent the browser from opening dropped files (global)
+  window.addEventListener('dragover', (e) => e.preventDefault(), false);
+  window.addEventListener('drop', (e) => e.preventDefault(), false);
+
+  // Visual feedback + accept dropped files
+  ['dragenter','dragover'].forEach(evt => {
+    dropZone.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      dropZone.classList.add('dragover');
+    });
+  });
+  ['dragleave','drop'].forEach(evt => {
+    dropZone.addEventListener(evt, (e) => {
+      e.preventDefault(); e.stopPropagation();
+      dropZone.classList.remove('dragover');
+    });
+  });
+  dropZone.addEventListener('drop', (e) => {
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    const dropped = Array.from(dt.files || []);
+    if (dropped.length){
+      mergeFiles(dropped);
+      setStatus('ok', `Added ${dropped.length} file(s) from drop.`);
+    } else {
+      setStatus('warn', 'No files detected from drop.');
+    }
+  });
+  // ==========================================================
+
+  // Pickers
+  btnPickFiles.addEventListener('click', () => fileInput.click());
+  btnPickFolder.addEventListener('click', () => folderInput.click());
+
+  fileInput.addEventListener('change', () => {
+    const picked = Array.from(fileInput.files || []);
+    if (picked.length){
+      mergeFiles(picked);
+      setStatus('ok', `Added ${picked.length} file(s).`);
+    }
+    fileInput.value = '';
+  });
+
+  folderInput.addEventListener('change', () => {
+    const picked = Array.from(folderInput.files || []);
+    if (picked.length){
+      mergeFiles(picked);
+      setStatus('ok', `Added ${picked.length} file(s) from folder selection.`);
+    }
+    folderInput.value = '';
+  });
+
+  // ---------- TREE BUILDING ----------
+  function buildTree(paths){
+    const root = { files: new Set(), children: new Map() };
+    for (const p of paths){
+      const parts = normPath(p).split('/').filter(Boolean);
+      if (parts.length === 0) continue;
+      let node = root;
+      for (let i=0;i<parts.length;i++){
+        const part = parts[i];
+        const isLast = i === parts.length - 1;
+        if (isLast){
+          node.files.add(part);
+        } else {
+          if (!node.children.has(part)){
+            node.children.set(part, { files: new Set(), children: new Map() });
+          }
+          node = node.children.get(part);
+        }
+      }
+    }
+    return root;
+  }
+
+  function treeToAscii(node, prefix = ''){
+    const lines = [];
+    const folderNames = Array.from(node.children.keys()).sort((a,b)=>a.localeCompare(b));
+    const fileNames = Array.from(node.files.values()).sort((a,b)=>a.localeCompare(b));
+
+    const entries = [
+      ...folderNames.map(n => ({type:'folder', name:n})),
+      ...fileNames.map(n => ({type:'file', name:n}))
+    ];
+
+    entries.forEach((ent, idx) => {
+      const isLast = idx === entries.length - 1;
+      const branch = isLast ? '└── ' : '├── ';
+      const nextPrefix = prefix + (isLast ? '    ' : '│   ');
+      if (ent.type === 'folder'){
+        lines.push(prefix + branch + ent.name + '/');
+        const child = node.children.get(ent.name);
+        lines.push(...treeToAscii(child, nextPrefix));
+      } else {
+        lines.push(prefix + branch + ent.name);
+      }
+    });
+
+    return lines;
+  }
+
+  // ---------- OUTPUT GENERATION ----------
+  btnGenerate.addEventListener('click', async () => {
+    if (!files.length){
+      setStatus('warn', 'No files queued. Add files or a folder first.');
+      return;
+    }
+    setStatus('', 'Generating… reading files…');
+
+    const maxBytes = Math.max(1024, parseInt(maxBytesEl.value || '200000', 10));
+    const includeBinary = (includeBinaryEl.value || 'skip').trim().toLowerCase();
+    const lineLimit = Math.max(0, parseInt(lineLimitEl.value || '0', 10));
+
+    const title = (projectNameEl.value || '').trim();
+    const now = new Date();
+
+    const sorted = [...files].sort((a,b) => getDisplayPath(a).localeCompare(getDisplayPath(b)));
+    const paths = sorted.map(getDisplayPath);
+
+    const tree = buildTree(paths);
+    const treeLines = treeToAscii(tree);
+
+    let out = '';
+    out += `AI CONSOLE PACKAGE\n`;
+    if (title) out += `TITLE: ${title}\n`;
+    out += `GENERATED: ${now.toISOString()}\n`;
+    out += `FILES: ${sorted.length}\n`;
+    out += `SETTINGS: max_bytes_per_file=${maxBytes}, line_limit=${lineLimit}, binary_mode=${includeBinary}\n\n`;
+
+    out += `====================\nFILE TREE / SUMMARY\n====================\n`;
+    out += `.\n`;
+    out += (treeLines.length ? treeLines.join('\n') : '(no paths)') + '\n\n';
+
+    out += `====================\nFULL CONTENTS\n====================\n\n`;
+
+    let binarySkipped = 0;
+    let binaryNoted = 0;
+    let base64Included = 0;
+    let truncatedCount = 0;
+    let cappedLinesCount = 0;
+
+    for (let i=0;i<sorted.length;i++){
+      const f = sorted[i];
+      const p = getDisplayPath(f);
+      const idx = String(i+1).padStart(3,'0');
+
+      out += `----------------------------------------\n`;
+      out += `FILE ${idx}/${sorted.length}: ${p}\n`;
+      out += `SIZE: ${f.size} bytes\n`;
+      out += `TYPE: ${f.type || 'unknown'}\n`;
+      out += `----------------------------------------\n`;
+
+      const likelyText = detectTextLikelyByName(p) || (f.type && f.type.startsWith('text/'));
+
+      try{
+        const { text, isBinaryish, bytesRead } = await readFileAsText(f, maxBytes);
+        const wouldTruncate = f.size > maxBytes;
+
+        if (!likelyText && isBinaryish){
+          if (includeBinary === 'skip'){
+            out += `[BINARY DETECTED] Skipped content. (Set binary_mode=note or base64)\n\n`;
+            binarySkipped++;
+            continue;
+          }
+          if (includeBinary === 'note'){
+            out += `[BINARY DETECTED] Not including content.\n\n`;
+            binaryNoted++;
+            continue;
+          }
+          if (includeBinary === 'base64'){
+            const buf = await f.slice(0, maxBytes).arrayBuffer();
+            const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+            out += `[BINARY→BASE64] Showing first ${bytesRead} bytes.\n`;
+            if (wouldTruncate) out += `[TRUNCATED] Original file bigger than max_bytes_per_file.\n`;
+            out += `BASE64:\n${b64}\n\n`;
+            base64Included++;
+            continue;
+          }
+        }
+
+        let finalText = text;
+
+        const capped = capLines(finalText, lineLimit);
+        finalText = capped.text;
+        if (capped.capped){
+          cappedLinesCount++;
+          out += `[LINE-CAPPED] Removed ${capped.removed} line(s) due to line_limit=${lineLimit}.\n`;
+        }
+
+        if (wouldTruncate){
+          truncatedCount++;
+          out += `[TRUNCATED] Read first ${bytesRead} bytes due to max_bytes_per_file=${maxBytes}.\n`;
+        }
+        if (!likelyText && isBinaryish){
+          out += `[WARN] This might be binary/non-text, but content is shown by settings.\n`;
+        }
+
+        out += `CONTENT:\n`;
+        out += finalText;
+        if (!finalText.endsWith('\n')) out += '\n';
+        out += '\n';
+      } catch (err){
+        out += `[ERROR] Failed to read file: ${String(err)}\n\n`;
+      }
+    }
+
+    out += `====================\nSUMMARY\n====================\n`;
+    out += `Total files: ${sorted.length}\n`;
+    out += `Truncated files (by bytes): ${truncatedCount}\n`;
+    out += `Line-capped files: ${cappedLinesCount}\n`;
+    out += `Binary skipped: ${binarySkipped}\n`;
+    out += `Binary noted: ${binaryNoted}\n`;
+    out += `Binary base64 included: ${base64Included}\n`;
+
+    outputEl.value = out;
+    setStatus('ok', 'Done. You can copy or download.');
+  });
+
+  btnClear.addEventListener('click', () => {
+    files = [];
+    renderFileList();
+    outputEl.value = '';
+    projectNameEl.value = '';
+    setStatus('', 'Cleared.');
+  });
+
+  btnCopy.addEventListener('click', async () => {
+    const text = outputEl.value || '';
+    if (!text){
+      setStatus('warn', 'Nothing to copy. Generate output first.');
+      return;
+    }
+    try{
+      await navigator.clipboard.writeText(text);
+      setStatus('ok', 'Copied to clipboard.');
+    } catch (e){
+      outputEl.focus();
+      outputEl.select();
+      document.execCommand('copy');
+      setStatus('ok', 'Copied (fallback).');
+    }
+  });
+
+  btnDownload.addEventListener('click', () => {
+    const text = outputEl.value || '';
+    if (!text){
+      setStatus('warn', 'Nothing to download. Generate output first.');
+      return;
+    }
+    const title = (projectNameEl.value || 'ai_console_package').trim().replace(/[^\w\-]+/g,'_').slice(0,60);
+    const filename = (title || 'ai_console_package') + '.txt';
+    const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setStatus('ok', `Downloaded ${filename}`);
+  });
+
+  // Init
+  renderFileList();
+  setStatus('', 'Ready.');
+})();
+</script>
+</body>
+</html>
