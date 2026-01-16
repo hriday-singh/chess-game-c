@@ -216,6 +216,25 @@ static gboolean scroll_to_row_idle(gpointer user_data) {
     return G_SOURCE_REMOVE;
 }
 
+static gboolean scroll_to_top_idle(gpointer user_data) {
+    RightSidePanel* panel = (RightSidePanel*)user_data;
+    if (!panel || !panel->history_scrolled) {
+        if (debug_mode) printf("[RightSidePanel] scroll_to_top_idle: Invalid panel or scrolled window\n");
+        return G_SOURCE_REMOVE;
+    }
+    
+    GtkAdjustment* adj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(panel->history_scrolled));
+    if (adj) {
+        double lower = gtk_adjustment_get_lower(adj);
+        double current = gtk_adjustment_get_value(adj);
+        if (debug_mode) printf("[DEBUG] scroll_to_top_idle: Setting value to %.2f (current: %.2f)\n", lower, current);
+        gtk_adjustment_set_value(adj, lower);
+    } else {
+        if (debug_mode) printf("[DEBUG] scroll_to_top_idle: No adjustment found\n");
+    }
+    return G_SOURCE_REMOVE;
+}
+
 RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     RightSidePanel* panel = g_new0(RightSidePanel, 1);
     panel->logic = logic;
@@ -263,9 +282,9 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     gtk_widget_add_css_class(panel->mate_lbl, "mate-notice-v4");
     gtk_label_set_wrap(GTK_LABEL(panel->mate_lbl), TRUE);
     gtk_widget_set_visible(panel->mate_lbl, FALSE);
-    gtk_box_append(GTK_BOX(eval_row), panel->mate_lbl);
+    // gtk_box_append(GTK_BOX(eval_row), panel->mate_lbl);
     
-    gtk_box_append(GTK_BOX(panel->pos_info), eval_row);
+    // gtk_box_append(GTK_BOX(panel->pos_info), eval_row);
     
     // Clock Row Removed from side panel
     
@@ -275,13 +294,13 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     gtk_label_set_wrap(GTK_LABEL(panel->hanging_lbl), FALSE);
     gtk_widget_set_halign(panel->hanging_lbl, GTK_ALIGN_START);
     gtk_widget_set_visible(panel->hanging_lbl, FALSE); // DISABLE ANALYSIS: Hide Hanging Pieces
-    gtk_box_append(GTK_BOX(panel->pos_info), panel->hanging_lbl);
+    // gtk_box_append(GTK_BOX(panel->pos_info), panel->hanging_lbl);
     
     panel->analysis_side_lbl = gtk_label_new("Analysis for White");
     gtk_widget_add_css_class(panel->analysis_side_lbl, "analysis-side-lbl-v4");
     gtk_widget_set_halign(panel->analysis_side_lbl, GTK_ALIGN_START);
     gtk_widget_set_visible(panel->analysis_side_lbl, FALSE); // DISABLE ANALYSIS: Hide Analysis Side
-    gtk_box_append(GTK_BOX(panel->pos_info), panel->analysis_side_lbl);
+    // gtk_box_append(GTK_BOX(panel->pos_info), panel->analysis_side_lbl);
     
     gtk_box_append(GTK_BOX(panel->main_col), panel->pos_info);
     // Removed as of now
@@ -296,7 +315,7 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     gtk_widget_add_css_class(panel->feedback_rating_lbl, "feedback-rating-v4");
     gtk_widget_set_halign(panel->feedback_rating_lbl, GTK_ALIGN_START);
     
-    panel->feedback_desc_lbl = gtk_label_new("Analyzing position...");
+    panel->feedback_desc_lbl = gtk_label_new("");
     gtk_widget_add_css_class(panel->feedback_desc_lbl, "feedback-desc-v4");
     gtk_widget_set_halign(panel->feedback_desc_lbl, GTK_ALIGN_START);
     gtk_label_set_justify(GTK_LABEL(panel->feedback_desc_lbl), GTK_JUSTIFY_LEFT);
@@ -927,8 +946,11 @@ void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index) {
     panel->viewed_ply = ply_index;
     panel->locked_ply = ply_index;
 
-    // 3. Auto-scroll to make the highlighted row visible (DEFERRED)
-    if (ply_index >= 0) {
+    // 3. Auto-scroll: In Replay Mode, always scroll to top. Otherwise, scroll to active row.
+    if (panel->replay_lock) {
+         printf("[DEBUG] highlight_ply: Replay lock active, queuing scroll_to_top_idle\n");
+         g_idle_add(scroll_to_top_idle, panel);
+    } else if (ply_index >= 0) {
         ScrollData* data = g_new0(ScrollData, 1);
         data->panel = panel;
         data->ply_index = ply_index;

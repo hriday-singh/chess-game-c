@@ -199,6 +199,8 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
     
     // Initialize highlighting to first move (ply 0)
     if (self->app_state && self->app_state->gui.right_side_panel) {
+        // Ensure replay lock is ON so we can scroll to top
+        right_side_panel_set_replay_lock(self->app_state->gui.right_side_panel, true);
         right_side_panel_highlight_ply(self->app_state->gui.right_side_panel, -1);
     }
     
@@ -579,6 +581,8 @@ void replay_controller_enter_replay_mode(ReplayController* self) {
     // Wire up the new Analyze button in RightSidePanel
     if (self->app_state->gui.right_side_panel) {
         right_side_panel_set_analyze_callback(self->app_state->gui.right_side_panel, G_CALLBACK(on_replay_analyze_clicked_cb), self);
+        // FORCE replay lock so scroll behavior works
+        right_side_panel_set_replay_lock(self->app_state->gui.right_side_panel, true);
     } else {
         printf("[ReplayController] Warning: RightSidePanel is NULL in AppState\n");
     }

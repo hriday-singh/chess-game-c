@@ -680,7 +680,7 @@ static const char *CSS_STRUCTURAL =
     " .history-header-v4 { padding: 4px 8px; font-size: 13px; font-weight: 800; text-transform: uppercase; color: @dim_label; letter-spacing: 2px; background: alpha(@fg_color, 0.02); border-top: 1px solid alpha(@border_color, 0.4); border-bottom: 1px solid alpha(@border_color, 0.2); }\n"
     " .move-history-list-v4 { background: transparent; padding: 0; margin: 0; }\n"
     " .move-history-list-v4 listboxrow { padding: 0; margin: 0; background: transparent; border: none; }\n"
-    " .move-number-v2 { min-width: 28px; padding: 8px 4px 8px 0; color: @dim_label; font-size: 13px; font-weight: 700; opacity: 0.8; background: alpha(@bg_color, 0.08); border-right: 1px solid alpha(@border_color, 0.1); }\n"
+    " .move-number-v2 { min-width: 20px; padding: 8px 2px 8px 0; color: @dim_label; font-size: 12px; font-weight: 700; opacity: 0.8; background: alpha(@bg_color, 0.08); border-right: 1px solid alpha(@border_color, 0.1); }\n"
     " .move-history-row-v2 { padding: 0; margin: 0; border-bottom: 1px solid alpha(@border_color, 0.05); }\n"
     " .move-cell-v2 { padding: 4px; min-width: 110px; transition: background 0.15s; border-right: 1px solid alpha(@border_color, 0.05); }\n"
     " .move-text-btn { border: 1.5px solid alpha(@border_color, 0.5); background: alpha(@fg_color, 0.02); border-radius: 20px; padding: 2px 8px; margin: 4px; color: @fg_color; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 14px; transition: all 0.25s; min-height: 32px; }\n"
@@ -727,7 +727,7 @@ static const char *CSS_STRUCTURAL =
     ".history-header-v2 label { font-size: 10px; font-weight: 800; color: @dim_label; text-transform: uppercase; letter-spacing: 1px; }\n"
     
     ".move-history-row-v2 { border-bottom: 1px solid rgba(0,0,0,0.01); }\n"
-    ".move-number-v2 { min-width: 32px; padding: 6px 8px; color: @dim_label; font-size: 11px; background: rgba(0,0,0,0.01); border-right: 1px solid rgba(0,0,0,0.02); }\n"
+    " .move-number-v2 { min-width: 20px; padding: 6px 2px; color: @dim_label; font-size: 12px; background: rgba(0,0,0,0.01); border-right: 1px solid rgba(0,0,0,0.02); }\n"
     ".move-cell-v2 { padding: 6px 8px; min-width: 75px; }\n"
     ".move-cell-v2:hover { background: rgba(0,0,0,0.03); }\n"
     
