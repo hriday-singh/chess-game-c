@@ -10,13 +10,18 @@
 static GtkWidget* s_dialog = NULL;
 static GtkWidget* s_text_view = NULL;
 static GtkWidget* s_status_label = NULL;
+static GtkWidget* s_loading_overlay = NULL;
+static GtkWidget* s_spinner = NULL;
 static AppState* s_state = NULL;
 
 static void on_dialog_destroy(GtkWidget* widget, gpointer user_data) {
     (void)widget; (void)user_data;
     s_dialog = NULL;
     s_text_view = NULL;
+    s_text_view = NULL;
     s_status_label = NULL;
+    s_loading_overlay = NULL;
+    s_spinner = NULL;
     s_state = NULL;
 }
 
@@ -40,6 +45,13 @@ static void do_import(const char* content) {
     }
 
     set_status("Parsing...", false);
+    
+    // Show Loading Overlay
+    if (s_loading_overlay) gtk_widget_set_visible(s_loading_overlay, TRUE);
+    if (s_spinner) gtk_spinner_start(GTK_SPINNER(s_spinner));
+    
+    // Force UI update to show loader
+    while (g_main_context_iteration(NULL, FALSE));
     
     // Create temporary GameLogic for validation
     GameLogic* temp_logic = gamelogic_create();
@@ -76,7 +88,19 @@ static void do_import(const char* content) {
         entry.black.is_ai = false;
         
         snprintf(entry.result, sizeof(entry.result), "%s", res.result[0] ? res.result : "*");
-        snprintf(entry.result_reason, sizeof(entry.result_reason), "%.*s", (int)sizeof(entry.result_reason) - 1, res.event[0] ? res.event : "Imported Game");
+        
+        // Auto-detect Result from final position
+        if (gamelogic_is_checkmate(temp_logic, temp_logic->turn)) {
+            if (temp_logic->turn == PLAYER_WHITE) {
+                snprintf(entry.result, sizeof(entry.result), "0-1");
+            } else {
+                snprintf(entry.result, sizeof(entry.result), "1-0");
+            }
+        } else if (gamelogic_is_stalemate(temp_logic, temp_logic->turn)) {
+            snprintf(entry.result, sizeof(entry.result), "1/2-1/2");
+        }
+        
+        snprintf(entry.result_reason, sizeof(entry.result_reason), "Imported Game");
         
         entry.move_count = res.moves_count;
         entry.moves_uci = res.loaded_uci; // Pointer alias to stack buffer, will be copied by add()
@@ -85,39 +109,32 @@ static void do_import(const char* content) {
         // SAVE to History
         match_history_add(&entry);
         
-        // 2. Start Replay
-        if (s_state && s_state->replay_controller) {
-             if (s_state->is_replaying) {
-                replay_controller_exit(s_state->replay_controller);
-            }
-            
-            MatchPlayerConfig white = entry.white; 
-            MatchPlayerConfig black = entry.black;
-            
-            replay_controller_load_match(s_state->replay_controller, 
-                entry.moves_uci, entry.start_fen, 
-                NULL, 0, // No think times
-                entry.started_at_ms, entry.ended_at_ms,
-                false, 0, 0,
-                white, black);
-                
-            replay_controller_set_result(s_state->replay_controller, entry.result, entry.result_reason);
-            replay_controller_enter_replay_mode(s_state->replay_controller);
-            
-            // Close the import dialog
-            if (s_dialog) gtk_window_close(GTK_WINDOW(s_dialog));
-            
-            // Also close History Dialog if open
-             if (s_state->gui.history_dialog) {
-                 GtkWindow* win = history_dialog_get_window(s_state->gui.history_dialog);
-                 if (win) gtk_window_close(win);
-             }
+        // 2. Start Replay via App Action (Handles Controller Init)
+        GVariant* param = g_variant_new_string(entry.id);
+        
+        // Use the global application to activate the action
+        GApplication* app = g_application_get_default();
+        if (app) {
+            g_action_group_activate_action(G_ACTION_GROUP(app), "start-replay", param);
+        }
+        
+        // Close the import dialog
+        if (s_dialog) gtk_window_close(GTK_WINDOW(s_dialog));
+
+        // Close History Dialog if open (so user sees the replay)
+        if (s_state && s_state->gui.history_dialog) {
+             GtkWindow* win = history_dialog_get_window(s_state->gui.history_dialog);
+             if (win) gtk_window_close(win);
         }
     } else {
         char err[300];
         snprintf(err, sizeof(err), "Import Failed: %s", res.error_message);
         set_status(res.error_message[0] ? res.error_message : "No valid moves found.", true);
     }
+    
+    // Hide Loading Overlay
+    if (s_spinner) gtk_spinner_stop(GTK_SPINNER(s_spinner));
+    if (s_loading_overlay) gtk_widget_set_visible(s_loading_overlay, FALSE);
 }
 
 static void on_import_clicked(GtkWidget* btn, gpointer user_data) {
@@ -180,7 +197,7 @@ void import_dialog_show(AppState* state) {
     
     s_dialog = gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(s_dialog), "Import Game");
-    gtk_window_set_default_size(GTK_WINDOW(s_dialog), 600, 700); // Increased height as requested
+    gtk_window_set_default_size(GTK_WINDOW(s_dialog), 600, 700);
     gtk_window_set_modal(GTK_WINDOW(s_dialog), TRUE);
     if (state->gui.window) {
         gtk_window_set_transient_for(GTK_WINDOW(s_dialog), GTK_WINDOW(state->gui.window));
@@ -189,12 +206,45 @@ void import_dialog_show(AppState* state) {
     g_signal_connect(s_dialog, "destroy", G_CALLBACK(on_dialog_destroy), NULL);
     gui_utils_add_esc_close(s_dialog);
     
+    // Overlay to hold content + loading
+    GtkWidget* overlay = gtk_overlay_new();
+    gtk_window_set_child(GTK_WINDOW(s_dialog), overlay);
+    
     GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_widget_set_margin_start(main_vbox, 20);
     gtk_widget_set_margin_end(main_vbox, 20);
     gtk_widget_set_margin_top(main_vbox, 20);
     gtk_widget_set_margin_bottom(main_vbox, 20);
-    gtk_window_set_child(GTK_WINDOW(s_dialog), main_vbox);
+    gtk_overlay_set_child(GTK_OVERLAY(overlay), main_vbox);
+    
+    // Setup Loading Overlay (Hidden by default)
+    s_loading_overlay = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+    gtk_widget_set_halign(s_loading_overlay, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(s_loading_overlay, GTK_ALIGN_CENTER);
+    gtk_widget_add_css_class(s_loading_overlay, "overlay-box");
+    
+    GtkWidget* frame = gtk_frame_new(NULL);
+    gtk_widget_add_css_class(frame, "loading-frame");
+    
+    GtkWidget* load_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 15);
+    gtk_widget_set_margin_start(load_box, 30);
+    gtk_widget_set_margin_end(load_box, 30);
+    gtk_widget_set_margin_top(load_box, 20);
+    gtk_widget_set_margin_bottom(load_box, 20);
+    gtk_frame_set_child(GTK_FRAME(frame), load_box);
+    gtk_box_append(GTK_BOX(s_loading_overlay), frame);
+
+    s_spinner = gtk_spinner_new();
+    gtk_widget_set_size_request(s_spinner, 48, 48);
+    gtk_widget_set_halign(s_spinner, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(load_box), s_spinner);
+    
+    GtkWidget* load_lbl = gtk_label_new("Importing Game...");
+    gtk_widget_add_css_class(load_lbl, "title-label");
+    gtk_box_append(GTK_BOX(load_box), load_lbl);
+    
+    gtk_overlay_add_overlay(GTK_OVERLAY(overlay), s_loading_overlay);
+    gtk_widget_set_visible(s_loading_overlay, FALSE);
     
     // Instructions
     GtkWidget* lbl = gtk_label_new("Paste PGN, UCI moves, or a list of SAN moves below:");

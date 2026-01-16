@@ -136,6 +136,35 @@ static bool get_next_token(const char** cursor, char* buffer, size_t buf_size, G
         strncpy(buffer, start, len);
         buffer[len] = '\0';
         
+        // Check if token starts with a digit but contains letters (e.g. "1.e4")
+        if (isdigit((unsigned char)buffer[0])) {
+             size_t split_idx = 0;
+             bool has_alpha = false;
+             for (size_t i = 0; i < len; i++) {
+                 if (isalpha((unsigned char)buffer[i])) {
+                     split_idx = i;
+                     has_alpha = true;
+                     break;
+                 }
+             }
+             
+             // If merged token (starts with digit, has alpha, and isn't a result 1-0/0-1/1/2-1/2)
+             if (has_alpha) {
+                  // Special check for O-O (starts with letter) -> already safe
+                  // Special check for results? 1-0 has no alpha. 1/2-1/2 has no alpha.
+                  // So anything with alpha starting with digit is likely "1.e4" or "23...Nf3"
+                  
+                  // Truncate current token to just the number part
+                  buffer[split_idx] = '\0';
+                  
+                  // Reset cursor to point to the start of the alpha part
+                  *cursor = start + split_idx;
+                  
+                  // Recalculate len for the number part
+                  len = split_idx; 
+             }
+        }
+
         // Post-processing check
         // If it looks like "1." or "23..." or just "1", skip it
         bool is_number = true;
@@ -145,11 +174,90 @@ static bool get_next_token(const char** cursor, char* buffer, size_t buf_size, G
                 break;
             }
         }
+        
         if (is_number) continue; // Skip move numbers
         
         return true; // Found a valid token (Move, Result, or garbage)
     }
     return false;
+}
+
+// Helper to get SAN for a candidate move (without simple checks/mates)
+static char get_import_piece_char(PieceType type) {
+    switch (type) {
+        case PIECE_KNIGHT: return 'N';
+        case PIECE_BISHOP: return 'B';
+        case PIECE_ROOK:   return 'R';
+        case PIECE_QUEEN:  return 'Q';
+        case PIECE_KING:   return 'K';
+        default:           return '\0'; 
+    }
+}
+
+static void get_candidate_san(Move* move, Move** all_moves, int count, char* buffer, size_t size) {
+    char temp[32] = {0};
+    int p = 0;
+    
+    if (move->isCastling) {
+        int c2 = move->to_sq % 8;
+        int c1 = move->from_sq % 8;
+        p = snprintf(temp, sizeof(temp), (c2 > c1) ? "O-O" : "O-O-O");
+    } else {
+        char pc = get_import_piece_char(move->movedPieceType);
+        if (pc != '\0') {
+            temp[p++] = pc;
+            
+            // Disambiguation
+            bool ambiguity = false;
+            bool same_file = false;
+            bool same_rank = false;
+            
+            for (int i = 0; i < count; i++) {
+                Move* other = all_moves[i];
+                if (other->to_sq == move->to_sq && 
+                    other->movedPieceType == move->movedPieceType && 
+                    other->from_sq != move->from_sq) {
+                    ambiguity = true;
+                    if ((other->from_sq % 8) == (move->from_sq % 8)) same_file = true;
+                    if ((other->from_sq / 8) == (move->from_sq / 8)) same_rank = true;
+                }
+            }
+            
+            if (ambiguity) {
+                if (!same_file) {
+                    temp[p++] = (char)('a' + (move->from_sq % 8));
+                } else if (!same_rank) {
+                    temp[p++] = (char)('8' - (move->from_sq / 8));
+                } else {
+                    temp[p++] = (char)('a' + (move->from_sq % 8));
+                    temp[p++] = (char)('8' - (move->from_sq / 8));
+                }
+            }
+            
+            // Caption
+            if (move->capturedPieceType != NO_PIECE) {
+                temp[p++] = 'x';
+            }
+        } else {
+            // Pawn
+            if (move->capturedPieceType != NO_PIECE) {
+                temp[p++] = (char)('a' + (move->from_sq % 8));
+                temp[p++] = 'x';
+            }
+        }
+        
+        // Destination
+        temp[p++] = (char)('a' + (move->to_sq % 8));
+        temp[p++] = (char)('8' - (move->to_sq / 8));
+        
+        // Promotion
+        if (move->promotionPiece != NO_PROMOTION) {
+            temp[p++] = '=';
+            temp[p++] = get_import_piece_char(move->promotionPiece);
+        }
+    }
+    temp[p] = '\0';
+    snprintf(buffer, size, "%s", temp);
 }
 
 GameImportResult game_import_from_string(GameLogic* logic, const char* input) {
@@ -189,12 +297,15 @@ GameImportResult game_import_from_string(GameLogic* logic, const char* input) {
         // Strategy 1: Exact SAN match (with logic's generator)
         // Strategy 2: UCI match
         
+
+
         for (int i = 0; i < count; i++) {
             Move* m = legal_moves[i];
             
             // Check SAN
-            char san[16];
-            gamelogic_get_move_san(logic, m, san, sizeof(san));
+            char san[32];
+            // Use local candidate generation instead of gamelogic's history-dependent one
+            get_candidate_san(m, legal_moves, count, san, sizeof(san));
             
             // Clean SAN (remove check/mate markers from logic output for comparison if input lacks them, or vice versa)
             // But gamelogic_get_move_san produces "Nf3", "O-O", "e4", "Qxd5+" etc.

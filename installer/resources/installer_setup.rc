@@ -1,0 +1,12 @@
+#include <windows.h>
+
+// We need to define the resource ID for the payload
+#define PAYLOAD_RES_ID 101 // We used string "PAYLOAD_ZIP" in C code
+
+PAYLOAD_ZIP RCDATA "dist/payload.zip"
+
+// Manifest to request creating shortcuts might not need admin, 
+// strictly speaking, but writing to ProgramFiles would.
+// For now, we default to local appdata so no admin needed.
+
+1 ICON "../../assets/images/icon/icon.ico"

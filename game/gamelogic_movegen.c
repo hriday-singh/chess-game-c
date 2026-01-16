@@ -5,8 +5,8 @@
 // Forward declarations
 static bool is_valid_pos(int r, int c);
 static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* moves_list);
-static void add_moves_single_step(GameLogic* logic, int r, int c, int offsets[][2], int num_offsets, void* moves_list, Player owner);
-static void add_linear_moves(GameLogic* logic, int r, int c, int dirs[][2], int num_dirs, void* moves_list, Player owner);
+static void add_moves_single_step(GameLogic* logic, int r, int c, int offsets[][2], int num_offsets, void* moves_list, Player owner, PieceType movedType);
+static void add_linear_moves(GameLogic* logic, int r, int c, int dirs[][2], int num_dirs, void* moves_list, Player owner, PieceType movedType);
 static bool can_castle(GameLogic* logic, int r, int kCol, int rCol);
 
 // Simple list for moves (we'll use a dynamic array)
@@ -121,12 +121,14 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                 if (isPromo) {
                     PieceType promos[] = {PIECE_QUEEN, PIECE_ROOK, PIECE_BISHOP, PIECE_KNIGHT};
                     for(int k=0; k<4; k++) {
-                        Move* m = move_create(r * 8 + c, (r + forward) * 8 + c);
-                        m->promotionPiece = promos[k];
-                        movelist_add(moves, m);
+                    Move* m = move_create(r * 8 + c, (r + forward) * 8 + c);
+                    m->promotionPiece = promos[k];
+                    m->movedPieceType = PIECE_PAWN;
+                    movelist_add(moves, m);
                     }
                 } else {
                     Move* m = move_create(r * 8 + c, (r + forward) * 8 + c);
+                    m->movedPieceType = PIECE_PAWN;
                     movelist_add(moves, m);
                 }
                 
@@ -136,7 +138,9 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                 if (!p->hasMoved && isStartRank && is_valid_pos(r + (forward * 2), c) && 
                     logic->board[r + (forward * 2)][c] == NULL) {
                     // Start rank moves can't be promotions, so just add
-                    movelist_add(moves, move_create(r * 8 + c, (r + (forward * 2)) * 8 + c));
+                    Move* m = move_create(r * 8 + c, (r + (forward * 2)) * 8 + c);
+                    m->movedPieceType = PIECE_PAWN;
+                    movelist_add(moves, m);
                 }
             }
             
@@ -154,11 +158,13 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                                 Move* m = move_create(r * 8 + c, (r + forward) * 8 + targetCol);
                                 m->promotionPiece = promos[k];
                                 m->capturedPieceType = target->type;
+                                m->movedPieceType = PIECE_PAWN;
                                 movelist_add(moves, m);
                             }
                         } else {
                             Move* m = move_create(r * 8 + c, (r + forward) * 8 + targetCol);
                             m->capturedPieceType = target->type;
+                            m->movedPieceType = PIECE_PAWN;
                             movelist_add(moves, m);
                         }
                     }
@@ -175,6 +181,7 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                                 Move* epMove = move_create(r * 8 + c, (r + forward) * 8 + targetCol);
                                 epMove->isEnPassant = 1;  // Mark as en passant move
                                 epMove->capturedPieceType = epPawn->type;
+                                epMove->movedPieceType = PIECE_PAWN;
                                 movelist_add(moves, epMove);
                             }
                         }
@@ -187,14 +194,14 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
         case PIECE_KNIGHT: {
             int offsets[8][2] = {{-2, -1}, {-2, 1}, {-1, -2}, {-1, 2}, 
                                 {1, -2}, {1, 2}, {2, -1}, {2, 1}};
-            add_moves_single_step(logic, r, c, offsets, 8, moves, p->owner);
+            add_moves_single_step(logic, r, c, offsets, 8, moves, p->owner, PIECE_KNIGHT);
             break;
         }
         
         case PIECE_KING: {
             int offsets[8][2] = {{-1, -1}, {-1, 0}, {-1, 1}, {0, -1}, 
                                 {0, 1}, {1, -1}, {1, 0}, {1, 1}};
-            add_moves_single_step(logic, r, c, offsets, 8, moves, p->owner);
+            add_moves_single_step(logic, r, c, offsets, 8, moves, p->owner, PIECE_KING);
             
             // Castling
             if (!p->hasMoved && !gamelogic_is_in_check(logic, p->owner)) {
@@ -202,12 +209,14 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
                 if (can_castle(logic, r, c, 7)) {
                     Move* m = move_create(r * 8 + c, r * 8 + 6);
                     m->isCastling = true;
+                    m->movedPieceType = PIECE_KING;
                     movelist_add(moves, m);
                 }
                 // Queenside
                 if (can_castle(logic, r, c, 0)) {
                     Move* m = move_create(r * 8 + c, r * 8 + 2);
                     m->isCastling = true;
+                    m->movedPieceType = PIECE_KING;
                     movelist_add(moves, m);
                 }
             }
@@ -216,27 +225,27 @@ static void get_pseudo_moves(GameLogic* logic, int r, int c, Piece* p, void* mov
         
         case PIECE_ROOK: {
             int dirs[4][2] = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}};
-            add_linear_moves(logic, r, c, dirs, 4, moves, p->owner);
+            add_linear_moves(logic, r, c, dirs, 4, moves, p->owner, PIECE_ROOK);
             break;
         }
         
         case PIECE_BISHOP: {
             int dirs[4][2] = {{1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
-            add_linear_moves(logic, r, c, dirs, 4, moves, p->owner);
+            add_linear_moves(logic, r, c, dirs, 4, moves, p->owner, PIECE_BISHOP);
             break;
         }
         
         case PIECE_QUEEN: {
             int dirs[8][2] = {{0, 1}, {0, -1}, {1, 0}, {-1, 0}, 
                              {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
-            add_linear_moves(logic, r, c, dirs, 8, moves, p->owner);
+            add_linear_moves(logic, r, c, dirs, 8, moves, p->owner, PIECE_QUEEN);
             break;
         }
     }
 }
 
 // Add single-step moves (Knight, King)
-static void add_moves_single_step(GameLogic* logic, int r, int c, int offsets[][2], int num_offsets, void* moves_list, Player owner) {
+static void add_moves_single_step(GameLogic* logic, int r, int c, int offsets[][2], int num_offsets, void* moves_list, Player owner, PieceType movedType) {
     MoveList* moves = (MoveList*)moves_list;
     if (!moves) return;
     
@@ -246,10 +255,13 @@ static void add_moves_single_step(GameLogic* logic, int r, int c, int offsets[][
         if (is_valid_pos(nr, nc)) {
             Piece* target = logic->board[nr][nc];
             if (target == NULL) {
-                 movelist_add(moves, move_create(r * 8 + c, nr * 8 + nc));
+                 Move* m = move_create(r * 8 + c, nr * 8 + nc);
+                 m->movedPieceType = movedType;
+                 movelist_add(moves, m);
             } else if (target->owner != owner) {
                  Move* m = move_create(r * 8 + c, nr * 8 + nc);
                  m->capturedPieceType = target->type;
+                 m->movedPieceType = movedType;
                  movelist_add(moves, m);
             }
         }
@@ -257,7 +269,7 @@ static void add_moves_single_step(GameLogic* logic, int r, int c, int offsets[][
 }
 
 // Add linear moves (Rook, Bishop, Queen)
-static void add_linear_moves(GameLogic* logic, int r, int c, int dirs[][2], int num_dirs, void* moves_list, Player owner) {
+static void add_linear_moves(GameLogic* logic, int r, int c, int dirs[][2], int num_dirs, void* moves_list, Player owner, PieceType movedType) {
     MoveList* moves = (MoveList*)moves_list;
     if (!moves) return;
     
@@ -267,11 +279,14 @@ static void add_linear_moves(GameLogic* logic, int r, int c, int dirs[][2], int 
         while (is_valid_pos(nr, nc)) {
             Piece* target = logic->board[nr][nc];
             if (target == NULL) {
-                movelist_add(moves, move_create(r * 8 + c, nr * 8 + nc));
+                Move* m = move_create(r * 8 + c, nr * 8 + nc);
+                m->movedPieceType = movedType;
+                movelist_add(moves, m);
             } else {
                 if (target->owner != owner) {
                     Move* m = move_create(r * 8 + c, nr * 8 + nc);
                     m->capturedPieceType = target->type;
+                    m->movedPieceType = movedType;
                     movelist_add(moves, m);
                 }
                 break;

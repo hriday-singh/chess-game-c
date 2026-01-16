@@ -1,0 +1,11 @@
+#include <windows.h>
+
+// We need to define the resource ID for the payload
+#define PAYLOAD_RES_ID 101 // We used string "PAYLOAD_ZIP" in C code, but standard is int.
+// Wait, in payload_utils.c I used "PAYLOAD_ZIP" (string name).
+// resource file syntax: nameID TYPE filename
+
+PAYLOAD_ZIP RCDATA "dist/payload.zip"
+
+// Optional: Version info, Manifest (for admin), Icon
+1 ICON "../../assets/images/icon/icon.ico"

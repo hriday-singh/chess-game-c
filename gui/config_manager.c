@@ -1131,7 +1131,13 @@ void match_history_delete(const char* id) {
     if (!id) return;
     determine_base_dir();
     char path[4096];
-    snprintf(path, sizeof(path), "%s/matches/%s.json", g_base_dir, id);
+    
+    // Check if imported
+    if (strncmp(id, "import_", 7) == 0) {
+        snprintf(path, sizeof(path), "%s/matches/imported/%s.json", g_base_dir, id);
+    } else {
+        snprintf(path, sizeof(path), "%s/matches/%s.json", g_base_dir, id);
+    }
     
 #ifdef _WIN32
     DeleteFileA(path);
@@ -1238,7 +1244,13 @@ static void free_cache_page(CachePage* page) {
 static bool load_match_by_id(const char* id, MatchHistoryEntry* entry) {
     determine_base_dir();
     char path[4096];
-    snprintf(path, sizeof(path), "%s/matches/%s.json", g_base_dir, id);
+    
+    // Check if imported
+    if (strncmp(id, "import_", 7) == 0) {
+        snprintf(path, sizeof(path), "%s/matches/imported/%s.json", g_base_dir, id);
+    } else {
+        snprintf(path, sizeof(path), "%s/matches/%s.json", g_base_dir, id);
+    }
     
     FILE* f = fopen(path, "r");
     if (!f) return false;

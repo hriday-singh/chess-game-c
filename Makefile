@@ -53,7 +53,7 @@ TEST_TARGET = $(BUILDDIR)/chessgamec_test.exe
 TEST_SUITE_TARGET = $(BUILDDIR)/test_suite.exe
 
 # GUI executable
-GUI_TARGET = $(BUILDDIR)/chessgame_gui.exe
+GUI_TARGET = $(BUILDDIR)/HalChess.exe
 
 # SVG loader test
 SVG_TEST_TARGET = $(BUILDDIR)/test_svg_loader.exe
@@ -162,7 +162,7 @@ $(RES_OBJ): $(RC_FILE) assets/images/icon/icon.ico | $(OBJDIR)
 	windres $(RC_FILE) -O coff -o $(RES_OBJ)
 
 # GUI executable (links game + GUI + GTK4)
-GAME_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/main_test.o $(OBJDIR)/test_suite.o $(OBJDIR)/move_validation_test.o $(OBJDIR)/test_extended.o, $(GAME_OBJECTS))
+GAME_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/main_test.o $(OBJDIR)/test_suite.o $(OBJDIR)/move_validation_test.o $(OBJDIR)/test_extended.o $(OBJDIR)/test_pgn_parser.o, $(GAME_OBJECTS))
 GUI_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/gui_icon_test.o, $(GUI_OBJECTS))
 
 # Force all dependencies to be built before linking
@@ -253,5 +253,67 @@ test-ai-stress: $(AI_STRESS_GAME_OBJS) $(AI_STRESS_GUI_OBJS) $(SF_OBJECTS) $(AI_
 	@echo "Running AI stress test..."
 	./$(AI_STRESS_TARGET)
 
+# PGN Parser Test
+test-pgn: $(GAME_OBJECTS)
+	@echo "Building PGN parser test..."
+	$(CC) $(CFLAGS) -I. -I$(SRCDIR) $(SRCDIR)/test_pgn_parser.c $(filter-out $(OBJDIR)/test_suite.o $(OBJDIR)/main_test.o $(OBJDIR)/test_extended.o $(OBJDIR)/test_pgn_parser.o, $(GAME_OBJECTS)) -o $(BUILDDIR)/test_pgn_parser.exe
+	@echo "Running PGN parser test..."
+	./$(BUILDDIR)/test_pgn_parser.exe
+
 # Phony targets
-.PHONY: all all-tests clean test test-suite gui test-svg test-focus test-ai-stress
+# Installer / Distribution Targets
+
+DIST_DIR = dist
+STAGE_DIR = $(DIST_DIR)/stage/HalChess
+PAYLOAD_ZIP = $(DIST_DIR)/payload.zip
+
+# Stage: Create directory, copy game, assets, and runtime dependencies
+stage: $(GUI_TARGET)
+	@echo "Staging for distribution..."
+	@mkdir -p $(STAGE_DIR)
+	@mkdir -p $(STAGE_DIR)/assets
+	@cp $(GUI_TARGET) $(STAGE_DIR)/
+	@cp -r assets/* $(STAGE_DIR)/assets/
+	@echo "Copying runtime DLLs (using ldd)..."
+	@ldd $(GUI_TARGET) | grep '/mingw64/' | awk '{print $$3}' | sort | uniq | xargs -I {} cp "{}" $(STAGE_DIR)/
+	@echo "Copying GTK resources (schema, icons) - placeholder"
+	@# TODO: Copy GTK schemas/loaders if needed. For now assuming minimal.
+	@echo "Staging complete at $(STAGE_DIR)"
+
+# Payload: Zip the staging directory
+payload: stage
+	@echo "Creating payload.zip..."
+	@powershell -Command "Compress-Archive -Path '$(STAGE_DIR)/*' -DestinationPath '$(PAYLOAD_ZIP)' -Force"
+	@echo "Payload created at $(PAYLOAD_ZIP)"
+
+# Dist: Build installers
+dist: payload unified_installer
+	@echo "Distribution build complete."
+
+# Unified Installer
+UNIFIED_SRC = installer/main.c \
+              installer/src/install_logic.c \
+              installer/src/payload_utils.c \
+              installer/src/zip_extract.c \
+              installer/src/path_utils.c \
+              installer/lib/miniz.c
+
+# Reuse setup resource because it just contains the payload and icon
+UNIFIED_RES = installer/resources/installer_setup.rc
+UNIFIED_RES_OBJ = $(BUILDDIR)/installer_unified.res
+UNIFIED_TARGET = $(DIST_DIR)/HalChessSetup.exe
+
+# Compile Resource
+$(UNIFIED_RES_OBJ): $(UNIFIED_RES) $(PAYLOAD_ZIP)
+	@echo "Compiling Installer resources..."
+	@windres $(UNIFIED_RES) -O coff -o $(UNIFIED_RES_OBJ)
+
+# Build Unified Installer
+unified_installer: $(UNIFIED_TARGET)
+
+$(UNIFIED_TARGET): $(UNIFIED_SRC) $(UNIFIED_RES_OBJ)
+	@echo "Building Unified Installer..."
+	$(CC) $(CFLAGS) -mwindows -Iinstaller/src -Iinstaller/lib $(UNIFIED_SRC) $(UNIFIED_RES_OBJ) -o $@ -lshlwapi -luser32 -lshell32 -lole32 -luuid -lcomdlg32
+	@echo "Installer created at $@"
+
+.PHONY: all all-tests clean test test-suite gui test-svg test-focus test-ai-stress test-pgn stage payload dist unified_installer

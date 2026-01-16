@@ -33,8 +33,8 @@ static void draw_analog(GtkDrawingArea *area, cairo_t *cr, int width, int height
     (void)area;
     ClockWidget* clock = (ClockWidget*)user_data;
     
-    // If disabled, do NOT draw
-    if (clock->disabled) return;
+    // Draw always, even if disabled (shows static clock at 12:00)
+    // if (clock->disabled) return;
     
     // Outline (Circle) - Always visible
     GdkRGBA color;
