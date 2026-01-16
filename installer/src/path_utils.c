@@ -54,7 +54,7 @@ bool Path_CreateRecursive(const char* dir) {
 
     // Try creating parent
     char parent[MAX_PATH];
-    strncpy(parent, dir, MAX_PATH);
+    snprintf(parent, sizeof(parent), "%s", dir);
     if (PathRemoveFileSpecA(parent)) {
         if (Path_CreateRecursive(parent)) {
              return (CreateDirectoryA(dir, NULL) || GetLastError() == ERROR_ALREADY_EXISTS);

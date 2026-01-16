@@ -1,5 +1,9 @@
+#define _CRT_SECURE_NO_WARNINGS
 #include "src/installer_common.h"
 #include <windows.h>
+#include <shlobj.h>
+#include <stdio.h>
+#include <string.h>
 
 #define ID_BTN_FAST 201
 #define ID_BTN_CUSTOM 202
@@ -11,32 +15,43 @@ LRESULT CALLBACK ModeSelectionProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         case WM_CREATE: {
             Installer_ApplySystemFont(hwnd);
 
+            // Check for existing installation
+            char defaultPath[MAX_PATH];
+            BOOL isUpdate = FALSE;
+            if (SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, defaultPath) == S_OK) {
+                size_t current_len = strlen(defaultPath);
+                snprintf(defaultPath + current_len, sizeof(defaultPath) - current_len, "\\HalChess\\HalChess.exe");
+                if (GetFileAttributesA(defaultPath) != INVALID_FILE_ATTRIBUTES) {
+                    isUpdate = TRUE;
+                }
+            }
+
             // Title
-            HFONT hTitleFont = CreateFontA(28, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, 
+            HFONT hTitleFont = CreateFontA(36, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, 
                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, 
                 CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, "Segoe UI");
             
             HWND hTitle = CreateWindow("STATIC", "Welcome to HalChess", WS_CHILD | WS_VISIBLE | SS_CENTER, 
-                0, 30, 480, 40, hwnd, (HMENU)ID_LBL_TITLE, NULL, NULL);
+                0, 60, 680, 50, hwnd, (HMENU)ID_LBL_TITLE, NULL, NULL);
             SendMessage(hTitle, WM_SETFONT, (WPARAM)hTitleFont, TRUE);
 
-            CreateWindow("STATIC", "Select an installation mode:", WS_CHILD | WS_VISIBLE | SS_CENTER, 
-                0, 75, 480, 20, hwnd, NULL, NULL, NULL);
+            CreateWindow("STATIC", isUpdate ? "Existing installation detected" : "Please select an installation mode", WS_CHILD | WS_VISIBLE | SS_CENTER, 
+                0, 120, 680, 20, hwnd, NULL, NULL, NULL);
 
             // Buttons - Wider and centered
-            int btnWidth = 200;
-            int btnHeight = 70;
-            int spacing = 20;
+            int btnWidth = 260;
+            int btnHeight = 120;
+            int spacing = 40;
             int totalWidth = (btnWidth * 2) + spacing;
-            int startX = (500 - totalWidth) / 2;
+            int startX = (700 - totalWidth) / 2;
 
             CreateWindow("BUTTON", "Fast Install\n(Portable Mode)", 
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_MULTILINE, 
-                startX, 110, btnWidth, btnHeight, hwnd, (HMENU)ID_BTN_FAST, NULL, NULL);
+                startX, 180, btnWidth, btnHeight, hwnd, (HMENU)ID_BTN_FAST, NULL, NULL);
 
-            CreateWindow("BUTTON", "Custom Install\n(Wizard Mode)", 
+            CreateWindow("BUTTON", isUpdate ? "Update / Uninstall\n(Advanced Mode)" : "Custom Install\n(Wizard Mode)", 
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_MULTILINE, 
-                startX + btnWidth + spacing, 110, btnWidth, btnHeight, hwnd, (HMENU)ID_BTN_CUSTOM, NULL, NULL);
+                startX + btnWidth + spacing, 180, btnWidth, btnHeight, hwnd, (HMENU)ID_BTN_CUSTOM, NULL, NULL);
 
             // Apply font to others
             Installer_ApplySystemFont(hwnd);
@@ -77,10 +92,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     
     RegisterClassA(&wc);
 
-    // Provide a wider, more comfortable window
+    // Provide a wider, more comfortable window (700x500)
     HWND hwnd = CreateWindowA("HalChessInstallerMode", "HalChess Installer", 
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, 
-        CW_USEDEFAULT, CW_USEDEFAULT, 500, 320, NULL, NULL, hInstance, NULL);
+        CW_USEDEFAULT, CW_USEDEFAULT, 700, 500, NULL, NULL, hInstance, NULL);
+
+    Installer_CenterWindow(hwnd);
 
     ShowWindow(hwnd, nCmdShow);
     UpdateWindow(hwnd);

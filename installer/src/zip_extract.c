@@ -4,34 +4,13 @@
 #include <windows.h>
 #include <direct.h> // for _mkdir
 
-// Helper to create directories recursively
-static bool EnsureDirectoryExists(const char* path) {
-    char temp[MAX_PATH];
-    snprintf(temp, sizeof(temp), "%s", path);
-    
-    // Iterate through path and create missing directories
-    for (char* p = temp + 1; *p; p++) {
-        if (*p == '/' || *p == '\\') {
-            char backup = *p;
-            *p = '\0';
-            if (_mkdir(temp) != 0) {
-                 if (errno != EEXIST) {
-                      // It might be a drive root or something we can't create, ignore if it exists
-                      DWORD attr = GetFileAttributesA(temp);
-                      if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) {
-                          // Failed
-                      }
-                 }
-            }
-            *p = backup;
-        }
-    }
-    return (_mkdir(temp) == 0 || errno == EEXIST);
-}
+// Helper to create directories recursively (Moved to path_utils or handled there)
 
-bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_dir) {
+bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_dir, ProgressCallback cb, void* user_data) {
     mz_zip_archive zip_archive;
     memset(&zip_archive, 0, sizeof(zip_archive));
+
+    if (cb) cb(0, "Initializing reader...", user_data);
 
     printf("Initializing zip reader...\n");
     if (!mz_zip_reader_init_mem(&zip_archive, zip_data, zip_size, 0)) {
@@ -43,6 +22,12 @@ bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_
     printf("Found %d files in payload.\n", file_count);
 
     for (int i = 0; i < file_count; i++) {
+        // Report progress
+        if (cb) {
+            int pct = (i * 100) / file_count;
+            cb(pct, "Processing files...", user_data);
+        }
+
         mz_zip_archive_file_stat file_stat;
         if (!mz_zip_reader_file_stat(&zip_archive, i, &file_stat)) {
             printf("Error: Failed to get file stat for index %d\n", i);
@@ -51,12 +36,16 @@ bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_
             continue;
         }
 
+        if (cb) {
+             char status[MAX_PATH + 64];
+             snprintf(status, sizeof(status), "Extracting: %s", file_stat.m_filename);
+             cb((i * 100) / file_count, status, user_data);
+        }
+
         // Determine full path
         char full_path[MAX_PATH];
         if (!Path_IsSafe(dest_dir, file_stat.m_filename, full_path, MAX_PATH)) {
-            char msg[512];
-            snprintf(msg, sizeof(msg), "Skipping unsafe or invalid path:\n%s", file_stat.m_filename);
-            MessageBoxA(NULL, msg, "Security Warning", MB_ICONWARNING);
+            // Skip unsafe
             continue;
         }
 
@@ -76,8 +65,7 @@ bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_
 
         // Ensure parent dir exists for files
         char parent_dir[MAX_PATH];
-        strncpy(parent_dir, full_path, MAX_PATH);
-        parent_dir[MAX_PATH - 1] = '\0'; // Ensure null termination
+        snprintf(parent_dir, sizeof(parent_dir), "%s", full_path);
         char* last_slash = strrchr(parent_dir, '\\');
         if (!last_slash) last_slash = strrchr(parent_dir, '/');
         if (last_slash) {
@@ -87,7 +75,7 @@ bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_
 
         // Extract file
         if (!mz_zip_reader_extract_to_file(&zip_archive, i, full_path, 0)) {
-            char msg[512];
+            char msg[MAX_PATH + 512];
             snprintf(msg, sizeof(msg), "Failed to extract file:\n%s\n\nMiniz Error: %s\nWindows Error: %lu", 
                 file_stat.m_filename, 
                 mz_zip_get_error_string(mz_zip_get_last_error(&zip_archive)),
@@ -98,6 +86,7 @@ bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_
         }
     }
 
+    if (cb) cb(100, "Extraction complete!", user_data);
     mz_zip_reader_end(&zip_archive);
     return true;
 }
@@ -116,7 +105,7 @@ bool System_LaunchProcess(const char* exe_path) {
 
     // Working directory should be the directory of the exe
     char working_dir[MAX_PATH];
-    strncpy(working_dir, exe_path, MAX_PATH);
+    snprintf(working_dir, sizeof(working_dir), "%s", exe_path);
     char* last_bs = strrchr(working_dir, '\\');
     if (last_bs) *last_bs = '\0';
     else {

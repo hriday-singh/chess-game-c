@@ -44,7 +44,7 @@ HRESULT CreateLink(LPCSTR lpszPathObj, LPCSTR lpszPathLink, LPCSTR lpszDesc) {
         
         // Set working directory
         char workingDir[MAX_PATH];
-        strncpy(workingDir, lpszPathObj, MAX_PATH);
+        snprintf(workingDir, sizeof(workingDir), "%s", lpszPathObj);
         char* last_slash = strrchr(workingDir, '\\');
         if (last_slash) *last_slash = '\0';
         psl->lpVtbl->SetWorkingDirectory(psl, workingDir);
@@ -87,7 +87,8 @@ void DoBrowse(HWND hwndParent) {
         
         // Append "\HalChess" if not present
         if (strstr(path, "HalChess") == NULL) {
-            strncat(path, "\\HalChess", MAX_PATH - strlen(path) - 1);
+            size_t current_len = strlen(path);
+            snprintf(path + current_len, sizeof(path) - current_len, "\\HalChess");
         }
         
         SetWindowTextA(g_hEditPath, path);
@@ -132,7 +133,8 @@ DWORD WINAPI InstallThread(LPVOID lpParam) {
          
          // Desktop
          if (SHGetFolderPathA(NULL, CSIDL_DESKTOP, NULL, 0, linkPath) == S_OK) {
-             strncat(linkPath, "\\HalChess.lnk", MAX_PATH - strlen(linkPath) - 1);
+             size_t current_len = strlen(linkPath);
+             snprintf(linkPath + current_len, sizeof(linkPath) - current_len, "\\HalChess.lnk");
              CreateLink(targetPath, linkPath, "Play HalChess");
          }
     }
@@ -156,9 +158,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             // Default Path: %LOCALAPPDATA%\HalChess
             char defaultPath[MAX_PATH];
             if (SHGetFolderPathA(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, defaultPath) == S_OK) {
-                strncat(defaultPath, "\\HalChess", MAX_PATH - strlen(defaultPath) - 1);
+                size_t current_len = strlen(defaultPath);
+                snprintf(defaultPath + current_len, sizeof(defaultPath) - current_len, "\\HalChess");
             } else {
-                strcpy(defaultPath, "C:\\HalChess");
+                snprintf(defaultPath, sizeof(defaultPath), "C:\\HalChess");
             }
 
             CreateWindow("STATIC", "Install Location:", WS_CHILD | WS_VISIBLE, 10, 10, 100, 20, hwnd, NULL, NULL, NULL);

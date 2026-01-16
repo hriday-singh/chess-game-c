@@ -133,8 +133,7 @@ static bool get_next_token(const char** cursor, char* buffer, size_t buf_size, G
         
         // Extract to buffer
         if (len >= buf_size) len = buf_size - 1;
-        strncpy(buffer, start, len);
-        buffer[len] = '\0';
+        snprintf(buffer, buf_size, "%.*s", (int)len, start);
         
         // Check if token starts with a digit but contains letters (e.g. "1.e4")
         if (isdigit((unsigned char)buffer[0])) {
@@ -264,7 +263,7 @@ GameImportResult game_import_from_string(GameLogic* logic, const char* input) {
     GameImportResult res;
     memset(&res, 0, sizeof(res));
     res.success = true; // Optimistic
-    strncpy(res.start_fen, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", sizeof(res.start_fen));
+    snprintf(res.start_fen, sizeof(res.start_fen), "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     
     if (!logic || !input) {
         res.success = false;
@@ -364,8 +363,12 @@ GameImportResult game_import_from_string(GameLogic* logic, const char* input) {
             // Add to UCI accumulator
             char uci[8];
             move_to_uci(matched_move, uci);
-            if (strlen(uci_accum) > 0) strcat(uci_accum, " ");
-            strcat(uci_accum, uci);
+            size_t current_len = strlen(uci_accum);
+            if (current_len > 0) {
+                snprintf(uci_accum + current_len, sizeof(uci_accum) - current_len, " %s", uci);
+            } else {
+                snprintf(uci_accum, sizeof(uci_accum), "%s", uci);
+            }
             
             if (!gamelogic_perform_move(logic, matched_move)) {
                 res.success = false;
@@ -384,7 +387,7 @@ GameImportResult game_import_from_string(GameLogic* logic, const char* input) {
     }
     
     if (res.success) {
-        strncpy(res.loaded_uci, uci_accum, sizeof(res.loaded_uci));
+        snprintf(res.loaded_uci, sizeof(res.loaded_uci), "%s", uci_accum);
     }
     
     return res;

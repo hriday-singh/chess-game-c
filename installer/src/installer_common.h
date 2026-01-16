@@ -8,7 +8,8 @@
 const void* Payload_GetResource(size_t* out_size);
 
 // Extraction Utils
-bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_dir);
+typedef void (*ProgressCallback)(int percentage, const char* status_text, void* user_data);
+bool Extract_ZipPayload(const void* zip_data, size_t zip_size, const char* dest_dir, ProgressCallback cb, void* user_data);
 
 // Path Utils
 bool Path_IsSafe(const char* base_dir, const char* relative_path, char* out_full_path, size_t max_len);
@@ -20,6 +21,7 @@ bool System_LaunchProcess(const char* exe_path);
 // Basic UI Helpers
 void Installer_InitUI(void);
 void Installer_ApplySystemFont(HWND div);
+void Installer_CenterWindow(HWND hwnd);
 HFONT Installer_GetFont(void);
 
 // High-Level Workflows
