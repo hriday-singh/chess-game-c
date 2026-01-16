@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "clock.h"
 
 // GameLogic structure
 struct GameLogic {
@@ -40,6 +41,9 @@ struct GameLogic {
     
     // Simulation flag (for AI search)
     bool isSimulation;
+
+    // Chess Clock
+    ClockState clock;
     
     // Callbacks
     void (*updateCallback)(void);
@@ -103,10 +107,16 @@ void gamelogic_handle_game_end_learning(GameLogic* logic, Player winner);
 
 // SAN and PGN
 void gamelogic_get_move_uci(GameLogic* logic, Move* move, char* uci, size_t uci_size);
+void gamelogic_get_move_san(GameLogic* logic, Move* move, char* san, size_t san_size);
 
 void gamelogic_load_from_uci_moves(GameLogic* logic, const char* moves_uci, const char* start_fen);
 
 // Reconstruct history stack (e.g. for replay)
 void gamelogic_rebuild_history(GameLogic* logic, Move** moves, int count);
+
+// Clock Interface
+bool gamelogic_tick_clock(GameLogic* logic);
+void gamelogic_set_clock(GameLogic* logic, int minutes, int increment);
+void gamelogic_set_custom_clock(GameLogic* logic, int64_t time_ms, int64_t inc_ms);
 
 #endif // GAMELOGIC_H

@@ -114,6 +114,13 @@ typedef struct {
 
     bool custom_available;
 
+    // Clock Settings
+    GtkWidget* clock_settings_box;
+    GtkWidget* clock_preset_dropdown;
+    GtkWidget* clock_custom_box;
+    GtkWidget* clock_min_spin;
+    GtkWidget* clock_inc_spin;
+
     // Puzzle Mode UI
     struct {
         GtkWidget* box;
@@ -197,6 +204,10 @@ static void on_focus_lost_gesture(GtkGestureClick* gesture, int n_press, double 
 // AI Settings Callbacks
 static void on_engine_selection_changed(GObject* obj, GParamSpec* pspec, gpointer user_data);
 static void on_hints_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_data);
+
+// Clock Callbacks
+static void on_clock_preset_changed(GObject* obj, GParamSpec* pspec, gpointer user_data);
+static void on_clock_custom_changed(GtkSpinButton* spin, gpointer user_data);
 static void on_open_ai_settings_clicked(GtkButton* btn, gpointer user_data);
 
 // CvC Callbacks
@@ -209,6 +220,8 @@ static void info_panel_create_replay_ui(InfoPanel* panel);
 static void reset_game(InfoPanel* panel);
 static void update_ai_settings_visibility(InfoPanel* panel);
 static void on_elo_adjustment_changed(GtkAdjustment* adj, gpointer user_data);
+static void on_clock_preset_changed(GObject* obj, GParamSpec* pspec, gpointer user_data);
+static void on_clock_custom_changed(GtkSpinButton* spin, gpointer user_data);
 
 typedef struct {
     InfoPanel* panel;
@@ -913,6 +926,15 @@ static void reset_game(InfoPanel* panel) {
     if (panel->game_reset_callback) {
         panel->game_reset_callback(panel->game_reset_callback_data);
     }
+    
+    // Apply Clock Settings
+    AppConfig* cfg = config_get();
+    if (cfg->clock_minutes > 0 || cfg->clock_increment > 0) {
+        gamelogic_set_clock(panel->logic, cfg->clock_minutes, cfg->clock_increment);
+    } else {
+        // Ensure clock is disabled
+        clock_reset(&panel->logic->clock, 0, 0);
+    }
 }
 
 // Game mode dropdown callback - reset game on change
@@ -1016,6 +1038,182 @@ static void on_hints_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user
     cfg->hints_dots = use_dots;
     config_save();
 }
+
+static GtkWidget* create_clock_settings_ui(InfoPanel* panel) {
+    if (!panel) return NULL;
+    
+    panel->clock_settings_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_widget_set_margin_top(panel->clock_settings_box, 10);
+    
+    GtkWidget* label = gtk_label_new("CLOCK SETTINGS");
+    PangoAttrList* attrs = pango_attr_list_new();
+    pango_attr_list_insert(attrs, pango_attr_weight_new(PANGO_WEIGHT_BOLD));
+    gtk_label_set_attributes(GTK_LABEL(label), attrs);
+    pango_attr_list_unref(attrs);
+    gtk_widget_set_halign(label, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(panel->clock_settings_box), label);
+    
+    // Dropdown
+    const char* presets[] = { 
+        "No Clock", 
+        "Bullet 1 min", "Bullet 1 + 1", "Bullet 2 + 1",
+        "Blitz 3 min", "Blitz 3 + 2", "Blitz 5 min", "Blitz 5 + 3",
+        "Rapid 10 min", "Rapid 10 + 5", "Rapid 15 + 10",
+        "Classical 30 min", "Classical 30 + 20",
+        "Custom", 
+        NULL 
+    };
+    
+    panel->clock_preset_dropdown = gtk_drop_down_new_from_strings(presets);
+    g_signal_connect(panel->clock_preset_dropdown, "notify::selected", G_CALLBACK(on_clock_preset_changed), panel);
+    gtk_widget_set_margin_top(panel->clock_preset_dropdown, 5);
+    gtk_box_append(GTK_BOX(panel->clock_settings_box), panel->clock_preset_dropdown);
+    
+    // Custom Box (Vertical container)
+    panel->clock_custom_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 5);
+    gtk_widget_set_margin_top(panel->clock_custom_box, 5);
+    gtk_box_append(GTK_BOX(panel->clock_settings_box), panel->clock_custom_box);
+    
+    // Row 1: Minutes
+    GtkWidget* row_min = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_box_append(GTK_BOX(panel->clock_custom_box), row_min);
+
+    GtkWidget* min_lbl = gtk_label_new("Min:");
+    gtk_widget_set_hexpand(min_lbl, TRUE);
+    gtk_widget_set_halign(min_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(row_min), min_lbl);
+    
+    panel->clock_min_spin = gtk_spin_button_new_with_range(1, 180, 1); // Increased range
+    gtk_box_append(GTK_BOX(row_min), panel->clock_min_spin);
+    
+    // Row 2: Increment
+    GtkWidget* row_inc = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 5);
+    gtk_box_append(GTK_BOX(panel->clock_custom_box), row_inc);
+
+    GtkWidget* inc_lbl = gtk_label_new("Inc:");
+    gtk_widget_set_hexpand(inc_lbl, TRUE);
+    gtk_widget_set_halign(inc_lbl, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(row_inc), inc_lbl);
+    
+    panel->clock_inc_spin = gtk_spin_button_new_with_range(0, 60, 1);
+    gtk_box_append(GTK_BOX(row_inc), panel->clock_inc_spin);
+    
+    // Load config state
+    AppConfig* cfg = config_get();
+    int mins = cfg->clock_minutes;
+    int inc = cfg->clock_increment;
+    
+    // Detect preset
+    int preset_idx = 13; // Default Custom (last index)
+    
+    if (mins == 0 && inc == 0) preset_idx = 0;
+    else if (mins == 1 && inc == 0) preset_idx = 1;
+    else if (mins == 1 && inc == 1) preset_idx = 2;
+    else if (mins == 2 && inc == 1) preset_idx = 3;
+    else if (mins == 3 && inc == 0) preset_idx = 4;
+    else if (mins == 3 && inc == 2) preset_idx = 5;
+    else if (mins == 5 && inc == 0) preset_idx = 6;
+    else if (mins == 5 && inc == 3) preset_idx = 7;
+    else if (mins == 10 && inc == 0) preset_idx = 8;
+    else if (mins == 10 && inc == 5) preset_idx = 9;
+    else if (mins == 15 && inc == 10) preset_idx = 10;
+    else if (mins == 30 && inc == 0) preset_idx = 11;
+    else if (mins == 30 && inc == 20) preset_idx = 12;
+    
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->clock_preset_dropdown), preset_idx);
+    
+    // Set custom values anyway
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(panel->clock_min_spin), mins > 0 ? mins : 10);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(panel->clock_inc_spin), inc);
+    
+    // Connect custom signals
+    g_signal_connect(panel->clock_min_spin, "value-changed", G_CALLBACK(on_clock_custom_changed), panel);
+    g_signal_connect(panel->clock_inc_spin, "value-changed", G_CALLBACK(on_clock_custom_changed), panel);
+    
+    // Validation visibility
+    bool is_custom = (preset_idx == 13);
+    gtk_widget_set_visible(panel->clock_custom_box, is_custom);
+    
+    return panel->clock_settings_box;
+}
+
+static void on_clock_preset_changed(GObject* obj, GParamSpec* pspec, gpointer user_data) {
+    (void)pspec;
+    InfoPanel* panel = (InfoPanel*)user_data;
+    GtkDropDown* dropdown = GTK_DROP_DOWN(obj);
+    int selected = gtk_drop_down_get_selected(dropdown);
+    
+    int mins = 0;
+    int inc = 0;
+    bool custom = false;
+    
+    switch (selected) {
+        case 0: mins = 0; inc = 0; break; // No Clock
+        
+        // Bullet
+        case 1: mins = 1; inc = 0; break;
+        case 2: mins = 1; inc = 1; break;
+        case 3: mins = 2; inc = 1; break;
+        
+        // Blitz
+        case 4: mins = 3; inc = 0; break;
+        case 5: mins = 3; inc = 2; break;
+        case 6: mins = 5; inc = 0; break;
+        case 7: mins = 5; inc = 3; break;
+        
+        // Rapid
+        case 8: mins = 10; inc = 0; break;
+        case 9: mins = 10; inc = 5; break;
+        case 10: mins = 15; inc = 10; break;
+        
+        // Classical
+        case 11: mins = 30; inc = 0; break;
+        case 12: mins = 30; inc = 20; break;
+        
+        // Custom
+        case 13: custom = true; break;
+    }
+    
+    gtk_widget_set_visible(panel->clock_custom_box, custom);
+    
+    if (!custom) {
+        AppConfig* cfg = config_get();
+        cfg->clock_minutes = mins;
+        cfg->clock_increment = inc;
+        config_save();
+        
+        // Auto-reset game with new settings
+        if (panel->logic) {
+            on_reset_clicked(NULL, panel);
+        }
+    } else {
+        // If switched to custom, we might want to load current values from spin buttons
+        // But usually we just let the user edit them.
+        on_clock_custom_changed(NULL, panel);
+    }
+}
+
+static void on_clock_custom_changed(GtkSpinButton* spin, gpointer user_data) {
+    (void)spin;
+    InfoPanel* panel = (InfoPanel*)user_data;
+    // Check if custom is selected
+    int selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(panel->clock_preset_dropdown));
+    if (selected != 13) return;
+    
+    int mins = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(panel->clock_min_spin));
+    int inc = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(panel->clock_inc_spin));
+    
+    AppConfig* cfg = config_get();
+    cfg->clock_minutes = mins;
+    cfg->clock_increment = inc;
+    config_save();
+    
+    // Auto-reset game with new settings
+    if (panel->logic) {
+        on_reset_clicked(NULL, panel);
+    }
+}
+
 
 
 
@@ -1475,6 +1673,22 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
 
     
     gtk_box_append(GTK_BOX(panel->standard_controls_box), settings_section);
+
+    // Separator line between Game Settings and Clock Settings
+    GtkWidget* separator_game = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_top(separator_game, 10);
+    gtk_widget_set_margin_bottom(separator_game, 10);
+    gtk_box_append(GTK_BOX(panel->standard_controls_box), separator_game);
+
+    // Call helper to add clock settings
+    GtkWidget* clock_box = create_clock_settings_ui(panel);
+    gtk_box_append(GTK_BOX(panel->standard_controls_box), clock_box);
+
+    // Separator line between Clock Settings and AI Settings
+    GtkWidget* separator_clock = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_widget_set_margin_top(separator_clock, 10);
+    gtk_widget_set_margin_bottom(separator_clock, 10);
+    gtk_box_append(GTK_BOX(panel->standard_controls_box), separator_clock);
     
     // AI Settings section
     panel->ai_settings_section = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);

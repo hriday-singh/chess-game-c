@@ -46,6 +46,9 @@ typedef struct GuiState {
     struct _SettingsDialog* settings_dialog;
     struct _RightSidePanel* right_side_panel;
     struct _HistoryDialog* history_dialog;
+    // Clock Widgets
+    struct _ClockWidget* top_clock;
+    struct _ClockWidget* bottom_clock;
 } GuiState;
 
 typedef struct TutorialState {

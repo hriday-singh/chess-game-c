@@ -27,6 +27,10 @@ typedef struct {
     bool show_move_rating;
     bool analysis_use_custom;
     
+    // Clock Settings
+    int clock_minutes;    // 0 = No Clock
+    int clock_increment;  // Seconds
+    
     // AI - Internal
     int int_elo;
     int int_depth;

@@ -249,6 +249,17 @@ void gamelogic_reset(GameLogic* logic) {
     
     // Clear and setup board
     setup_board(logic);
+
+    // Initialize clock (default off/10 mins example, but let's default to disabled/standard)
+    // Actually we should retain previous settings or have a dedicated set function.
+    // For now, reset disables it until configured.
+    // clock_init(&logic->clock, 0, 0); // Disabled by default
+    // Wait, if we reset, we might want to keep the configured time IF it was set?
+    // User flow: Set time -> Reset -> Play. 
+    // We'll leave it to ConfigManager/GUI to re-apply clock settings on reset if needed,
+    // OR we default to 10+0 if nothing set? No, "No Clock" is valid.
+    // Let's assume GUI will call gamelogic_set_clock after reset if needed.
+    clock_reset(&logic->clock, 0, 0);
     
     // Compute initial hash
     logic->currentHash = zobrist_compute(logic);
@@ -401,6 +412,10 @@ void gamelogic_set_callback(GameLogic* logic, void (*callback)(void)) {
 
 // Forward declarations
 static void make_move_internal(GameLogic* logic, Move* move);
+
+// Clock Interface
+// Clock Interface declaration removed from here to avoid duplication
+
 static Move* undo_move_internal(GameLogic* logic, bool free_move);
 static char get_fen_char(Piece* p);
 // External safety checks (defined in gamelogic_safety.c)
@@ -411,8 +426,6 @@ extern bool gamelogic_is_stalemate(GameLogic* logic, Player player);
 
 // External move generation (defined in gamelogic_movegen.c)
 extern void gamelogic_generate_legal_moves(GameLogic* logic, Player player, void* moves_list);
-
-
 
 // Perform a move
 bool gamelogic_perform_move(GameLogic* logic, Move* move) {
@@ -741,10 +754,13 @@ static void make_move_internal(GameLogic* logic, Move* move) {
         piece_free(target);
         logic->board[r2][c2] = NULL;
         logic->halfmoveClock = 0;
-    } else if (movingPiece->type == PIECE_PAWN) {
-        logic->halfmoveClock = 0;
     } else {
         logic->halfmoveClock++;
+    }
+
+    // Press clock if not simulation
+    if (!logic->isSimulation) {
+        clock_press(&logic->clock, logic->turn);
     }
     
     if (is_ep) {
@@ -753,9 +769,7 @@ static void make_move_internal(GameLogic* logic, Move* move) {
         piece_free(logic->board[r1][c2]);
         logic->board[r1][c2] = NULL;
     }
-    
 
-    
     move->firstMove = !movingPiece->hasMoved;
     movingPiece->hasMoved = true;
     
@@ -1096,13 +1110,132 @@ void gamelogic_load_fen(GameLogic* logic, const char* fen) {
     gamelogic_update_game_state_internal(logic, true);
 }
 
+// SAN and PGN
 void gamelogic_get_move_uci(GameLogic* logic, Move* move, char* uci, size_t uci_size) {
     if (!logic || !move || !uci || uci_size == 0) return;
-
-    // USER REQUEST: Use UCI notation only to ensure stability.
-    // This avoids all complex state manipulation (undo/simulation/check-detection)
-    // that was causing memory corruption issues.
     move_to_uci(move, uci);
+}
+
+static char get_san_piece_char(PieceType type) {
+    switch (type) {
+        case PIECE_KNIGHT: return 'N';
+        case PIECE_BISHOP: return 'B';
+        case PIECE_ROOK:   return 'R';
+        case PIECE_QUEEN:  return 'Q';
+        case PIECE_KING:   return 'K';
+        default:           return '\0'; // Pawn
+    }
+}
+
+void gamelogic_get_move_san(GameLogic* logic, Move* move, char* san, size_t san_size) {
+    if (!logic || !move || !san || san_size == 0) return;
+
+    // Suppress callbacks and updates during this calculation to avoid recursion or UI flicker
+    bool old_sim = logic->isSimulation;
+    logic->isSimulation = true;
+
+    // 1. We need to analyze the position BEFORE the move for disambiguation.
+    // We'll temporarily undo the move if it's the last move in history.
+    bool was_undone = false;
+    Stack* history = (Stack*)logic->moveHistory;
+    if (history && history->top) {
+        Move* last = (Move*)history->top->data;
+        if (move_equals(last, move)) {
+            undo_move_internal(logic, false); // Pop but don't free
+            was_undone = true;
+        }
+    }
+
+    if (!was_undone) {
+        // If we can't safely undo (e.g. calculating SAN for historical move not at top),
+        // we fallback to UCI for now to ensure stability. 
+        // In the future we might want a "stateless" SAN generator.
+        move_to_uci(move, san);
+        logic->isSimulation = old_sim;
+        return;
+    }
+
+    // --- SAN Generation Logic (Position is now BEFORE the move) ---
+    char buffer[32] = {0};
+    int ptr = 0;
+
+    if (move->isCastling) {
+        int c2 = move->to_sq % 8;
+        int c1 = move->from_sq % 8;
+        ptr = snprintf(buffer, sizeof(buffer), (c2 > c1) ? "O-O" : "O-O-O");
+    } else {
+        char pieceChar = get_san_piece_char(move->movedPieceType);
+        if (pieceChar != '\0') {
+            buffer[ptr++] = pieceChar;
+            
+            // Disambiguation
+            int count = 0;
+            Move** legal = gamelogic_get_all_legal_moves(logic, logic->turn, &count);
+            
+            bool same_file = false;
+            bool same_rank = false;
+            int alternatives = 0;
+            
+            for (int i = 0; i < count; i++) {
+                if (legal[i]->to_sq == move->to_sq && 
+                    legal[i]->movedPieceType == move->movedPieceType &&
+                    legal[i]->from_sq != move->from_sq) {
+                    
+                    alternatives++;
+                    if ((legal[i]->from_sq % 8) == (move->from_sq % 8)) same_file = true;
+                    if ((legal[i]->from_sq / 8) == (move->from_sq / 8)) same_rank = true;
+                }
+            }
+            
+            if (alternatives > 0) {
+                if (!same_file) {
+                    buffer[ptr++] = (char)('a' + (move->from_sq % 8));
+                } else if (!same_rank) {
+                    buffer[ptr++] = (char)('8' - (move->from_sq / 8));
+                } else {
+                    buffer[ptr++] = (char)('a' + (move->from_sq % 8));
+                    buffer[ptr++] = (char)('8' - (move->from_sq / 8));
+                }
+            }
+            
+            for (int i = 0; i < count; i++) move_free(legal[i]);
+            if (legal) free(legal);
+
+            if (move->capturedPieceType != NO_PIECE) {
+                buffer[ptr++] = 'x';
+            }
+        } else {
+            // Pawn move
+            if (move->capturedPieceType != NO_PIECE) {
+                buffer[ptr++] = (char)('a' + (move->from_sq % 8));
+                buffer[ptr++] = 'x';
+            }
+        }
+        
+        // Destination square
+        buffer[ptr++] = (char)('a' + (move->to_sq % 8));
+        buffer[ptr++] = (char)('8' - (move->to_sq / 8));
+        
+        // Promotion
+        if (move->promotionPiece != NO_PROMOTION) {
+            buffer[ptr++] = '=';
+            buffer[ptr++] = get_san_piece_char(move->promotionPiece);
+        }
+    }
+
+    // --- Redo move to check for Check/Mate marks ---
+    make_move_internal(logic, move);
+    
+    // Check state AFTER move
+    if (gamelogic_is_checkmate(logic, logic->turn)) {
+        buffer[ptr++] = '#';
+    } else if (gamelogic_is_in_check(logic, logic->turn)) {
+        buffer[ptr++] = '+';
+    }
+    buffer[ptr] = '\0';
+
+    strncpy(san, buffer, san_size);
+    logic->isSimulation = old_sim;
 }
 
 void gamelogic_load_from_uci_moves(GameLogic* logic, const char* moves_uci, const char* start_fen) {
@@ -1192,4 +1325,45 @@ void gamelogic_rebuild_history(GameLogic* logic, Move** moves, int count) {
             stack_push(s, copy);
         }
     }
+}
+
+// --- Clock Interface Implementation ---
+
+bool gamelogic_tick_clock(GameLogic* logic) {
+    if (!logic || logic->isGameOver || logic->isSimulation) return false;
+    
+    bool flag_fell = clock_tick(&logic->clock, logic->turn);
+    if (flag_fell) {
+        logic->isGameOver = true;
+        Player flagged = logic->clock.flagged_player;
+        if (flagged == PLAYER_WHITE) {
+            snprintf(logic->statusMessage, sizeof(logic->statusMessage), "White lost on time!");
+        } else {
+            snprintf(logic->statusMessage, sizeof(logic->statusMessage), "Black lost on time!");
+        }
+        
+        // Notify UI immediately
+        if (logic->updateCallback) logic->updateCallback();
+    }
+    return flag_fell;
+}
+
+void gamelogic_set_clock(GameLogic* logic, int minutes, int increment) {
+    if (!logic) return;
+    int64_t total_ms = (int64_t)minutes * 60 * 1000;
+    int64_t inc_ms = (int64_t)increment * 1000;
+    
+    // If 0 minutes, assume enabled is false unless increment > 0 (e.g. 0+1? unusual)
+    // Actually, create_clock_settings uses 0,0 for "No Clock"
+    if (minutes == 0 && increment == 0) {
+        clock_reset(&logic->clock, 0, 0);
+        return;
+    }
+    
+    clock_reset(&logic->clock, total_ms, inc_ms);
+}
+
+void gamelogic_set_custom_clock(GameLogic* logic, int64_t time_ms, int64_t inc_ms) {
+    if (!logic) return;
+    clock_reset(&logic->clock, time_ms, inc_ms);
 }

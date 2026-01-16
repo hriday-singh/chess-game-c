@@ -23,7 +23,6 @@
 #include "ai_engine.h"
 #include "types.h"
 #include "puzzles.h"
-
 #include "app_state.h"
 #include "tutorial.h"
 #include "dark_mode_button.h"
@@ -31,10 +30,11 @@
 #include "right_side_panel.h"
 #include "puzzle_controller.h"
 #include "replay_controller.h"
+#include "clock_widget.h"
 
 static bool debug_mode = true;
-static int app_height = 960;
-static int app_width = 1575;
+static int app_height = 1035;
+static int app_width = 1475;
 
 // Globals
 #include "history_dialog.h"
@@ -158,6 +158,71 @@ static void on_edit_ai_settings_action(GSimpleAction* action, GVariant* paramete
 
 // Forward declarations
 static void request_ai_move(AppState* state);
+
+// Clock Tick Callback
+static gboolean clock_tick_callback(gpointer user_data) {
+    AppState* state = (AppState*)user_data;
+    if (!state || !state->logic) return G_SOURCE_CONTINUE;
+    
+    // Only tick if game is not over
+    if (state->logic->isGameOver) return G_SOURCE_CONTINUE;
+
+    // CvC Mode: Only tick if RUNNING
+    if (state->logic->gameMode == GAME_MODE_CVC && state->cvc_match_state != CVC_STATE_RUNNING) {
+        // Skip tick but keep timer alive
+        state->logic->clock.last_tick_time = 0; // Avoid huge jump on resume
+        return G_SOURCE_CONTINUE;
+    }
+
+    ClockState* clock = &state->logic->clock;
+    bool flagged = gamelogic_tick_clock(state->logic);
+    
+    // Update Display
+    // Update Display
+    if (state->gui.right_side_panel) {
+        // Legacy call removed or updated if stats needed
+        // right_side_panel_update_clock(state->gui.right_side_panel);
+    }
+    
+    // Update Clock Widgets
+    if (state->gui.top_clock && state->gui.bottom_clock) {
+        // Determine active side
+        Player turn = gamelogic_get_turn(state->logic);
+        
+        // Orientation-aware updates
+        // If flipped (Black at bottom): Top=White, Bottom=Black
+        // If normal (White at bottom): Top=Black, Bottom=White
+        
+        bool flipped = state->gui.board ? board_widget_is_flipped(state->gui.board) : false;
+        
+        ClockWidget* white_clk = flipped ? state->gui.top_clock : state->gui.bottom_clock;
+        ClockWidget* black_clk = flipped ? state->gui.bottom_clock : state->gui.top_clock;
+        
+        clock_widget_update(white_clk, clock->white_time_ms, clock->initial_time_ms, turn == PLAYER_WHITE);
+        clock_widget_update(black_clk, clock->black_time_ms, clock->initial_time_ms, turn == PLAYER_BLACK);
+    }
+    
+    if (flagged) {
+        // Handle Game Over
+        state->logic->isGameOver = true;
+        
+        Player loser = clock->flagged_player;
+        if (loser == PLAYER_WHITE) {
+             snprintf(state->logic->statusMessage, sizeof(state->logic->statusMessage), "Black won on time");
+             // Determine sound based on user side if pertinent, or generic
+             sound_engine_play(SOUND_WIN); // Generic end sound?
+        } else {
+             snprintf(state->logic->statusMessage, sizeof(state->logic->statusMessage), "White won on time");
+             sound_engine_play(SOUND_WIN);
+        }
+        
+        // Refresh UI to show game over state
+        if (state->gui.board) gtk_widget_queue_draw(state->gui.board);
+        if (state->gui.info_panel) info_panel_update_status(state->gui.info_panel);
+    }
+    
+    return G_SOURCE_CONTINUE;
+}
 
 
 static void on_right_panel_nav(const char* action, int ply_index, gpointer user_data) {
@@ -323,9 +388,11 @@ static void update_ui_callback(void) {
             Player p = (count % 2 == 1) ? PLAYER_WHITE : PLAYER_BLACK;
             // This now handles truncation automatically if we are in the past
             if (!state->is_replaying && state->logic->gameMode != GAME_MODE_PUZZLE && state->tutorial.step == TUT_OFF) {
+                if (debug_mode) printf("[Main] update_ui: adding move, count=%d\n", count);
                 right_side_panel_add_move(state->gui.right_side_panel, m, m_num, p);
             }
-        } else if (count == 0) {
+        } else if (count == 0 && !state->is_replaying) {
+            if (debug_mode) printf("[Main] update_ui: clearing history, count is 0\n");
             right_side_panel_clear_history(state->gui.right_side_panel);
         }
         
@@ -448,8 +515,8 @@ static void on_game_reset(gpointer user_data) {
         g_source_remove(state->ai_trigger_id);
         state->ai_trigger_id = 0;
     }
-    // Save history if significant plies
-    if (!state->match_saved && !state->tutorial.step && state->logic->gameMode != GAME_MODE_PUZZLE && !state->is_replaying) {
+    // Save history if significant plies and game NOT OVER (game over already saved)
+    if (!state->match_saved && !state->logic->isGameOver && !state->tutorial.step && state->logic->gameMode != GAME_MODE_PUZZLE && !state->is_replaying) {
         record_match_history(state, "Reset");
     }
 
@@ -838,8 +905,8 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
     // Wire up UI
     replay_controller_enter_replay_mode(state->replay_controller);
     
-    // Initial Seek to end
-    replay_controller_seek(state->replay_controller, gamelogic_get_move_count(state->logic));
+    // Initial Seek to Start (Ply 0)
+    replay_controller_seek(state->replay_controller, 0);
     if (state->gui.info_panel) {
         info_panel_show_replay_controls(state->gui.info_panel, TRUE);
     }
@@ -1090,14 +1157,42 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gtk_widget_set_hexpand(state->gui.info_panel, FALSE);
     gtk_box_append(GTK_BOX(main_box), state->gui.info_panel);
     
-    GtkWidget* aspect_frame = gtk_aspect_frame_new(0.5, 0.5, 1.0, FALSE);
-    gtk_widget_set_hexpand(aspect_frame, TRUE);
-    gtk_widget_set_vexpand(aspect_frame, TRUE);
-    GtkWidget* board_container = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    gtk_widget_add_css_class(board_container, "board-frame");
-    gtk_box_append(GTK_BOX(board_container), state->gui.board);
-    gtk_aspect_frame_set_child(GTK_ASPECT_FRAME(aspect_frame), board_container);
-    gtk_box_append(GTK_BOX(main_box), aspect_frame);
+    // Board Area (Center)
+    GtkWidget* board_area = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0); 
+    gtk_widget_set_hexpand(board_area, TRUE);
+    gtk_widget_set_vexpand(board_area, TRUE);
+    // Reduced side margins from 20 to 8
+    gtk_widget_set_margin_start(board_area, 8);
+    gtk_widget_set_margin_end(board_area, 8);
+
+    // Setup Clocks
+    state->gui.top_clock = clock_widget_new(PLAYER_BLACK);
+    state->gui.bottom_clock = clock_widget_new(PLAYER_WHITE);
+
+    // Top Clock Row
+    GtkWidget* top_clk = clock_widget_get_widget(state->gui.top_clock);
+    gtk_widget_set_margin_top(top_clk, 12);     // Padding from window top/header
+    gtk_widget_set_margin_bottom(top_clk, 0);   // Lose bottom padding (touch board)
+    gtk_widget_set_halign(top_clk, GTK_ALIGN_END);
+    gtk_box_append(GTK_BOX(board_area), top_clk);
+
+    // Aspect Frame - Keeps board square
+    GtkWidget* board_aspect = gtk_aspect_frame_new(0.5, 0.5, 1.0, FALSE);
+    gtk_widget_set_hexpand(board_aspect, TRUE);
+    gtk_widget_set_vexpand(board_aspect, TRUE);
+    
+    gtk_widget_add_css_class(state->gui.board, "board-frame");
+    gtk_aspect_frame_set_child(GTK_ASPECT_FRAME(board_aspect), state->gui.board);
+    gtk_box_append(GTK_BOX(board_area), board_aspect);
+    
+    // Bottom Clock Row
+    GtkWidget* bot_clk = clock_widget_get_widget(state->gui.bottom_clock);
+    gtk_widget_set_margin_top(bot_clk, 0);      // Lose top padding (touch board)
+    gtk_widget_set_margin_bottom(bot_clk, 12);  // Padding from window bottom
+    gtk_widget_set_halign(bot_clk, GTK_ALIGN_END);
+    gtk_box_append(GTK_BOX(board_area), bot_clk);
+    
+    gtk_box_append(GTK_BOX(main_box), board_area);
 
     // Right Side Panel
     if (debug_mode) printf("[Main] Creating RightSidePanel with logic %p\n", (void*)state->logic);
@@ -1170,6 +1265,11 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     
     // Present window only when mapped to ensure correct activation
     g_signal_connect(state->gui.window, "notify::mapped", G_CALLBACK(on_window_mapped_notify), state);
+    // Verify initial clock state
+    if (debug_mode) printf("[Main] Initializing Clock...\n");
+    // Clock tick timer (100ms precision)
+    g_timeout_add(100, clock_tick_callback, state);
+
     gtk_widget_set_visible(GTK_WIDGET(state->gui.window), TRUE);
 }
 

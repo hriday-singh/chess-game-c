@@ -74,6 +74,7 @@ static void sync_analysis_tab_sensitivity(AiDialog* dialog);
 
 static void on_int_elo_changed(GtkAdjustment* adj, gpointer data) {
     AiDialog* dialog = (AiDialog*)data;
+    if (dialog->is_loading) return;
     dialog->int_elo = (int)gtk_adjustment_get_value(adj);
     
     // Immediate Update
@@ -88,6 +89,7 @@ static void on_int_elo_changed(GtkAdjustment* adj, gpointer data) {
 
 static void on_custom_elo_changed(GtkAdjustment* adj, gpointer data) {
     AiDialog* dialog = (AiDialog*)data;
+    if (dialog->is_loading) return;
     dialog->custom_elo = (int)gtk_adjustment_get_value(adj);
     
     // Immediate Update
@@ -156,6 +158,7 @@ static bool validate_nnue_file(const char* path) {
 
 static void on_int_depth_changed(GtkSpinButton* spin, gpointer user_data) {
     AiDialog* dialog = (AiDialog*)user_data;
+    if (dialog->is_loading) return;
     if (!dialog->int_manual_movetime) {
         int depth = gtk_spin_button_get_value_as_int(spin);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_time_spin), calculate_movetime(depth));
@@ -172,6 +175,7 @@ static void on_int_depth_changed(GtkSpinButton* spin, gpointer user_data) {
 static void on_int_time_changed(GtkSpinButton* spin, gpointer user_data) {
     (void)spin;
     AiDialog* dialog = (AiDialog*)user_data;
+    if (dialog->is_loading) return;
     dialog->int_manual_movetime = true;
     
     AppConfig* cfg = config_get();
@@ -184,6 +188,14 @@ static void on_int_time_changed(GtkSpinButton* spin, gpointer user_data) {
 
 static void on_int_advanced_toggled(GtkCheckButton* btn, gpointer user_data) {
     AiDialog* dialog = (AiDialog*)user_data;
+    if (dialog->is_loading) {
+        // Just update visibility, don't save
+        bool active = gtk_check_button_get_active(btn);
+        gtk_widget_set_visible(dialog->int_adv_vbox, active);
+        gtk_widget_set_sensitive(dialog->elo_slider, !active);
+        gtk_widget_set_sensitive(dialog->elo_spin, !active);
+        return;
+    }
     bool active = gtk_check_button_get_active(btn);
     gtk_widget_set_visible(dialog->int_adv_vbox, active);
     // Disable ELO controls when advanced is on
@@ -215,6 +227,7 @@ static void on_int_reset_adv_clicked(GtkButton* btn, gpointer user_data) {
 
 static void on_custom_depth_changed(GtkSpinButton* spin, gpointer user_data) {
     AiDialog* dialog = (AiDialog*)user_data;
+    if (dialog->is_loading) return;
     if (!dialog->custom_manual_movetime) {
         int depth = gtk_spin_button_get_value_as_int(spin);
         gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_time_spin), calculate_movetime(depth));
@@ -231,6 +244,7 @@ static void on_custom_depth_changed(GtkSpinButton* spin, gpointer user_data) {
 static void on_custom_time_changed(GtkSpinButton* spin, gpointer user_data) {
     (void)spin;
     AiDialog* dialog = (AiDialog*)user_data;
+    if (dialog->is_loading) return;
     dialog->custom_manual_movetime = true;
     
     AppConfig* cfg = config_get();
@@ -259,6 +273,12 @@ static void update_custom_controls_state(AiDialog* dialog) {
 
 static void on_custom_advanced_toggled(GtkCheckButton* btn, gpointer user_data) {
     AiDialog* dialog = (AiDialog*)user_data;
+    if (dialog->is_loading) {
+        bool active = gtk_check_button_get_active(btn);
+        gtk_widget_set_visible(dialog->custom_adv_vbox, active);
+        update_custom_controls_state(dialog);
+        return;
+    }
     bool active = gtk_check_button_get_active(btn);
     gtk_widget_set_visible(dialog->custom_adv_vbox, active);
     update_custom_controls_state(dialog);
@@ -305,6 +325,7 @@ static void on_clear_path_clicked(GtkButton* btn, gpointer user_data) {
 
 static void on_custom_path_changed(GtkEditable* editable, gpointer user_data) {
     AiDialog* dialog = (AiDialog*)user_data;
+    if (dialog->is_loading) return;
     const char* path = gtk_editable_get_text(editable);
     if (path && strlen(path) > 0) {
         if (ai_engine_test_binary(path)) {
@@ -521,6 +542,7 @@ static void on_analysis_toggle_toggled(GtkCheckButton* btn, gpointer user_data) 
     (void)btn;
     AiDialog* dialog = (AiDialog*)user_data;
     sync_analysis_tab_sensitivity(dialog);
+    if (dialog->is_loading) return;
     
     // Immediate Update
     AppConfig* cfg = config_get();
@@ -871,25 +893,41 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_widget_set_halign(anal_header, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(analysis_tab), anal_header);
 
-    dialog->analysis_toggle = gtk_check_button_new_with_label("Real-time Evaluation");
+    // Main Analysis Toggle
+    dialog->analysis_toggle = gtk_check_button_new_with_label("Enable Live Analysis");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_toggle), FALSE); 
+    gtk_widget_set_sensitive(dialog->analysis_toggle, FALSE); // DISABLE ANALYSIS: Force disabled
     g_signal_connect(dialog->analysis_toggle, "toggled", G_CALLBACK(on_analysis_toggle_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->analysis_toggle);
+    
+    // COMING SOON Label
+    GtkWidget* soon_lbl = gtk_label_new("COMING SOON");
+    gtk_widget_add_css_class(soon_lbl, "accent-color"); // Use theme accent
+    gtk_widget_add_css_class(soon_lbl, "heading");      // Make it bold/large
+    gtk_widget_set_halign(soon_lbl, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(soon_lbl, 10);
+    gtk_widget_set_margin_bottom(soon_lbl, 10);
+    gtk_box_append(GTK_BOX(analysis_tab), soon_lbl);
 
     gtk_box_append(GTK_BOX(analysis_tab), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 
-    dialog->advantage_bar_toggle = gtk_check_button_new_with_label("Evaluation Bar");
+    dialog->advantage_bar_toggle = gtk_check_button_new_with_label("Show Advantage Bar");
+    gtk_widget_set_sensitive(dialog->advantage_bar_toggle, FALSE); // Force Disabled
     g_signal_connect(dialog->advantage_bar_toggle, "toggled", G_CALLBACK(on_analysis_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->advantage_bar_toggle);
-
-    dialog->mate_warning_toggle = gtk_check_button_new_with_label("Checkmate Alerts");
+    
+    dialog->mate_warning_toggle = gtk_check_button_new_with_label("Show Mate Warnings");
+    gtk_widget_set_sensitive(dialog->mate_warning_toggle, FALSE); // Force Disabled
     g_signal_connect(dialog->mate_warning_toggle, "toggled", G_CALLBACK(on_analysis_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->mate_warning_toggle);
-
-    dialog->hanging_pieces_toggle = gtk_check_button_new_with_label("Hanging Pieces Indicator");
+    
+    dialog->hanging_pieces_toggle = gtk_check_button_new_with_label("Show Hanging Pieces");
+    gtk_widget_set_sensitive(dialog->hanging_pieces_toggle, FALSE); // Force Disabled
     g_signal_connect(dialog->hanging_pieces_toggle, "toggled", G_CALLBACK(on_analysis_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->hanging_pieces_toggle);
-
-    dialog->move_rating_toggle = gtk_check_button_new_with_label("Move Quality Feedback");
+    
+    dialog->move_rating_toggle = gtk_check_button_new_with_label("Show Move Ratings (Brilliant, etc.)");
+    gtk_widget_set_sensitive(dialog->move_rating_toggle, FALSE); // Force Disabled
     g_signal_connect(dialog->move_rating_toggle, "toggled", G_CALLBACK(on_analysis_setting_toggled), dialog);
     gtk_box_append(GTK_BOX(analysis_tab), dialog->move_rating_toggle);
 
@@ -1149,17 +1187,21 @@ void ai_dialog_load_config(AiDialog* dialog, void* config_struct) {
     if (dialog->custom_adv_vbox) gtk_widget_set_visible(dialog->custom_adv_vbox, cfg->custom_is_advanced);
     
     // Analysis
-    if (dialog->analysis_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_toggle), cfg->enable_live_analysis);
+    if (dialog->analysis_toggle) {
+         // Force disabled as per requirements, or load if we were allowing it
+         // But user wants it disabled.
+         // Let's ensure it's loaded as FALSE regardless of config to enforce disablement, 
+         // or if we trust config is already false.
+         // Current config_manager defaults it to false.
+         gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_toggle), cfg->enable_live_analysis);
+    }
     if (dialog->advantage_bar_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->advantage_bar_toggle), cfg->show_advantage_bar);
     if (dialog->mate_warning_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->mate_warning_toggle), cfg->show_mate_warning);
     if (dialog->hanging_pieces_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->hanging_pieces_toggle), cfg->show_hanging_pieces);
     if (dialog->move_rating_toggle) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->move_rating_toggle), cfg->show_move_rating);
     
-    if (cfg->analysis_use_custom) {
-        if (dialog->analysis_engine_custom) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_engine_custom), TRUE);
-    } else {
-        if (dialog->analysis_engine_internal) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_engine_internal), TRUE);
-    }
+    if (dialog->analysis_engine_internal) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_engine_internal), !cfg->analysis_use_custom);
+    if (dialog->analysis_engine_custom) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->analysis_engine_custom), cfg->analysis_use_custom);
 
     sync_analysis_tab_sensitivity(dialog);
     

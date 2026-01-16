@@ -69,6 +69,9 @@ void board_widget_set_pre_move_callback(GtkWidget* board_widget, BoardPreMoveCal
 // Enable/Disable board interaction (D&D and clicks)
 void board_widget_set_interactive(GtkWidget* board_widget, bool interactive);
 
+// Helper to check if board is flipped (wrapper for get_flipped)
+bool board_widget_is_flipped(GtkWidget* board_widget);
+
 #endif // BOARD_WIDGET_H
 
 

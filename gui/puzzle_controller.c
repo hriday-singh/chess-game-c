@@ -9,6 +9,7 @@
 #include "gamelogic.h"
 
 #include "right_side_panel.h"
+#include "clock_widget.h"
 
 static void on_puzzle_list_item_selected(int idx, gpointer user_data);
 
@@ -66,6 +67,10 @@ void puzzle_controller_start(AppState* state, int puzzle_idx) {
 
     // Explicitly grab focus to main window
     if (state->gui.window) gtk_window_present(state->gui.window);
+    
+    // Hide Clocks
+    if (state->gui.top_clock) clock_widget_set_visible_state(state->gui.top_clock, false);
+    if (state->gui.bottom_clock) clock_widget_set_visible_state(state->gui.bottom_clock, false);
 }
 
 
@@ -213,6 +218,16 @@ void puzzle_controller_exit(AppState* state) {
     
     // Restore RSP
     if (state->gui.right_side_panel) right_side_panel_set_visible(state->gui.right_side_panel, true);
+    
+    // Re-enable Clocks
+    if (state->gui.top_clock) {
+        clock_widget_set_disabled(state->gui.top_clock, false);
+        clock_widget_set_visible_state(state->gui.top_clock, true);
+    }
+    if (state->gui.bottom_clock) {
+        clock_widget_set_disabled(state->gui.bottom_clock, false);
+        clock_widget_set_visible_state(state->gui.bottom_clock, true);
+    }
 }
 
 void puzzle_controller_refresh_list(AppState* state) {

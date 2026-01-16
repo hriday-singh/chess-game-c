@@ -18,7 +18,7 @@
 #define MKDIR(path) mkdir(path, 0755)
 #endif
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 // Global configuration instance
 static AppConfig g_config;
@@ -93,7 +93,12 @@ static void set_defaults(void) {
     g_config.show_mate_warning = true;
     g_config.show_hanging_pieces = true;
     g_config.show_move_rating = true;
+    g_config.show_move_rating = true;
     g_config.analysis_use_custom = false;
+    
+    // Clock Defaults
+    g_config.clock_minutes = 0; // Default: No Clock
+    g_config.clock_increment = 0;
     
     // AI - Internal
     g_config.int_elo = 1500;
@@ -217,7 +222,10 @@ static void parse_line(char* line) {
         else if (strcmp(key, "custom_depth") == 0) g_config.custom_depth = atoi(val_start);
         else if (strcmp(key, "custom_movetime") == 0) g_config.custom_movetime = atoi(val_start);
         else if (strcmp(key, "white_stroke_width") == 0) g_config.white_stroke_width = atof(val_start);
+        else if (strcmp(key, "white_stroke_width") == 0) g_config.white_stroke_width = atof(val_start);
         else if (strcmp(key, "black_stroke_width") == 0) g_config.black_stroke_width = atof(val_start);
+        else if (strcmp(key, "clock_minutes") == 0) g_config.clock_minutes = atoi(val_start);
+        else if (strcmp(key, "clock_increment") == 0) g_config.clock_increment = atoi(val_start);
     }
 }
 
@@ -289,6 +297,9 @@ bool config_save(void) {
     fprintf(f, "    \"show_move_rating\": %s,\n", g_config.show_move_rating ? "true" : "false");
     fprintf(f, "    \"analysis_use_custom\": %s,\n", g_config.analysis_use_custom ? "true" : "false");
     
+    fprintf(f, "    \"clock_minutes\": %d,\n", g_config.clock_minutes);
+    fprintf(f, "    \"clock_increment\": %d,\n", g_config.clock_increment);
+
     fprintf(f, "    \"int_elo\": %d,\n", g_config.int_elo);
     fprintf(f, "    \"int_depth\": %d,\n", g_config.int_depth);
     fprintf(f, "    \"int_movetime\": %d,\n", g_config.int_movetime);

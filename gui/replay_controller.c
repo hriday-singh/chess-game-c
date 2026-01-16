@@ -160,8 +160,6 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
 
                  for (int i = 0; i < self->total_moves; i++) {
                      Move* m = self->moves[i];
-                     char uci[16];
-                     gamelogic_get_move_uci(temp_logic, m, uci, sizeof(uci));
                      
                      // Get piece type from current board state before move
                      int r = m->from_sq / 8;
@@ -171,13 +169,19 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
                          p_type = temp_logic->board[r][c]->type;
                      }
 
-                     right_side_panel_add_uci_move(self->app_state->gui.right_side_panel, uci, p_type, m_num, p);
+                     char uci[16];
+                     move_to_uci(m, uci); // Keep UCI for the full_uci_history string
+                     
+                     // Advance temp logic FIRST, then get SAN (which works on the updated state)
+                     gamelogic_perform_move(temp_logic, m);
+
+                     char san[16];
+                     gamelogic_get_move_san(temp_logic, m, san, sizeof(san));
+
+                     right_side_panel_add_move_notation(self->app_state->gui.right_side_panel, san, p_type, m_num, p);
                      
                      if (full_uci->len > 0) g_string_append_c(full_uci, ' ');
                      g_string_append(full_uci, uci);
-                     
-                     // Advance temp logic
-                     gamelogic_perform_move(temp_logic, m);
                      
                      if (p == PLAYER_BLACK) m_num++;
                      p = (p == PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
@@ -186,6 +190,9 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
                  
                  // Store reconstructed UCI history
                  self->full_uci_history = g_string_free(full_uci, FALSE);
+
+                 // Ensure we scroll to top after bulk load as requested by user
+                 right_side_panel_scroll_to_top(self->app_state->gui.right_side_panel);
              }
         }
     }

@@ -5,6 +5,7 @@
 #include "piece.h"
 #include "gamelogic.h"
 #include "right_side_panel.h"
+#include "clock_widget.h"
 
 static bool debug_mode = false;
 
@@ -395,11 +396,18 @@ void on_tutorial_exit(GtkButton* btn, gpointer user_data) {
         info_panel_rebuild_layout(state->gui.info_panel);
     }
     
-    if (state->gui.tutorial_exit_btn) gtk_widget_set_visible(state->gui.tutorial_exit_btn, FALSE);
-    gtk_window_set_title(state->gui.window, "HAL :) Chess");
-    
     // Restore RSP
     if (state->gui.right_side_panel) right_side_panel_set_visible(state->gui.right_side_panel, true);
+    
+    // Re-enable Clocks
+    if (state->gui.top_clock) {
+        clock_widget_set_disabled(state->gui.top_clock, false);
+        clock_widget_set_visible_state(state->gui.top_clock, true);
+    }
+    if (state->gui.bottom_clock) {
+        clock_widget_set_disabled(state->gui.bottom_clock, false);
+        clock_widget_set_visible_state(state->gui.bottom_clock, true);
+    }
     
     board_widget_refresh(state->gui.board);
 }
@@ -432,6 +440,10 @@ void on_tutorial_action(GSimpleAction* action, GVariant* parameter, gpointer use
             "Hey I am HAL :) A friendly Chess engine.\n\nI will guide you through the basics of Chess so we can play together!", 
             "Introduction");
     }
+
+    // Hide Clocks
+    if (state->gui.top_clock) clock_widget_set_visible_state(state->gui.top_clock, false);
+    if (state->gui.bottom_clock) clock_widget_set_visible_state(state->gui.bottom_clock, false);
 
     // Register invalid move callback
     board_widget_set_invalid_move_callback(state->gui.board, on_invalid_tutorial_move, state);

@@ -650,11 +650,21 @@ static const char *CSS_STRUCTURAL =
     " .adv-rail-box { background: alpha(@bg_color, 0.5); padding: 8px 0; border-radius: 50px; margin-left: 8px; }\n"
     " .rail-side-label { font-family: 'Inter', sans-serif; font-size: 10px; font-weight: 800; color: @dim_label; margin: 4px 0; }\n"
     
-    " .pos-info-v4 { padding: 16px; }\n"
+    " .pos-info-v4 { padding: 4px 12px; }\n"
     " .eval-text-v4 { font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: 800; color: @fg_color; }\n"
     " .mate-notice-v4 { background: alpha(@base_destructive_bg, 0.15); color: @base_destructive_bg; font-weight: 900; font-size: 14px; padding: 6px 12px; border-radius: 8px; margin-left: 12px; }\n"
     " .hanging-text-v4 { font-size: 13px; text-transform: uppercase; letter-spacing: 1.2px; color: @dim_label; font-weight: 700; line-height: 1.6; }\n"
     " .analysis-side-lbl-v4 { font-size: 12px; font-weight: 800; color: @accent_color; text-transform: uppercase; letter-spacing: 0.8px; opacity: 0.9; margin-top: 6px; }\n"
+    
+    // Clock CSS
+    // --- Board Anchored Clock Pill ---
+    " .clock-pill { background: @card_bg; border: 2px solid @border_color; border-radius: 50px; padding: 6px 18px; transition: all 0.3s ease; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }\n"
+    " .clock-pill.active { border-color: @accent_color; box-shadow: 0 8px 20px alpha(@accent_color, 0.25); background: @bg_color; }\n"
+    " .clock-pill.active drawingarea { color: @accent_color; }\n"
+    " .clock-player-name { font-weight: 800; font-size: 13px; text-transform: uppercase; color: @dim_label; opacity: 0.7; letter-spacing: 0.5px; }\n"
+    " .active .clock-player-name { color: @fg_color; opacity: 1.0; }\n"
+    " .clock-time { font-family: 'JetBrains Mono', 'Roboto Mono', monospace; font-size: 24px; font-weight: 800; color: @dim_label; min-width: 80px; }\n"
+    " .active .clock-time { color: @fg_color; }\n"
     
     " .feedback-zone-v4 { padding: 16px; margin: 12px; border-radius: 14px; border: 1.5px solid alpha(@border_color, 0.6); }\n"
     " .feedback-rating-v4 { font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 4px; }\n"
@@ -667,9 +677,11 @@ static const char *CSS_STRUCTURAL =
     " .feedback-blunder { background: alpha(@base_destructive_bg, 0.12); color: @base_destructive_bg; }\n"
     " .feedback-mistake { background: rgba(230, 126, 34, 0.1); color: #e67e22; }\n"
     
-    " .history-header-v4 { padding: 12px 20px; font-size: 13px; font-weight: 800; text-transform: uppercase; color: @dim_label; letter-spacing: 2px; background: alpha(@fg_color, 0.02); border-top: 1px solid alpha(@border_color, 0.4); border-bottom: 1px solid alpha(@border_color, 0.2); }\n"
-    " .move-history-list-v4 { background: transparent; }\n"
-    " .move-number-v2 { min-width: 44px; padding: 10px 10px; color: @dim_label; font-size: 13px; font-weight: 700; opacity: 0.8; background: alpha(@bg_color, 0.08); border-right: 1px solid alpha(@border_color, 0.1); }\n"
+    " .history-header-v4 { padding: 4px 8px; font-size: 13px; font-weight: 800; text-transform: uppercase; color: @dim_label; letter-spacing: 2px; background: alpha(@fg_color, 0.02); border-top: 1px solid alpha(@border_color, 0.4); border-bottom: 1px solid alpha(@border_color, 0.2); }\n"
+    " .move-history-list-v4 { background: transparent; padding: 0; margin: 0; }\n"
+    " .move-history-list-v4 listboxrow { padding: 0; margin: 0; background: transparent; border: none; }\n"
+    " .move-number-v2 { min-width: 28px; padding: 8px 4px 8px 0; color: @dim_label; font-size: 13px; font-weight: 700; opacity: 0.8; background: alpha(@bg_color, 0.08); border-right: 1px solid alpha(@border_color, 0.1); }\n"
+    " .move-history-row-v2 { padding: 0; margin: 0; border-bottom: 1px solid alpha(@border_color, 0.05); }\n"
     " .move-cell-v2 { padding: 4px; min-width: 110px; transition: background 0.15s; border-right: 1px solid alpha(@border_color, 0.05); }\n"
     " .move-text-btn { border: 1.5px solid alpha(@border_color, 0.5); background: alpha(@fg_color, 0.02); border-radius: 20px; padding: 2px 8px; margin: 4px; color: @fg_color; font-family: 'Inter', sans-serif; font-weight: 700; font-size: 14px; transition: all 0.25s; min-height: 32px; }\n"
     " .move-text-btn:hover { background: alpha(@accent_color, 0.15); color: @accent_color; transform: translateY(-1px); border-color: alpha(@accent_color, 0.3); }\n"

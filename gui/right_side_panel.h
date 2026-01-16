@@ -16,14 +16,17 @@ struct _RightSidePanel {
     ThemeData* theme;
     
     // Layout hierarchy
-    GtkWidget* toggle_btn;  // The arrow button
-    GtkWidget* content_side; // Box holding rail + main_col
-    GtkWidget* adv_rail;    // Drawing area
-    GtkWidget* rail_box;
     GtkWidget* main_col;
     GtkWidget* pos_info;
     GtkWidget* eval_lbl;
     GtkWidget* mate_lbl;    // MATE IN X notice
+    
+    // Clock Labels (Removed)
+    // GtkWidget* white_clock_lbl;
+    // GtkWidget* black_clock_lbl;
+    
+    // Caching (Removed)
+    
     GtkWidget* hanging_lbl;
     GtkWidget* analysis_side_lbl; // New: Analysis for [Side]
     
@@ -47,8 +50,6 @@ struct _RightSidePanel {
     
     // Footer Navigation (Removed)
     
-    GtkWidget* w_lbl; // Rail label W
-    GtkWidget* b_lbl; // Rail label B
 
     bool replay_lock;      // if true, ignore highlight clears
     int  locked_ply;       // last ply we want highlighted (optional)
@@ -74,6 +75,7 @@ GtkWidget* right_side_panel_get_widget(RightSidePanel* panel);
 
 // Update functions
 void right_side_panel_update_stats(RightSidePanel* panel, double evaluation, bool is_mate);
+void right_side_panel_update_clock(RightSidePanel* panel);
 void right_side_panel_set_mate_warning(RightSidePanel* panel, int moves);
 void right_side_panel_set_hanging_pieces(RightSidePanel* panel, int white_count, int black_count);
 void right_side_panel_show_rating_toast(RightSidePanel* panel, const char* rating, const char* reason, int ply_index);
@@ -86,11 +88,12 @@ void right_side_panel_set_flipped(RightSidePanel* panel, bool flipped); // New
 void right_side_panel_set_analysis_result(RightSidePanel* panel, const GameAnalysisResult* res);
 
 void right_side_panel_add_move(RightSidePanel* panel, Move move, int m_num, Player p);
-void right_side_panel_add_uci_move(RightSidePanel* panel, const char* uci, PieceType p_type, int move_number, Player turn);
+void right_side_panel_add_move_notation(RightSidePanel* panel, const char* notation, PieceType p_type, int move_number, Player turn);
 void right_side_panel_clear_history(RightSidePanel* panel);
 void right_side_panel_set_current_move(RightSidePanel* panel, int move_index);
 void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index);
 void right_side_panel_refresh(RightSidePanel* panel);
+void right_side_panel_scroll_to_top(RightSidePanel* panel);
 
 void right_side_panel_set_nav_callback(RightSidePanel* panel, RightSidePanelNavCallback callback, gpointer user_data);
 void right_side_panel_set_analyze_callback(RightSidePanel* panel, GCallback callback, gpointer user_data);

@@ -1716,6 +1716,11 @@ void board_widget_set_pre_move_callback(GtkWidget* board_widget, BoardPreMoveCal
     board->preMoveData = data;
 }
 
+// Helper to check if board is flipped
+bool board_widget_is_flipped(GtkWidget* board_widget) {
+    return board_widget_get_flipped(board_widget);
+}
+
 void board_widget_set_interactive(GtkWidget* board_widget, bool interactive) {
     BoardWidget* board = find_board_data(board_widget);
     if (board) {
