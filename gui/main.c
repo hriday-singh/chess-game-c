@@ -829,12 +829,17 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
     // 2. Reset current game state
     on_game_reset(state); 
 
-    // 2. Initialize Controller if needed (lazy init)
-    if (!state->replay_controller) {
-        state->replay_controller = replay_controller_new(state->logic, state);
+    // Initialize Replay Controller
+    if (state->replay_controller) {
+        replay_controller_free(state->replay_controller);
     }
-
-    // 3. Update UI for replay mode (Must happen BEFORE loading so lazy-init happens)
+    state->replay_controller = replay_controller_new(state->logic, state);
+    
+    // Wire up UI
+    replay_controller_enter_replay_mode(state->replay_controller);
+    
+    // Initial Seek to end
+    replay_controller_seek(state->replay_controller, gamelogic_get_move_count(state->logic));
     if (state->gui.info_panel) {
         info_panel_show_replay_controls(state->gui.info_panel, TRUE);
     }

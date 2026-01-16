@@ -18,7 +18,7 @@
 #define MKDIR(path) mkdir(path, 0755)
 #endif
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 // Global configuration instance
 static AppConfig g_config;

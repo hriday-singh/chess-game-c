@@ -9,6 +9,8 @@
 typedef struct AppState AppState;
 struct GameLogic;
 typedef struct GameLogic GameLogic;
+struct _AiAnalysisJob;
+struct GameAnalysisResult;
 
 typedef struct ReplayController {
     GameLogic* logic;
@@ -30,18 +32,28 @@ typedef struct ReplayController {
     int snapshot_count;
     int snapshot_capacity;
     
+    // AI Analysis
+    struct _AiAnalysisJob* analysis_job;
+    struct GameAnalysisResult* analysis_result;
+    
 } ReplayController;
 
 // Lifecycle
 ReplayController* replay_controller_new(GameLogic* logic, AppState* app_state);
 void replay_controller_free(ReplayController* self);
 
-// Core Functionality
+// Core Actions
+void replay_controller_enter_replay_mode(ReplayController* self);
 // Load a match into the replay controller (populates internal state)
 // start_fen can be NULL or empty for standard start
 void replay_controller_load_match(ReplayController* self, const char* moves_uci, const char* start_fen);
-void replay_controller_start(ReplayController* self); // Enter replay mode, reset to start
 void replay_controller_exit(ReplayController* self);  // Exit replay mode
+
+// Analysis
+void replay_controller_analyze_match(ReplayController* self);
+void replay_controller_cancel_analysis(ReplayController* self);
+bool replay_controller_is_analyzing(ReplayController* self);
+const struct GameAnalysisResult* replay_controller_get_analysis_result(ReplayController* self);
 
 // Playback Controls
 void replay_controller_play(ReplayController* self);

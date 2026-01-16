@@ -5,6 +5,7 @@
 #include "board_widget.h"
 #include "sound_engine.h"
 #include "gamelogic.h"
+#include "gamelogic.h"
 #include <pango/pango.h>
 #include <glib.h>
 #include <stdlib.h>
@@ -2075,6 +2076,7 @@ static void on_replay_start_here_clicked(GtkButton* btn, gpointer user_data) {
     }
 }
 
+
 static void on_replay_slider_value_changed(GtkRange* range, gpointer user_data) {
     (void)user_data;
 
@@ -2285,6 +2287,8 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     g_signal_connect(panel->replay_ui.start_here_btn, "clicked", G_CALLBACK(on_replay_start_here_clicked), panel);
     gtk_box_append(GTK_BOX(panel->replay_ui.box), panel->replay_ui.start_here_btn);
 
+    // Analysis UI moved to RightSidePanel
+
     panel->replay_ui.exit_btn = gtk_button_new_with_label("Exit Replay");
     gtk_widget_add_css_class(panel->replay_ui.exit_btn, "destructive-action");
     g_signal_connect(panel->replay_ui.exit_btn, "clicked", G_CALLBACK(on_replay_exit_clicked), panel);
@@ -2321,6 +2325,8 @@ void info_panel_update_replay_status(GtkWidget* info_panel, int current_ply, int
     // Also update buttons sensitivity/icon states if needed provided we have references
     // E.g. disable Back if current_ply == 0
     if (panel->replay_ui.prev_btn) gtk_widget_set_sensitive(panel->replay_ui.prev_btn, current_ply > 0);
+    if (panel->replay_ui.start_btn) gtk_widget_set_sensitive(panel->replay_ui.start_btn, current_ply > 0);
+    
     if (panel->replay_ui.start_btn) gtk_widget_set_sensitive(panel->replay_ui.start_btn, current_ply > 0);
     
     if (panel->replay_ui.next_btn) gtk_widget_set_sensitive(panel->replay_ui.next_btn, current_ply < total_plies);

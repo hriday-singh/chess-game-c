@@ -5,6 +5,8 @@
 #include "board_widget.h"
 #include "right_side_panel.h"
 #include "info_panel.h"
+#include "ai_analysis.h"
+#include "config_manager.h"
 #include <string.h>
 
 static bool debug_mode = true;
@@ -54,6 +56,17 @@ void replay_controller_free(ReplayController* self) {
     }
     
     g_free(self->full_uci_history);
+    
+    if (self->analysis_job) {
+        ai_analysis_cancel(self->analysis_job);
+        // Note: Thread might still be running. Ideally we join or wait.
+        // For now, assume cancel acts quickly or we leak small struct until app exit.
+        // ai_analysis_free(self->analysis_job); // Unsafe if thread running
+    }
+    
+    if (self->analysis_result) {
+        ai_analysis_result_unref(self->analysis_result);
+    }
     
     g_free(self);
 }
@@ -445,10 +458,211 @@ static gboolean replay_timer_callback(gpointer user_data) {
     
     replay_controller_next(self);
     
-    // While animating, we don't want to trigger next immediately?
-    // `board_widget_animate_move` is async/visual.
-    // If speed is fast, animations might overlap.
-    // `animate_move` usually cancels previous animation.
-    
     return G_SOURCE_CONTINUE;
+}
+
+/* --- AI Analysis Integration --- */
+
+typedef struct {
+    ReplayController* controller;
+    int ply_done;
+    int total;
+} AnalysisProgressData;
+
+static gboolean on_analysis_progress_idle(gpointer user_data) {
+    AnalysisProgressData* data = (AnalysisProgressData*)user_data;
+    if (data->controller && data->controller->app_state) {
+        // We aren't using a granular progress bar in the new UI, just a spinner/overlay.
+        // But we could update the loading label text if we exposed a function for it.
+        // For now, just logging or no-op.
+        // right_side_panel_set_loading_text(...); // Optional future enhancement
+    }
+    g_free(data);
+    return FALSE;
+}
+
+static void on_analysis_progress(int ply_done, int total, void* user_data) {
+    ReplayController* self = (ReplayController*)user_data;
+    if (!self) return;
+    
+    AnalysisProgressData* data = g_new0(AnalysisProgressData, 1);
+    data->controller = self;
+    data->ply_done = ply_done;
+    data->total = total;
+    
+    g_idle_add(on_analysis_progress_idle, data);
+}
+
+typedef struct {
+    ReplayController* controller;
+    GameAnalysisResult* result;
+} AnalysisCompleteData;
+
+static gboolean on_analysis_complete_idle(gpointer user_data) {
+    AnalysisCompleteData* data = (AnalysisCompleteData*)user_data;
+    ReplayController* self = data->controller;
+    
+    if (self && !self->analysis_result) { // Only set if not already set (or handle overwrite)
+         self->analysis_result = data->result; // Transfer ownership (ref count)
+         
+         if (debug_mode) {
+             printf("[Replay] Analysis Result Stored: %d plies\n", self->analysis_result->total_plies);
+         }
+         
+         // Notify UI
+         if (self->app_state) {
+             // Update Right Side Panel (Move List Annotations)
+             right_side_panel_set_analysis_result(self->app_state->gui.right_side_panel, self->analysis_result);
+             
+             // Update Info Panel (Status / Button State)
+             info_panel_update_replay_status(self->app_state->gui.info_panel, self->current_ply, self->total_moves);
+             
+             // Hide progress / Stop loading overlay
+             right_side_panel_set_analyzing_state(self->app_state->gui.right_side_panel, false);
+         }
+         
+    } else {
+        // Collision or cancelled? Unref payload
+        ai_analysis_result_unref(data->result);
+    }
+    
+    // Cleanup job reference since it's finished
+    if (self && self->analysis_job) {
+        ai_analysis_free(self->analysis_job);
+        self->analysis_job = NULL;
+    }
+
+    g_free(data);
+    return FALSE; 
+}
+
+// Callback for the RightSidePanel "Analyze Game" button
+static void on_replay_analyze_clicked_cb(GtkButton* btn, gpointer user_data) {
+    (void)btn; // Unused
+    ReplayController* self = (ReplayController*)user_data;
+    printf("[ReplayController] Analyze button clicked. Controller: %p\n", (void*)self);
+    
+    if (!self) return;
+    
+    if (replay_controller_is_analyzing(self)) {
+        printf("[ReplayController] Cancelling analysis...\n");
+        replay_controller_cancel_analysis(self);
+        // UI update for cancel happens immediately or via state check?
+        // Let's force UI update
+        if (self->app_state) {
+            right_side_panel_set_analyzing_state(self->app_state->gui.right_side_panel, false);
+        }
+    } else {
+        printf("[ReplayController] Starting analysis...\n");
+        replay_controller_analyze_match(self);
+        // Start loading overlay
+        if (self->app_state) {
+            right_side_panel_set_analyzing_state(self->app_state->gui.right_side_panel, true);
+        }
+    }
+}
+
+void replay_controller_enter_replay_mode(ReplayController* self) {
+    if (!self || !self->app_state) {
+        printf("[ReplayController] Error: Enter replay mode called with NULL self or app_state\n");
+        return;
+    }
+    printf("[ReplayController] Entering replay mode...\n");
+    
+    // Wire up the new Analyze button in RightSidePanel
+    if (self->app_state->gui.right_side_panel) {
+        right_side_panel_set_analyze_callback(self->app_state->gui.right_side_panel, G_CALLBACK(on_replay_analyze_clicked_cb), self);
+    } else {
+        printf("[ReplayController] Warning: RightSidePanel is NULL in AppState\n");
+    }
+    
+    // Reset analysis UI state
+    right_side_panel_set_analyzing_state(self->app_state->gui.right_side_panel, false);
+    right_side_panel_set_analysis_result(self->app_state->gui.right_side_panel, self->analysis_result); // Show existing result if any
+}
+
+static void on_analysis_complete(GameAnalysisResult* result, void* user_data) {
+    ReplayController* self = (ReplayController*)user_data;
+    if (!self) return;
+    
+    // Ref the result to pass to main thread
+    ai_analysis_result_ref(result);
+    
+    AnalysisCompleteData* data = g_new0(AnalysisCompleteData, 1);
+    data->controller = self;
+    data->result = result;
+    
+    g_idle_add(on_analysis_complete_idle, data);
+}
+
+void replay_controller_analyze_match(ReplayController* self) {
+    if (!self || !self->full_uci_history) {
+        printf("[Replay] Cannot analyze: No moves.\n");
+        return;
+    }
+    
+    if (self->analysis_job) {
+        printf("[Replay] Analysis already in progress.\n");
+        return;
+    }
+    
+    if (self->analysis_result) {
+        ai_analysis_result_unref(self->analysis_result);
+        self->analysis_result = NULL;
+    }
+    
+    // Config
+    AppConfig* app_config = config_get();
+    AnalysisConfig cfg = {0};
+    cfg.threads = 1;
+    cfg.hash_size = 64; // Small default
+    cfg.multipv = 3;
+    
+    if (app_config->analysis_use_custom && strlen(app_config->custom_engine_path) > 0) {
+        cfg.engine_path = app_config->custom_engine_path;
+        cfg.move_time_pass1 = app_config->custom_movetime;
+    } else {
+        // Internal/Stockfish
+        // TODO: Is there a unified getter? For now assume standard path or config path
+        // Using "stockfish" or configured path for internal if available
+        // Ideally `ai_engine` knows the internal path.
+        // For now, let's try strict path or assume in path.
+        cfg.engine_path = "stockfish"; 
+    }
+    
+    // Override for high accuracy if requested, or just use config
+    // cfg.move_time_pass1 = 1000; 
+    
+    // Split moves
+    char** moves = g_strsplit(self->full_uci_history, " ", -1);
+    int count = g_strv_length(moves);
+    
+    if (debug_mode) printf("[Replay] Starting analysis on %d moves...\n", count);
+    
+    self->analysis_job = ai_analysis_start(NULL, // startpos
+                                           moves, 
+                                           count, 
+                                           cfg, 
+                                           on_analysis_progress, 
+                                           on_analysis_complete, 
+                                           self);
+                                           
+    g_strfreev(moves);
+}
+
+void replay_controller_cancel_analysis(ReplayController* self) {
+    if (!self || !self->analysis_job) return;
+    
+    ai_analysis_cancel(self->analysis_job);
+    // Job free happens in callback or we wait? 
+    // `ai_analysis_cancel` just flags. 
+    // We should probably rely on callback to clean up `analysis_job` ptr.
+}
+
+bool replay_controller_is_analyzing(ReplayController* self) {
+    return (self && self->analysis_job != NULL);
+}
+
+const GameAnalysisResult* replay_controller_get_analysis_result(ReplayController* self) {
+    return self ? self->analysis_result : NULL;
 }

@@ -1,7 +1,7 @@
 #include "right_side_panel.h"
 #include <string.h>
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 typedef struct {
     RightSidePanel* panel;
@@ -104,11 +104,12 @@ static GtkWidget* create_move_cell_contents(RightSidePanel* panel, PieceType typ
 static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data) {
     if (!gtk_widget_get_realized(GTK_WIDGET(area)) || !gtk_widget_get_visible(GTK_WIDGET(area)) || width <= 1 || height <= 1) return;
     RightSidePanel* panel = (RightSidePanel*)user_data;
+    if (!panel) return;
     
     // Get theme colors from widget
     GdkRGBA fg;
     gtk_widget_get_color(GTK_WIDGET(area), &fg);
-    
+
     // Background (Black side / Base)
     // Use a darkened version of the foreground or a deep grey
     cairo_set_source_rgba(cr, 0.0, 0.0, 0.0, 0.8); 
@@ -118,7 +119,6 @@ static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int
 
     cairo_new_sub_path(cr);
     cairo_arc(cr, width - radius, radius, radius, -G_PI/2, 0);
-    cairo_arc(cr, width - radius, height - radius, radius, 0, G_PI/2);
     cairo_arc(cr, width - radius, height - radius, radius, 0, G_PI/2);
     cairo_arc(cr, radius, height - radius, radius, G_PI/2, G_PI);
     cairo_arc(cr, radius, radius, radius, G_PI, 3*G_PI/2);
@@ -134,11 +134,7 @@ static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int
         if (val < -10.0) val = -10.0;
         white_ratio = 0.5 + (val / 20.0);
     }
-    
-    // flipped=true means Black is at bottom, W at top.
-    // In draw_advantage_bar, height=0 is top, height=H is bottom.
-    // If white_ratio is 1.0 (Full white), White should fill the side it belongs to.
-    
+
     double white_h;
     bool w_at_top = panel->flipped; // True if Black at bottom (B at bottom implies W at top)
     
@@ -156,28 +152,19 @@ static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int
     cairo_arc(cr, radius, height - radius, radius, G_PI/2, G_PI);
     cairo_arc(cr, radius, radius, radius, G_PI, 3*G_PI/2);
     cairo_close_path(cr);
-    cairo_fill(cr);
+    cairo_clip(cr);
     
     // Fill with theme foreground (White/Light)
     cairo_set_source_rgba(cr, fg.red, fg.green, fg.blue, 0.95);
-    cairo_save(cr);
-    cairo_new_sub_path(cr);
-    cairo_arc(cr, width - radius, radius, radius, -G_PI/2, 0);
-    cairo_arc(cr, width - radius, height - radius, radius, 0, G_PI/2);
-    cairo_arc(cr, radius, height - radius, radius, G_PI/2, G_PI);
-    cairo_arc(cr, radius, radius, radius, G_PI, 3*G_PI/2);
-    cairo_close_path(cr);
-    cairo_clip(cr);
     
     if (w_at_top) {
         // Draw from TOP
         cairo_rectangle(cr, 0, 0, width, white_h);
     } else {
         // Draw from BOTTOM
-        cairo_rectangle(cr, 0, white_h, width, height - white_h);
+        cairo_rectangle(cr, 0, height - white_h, width, white_h);
     }
     cairo_fill(cr);
-    cairo_restore(cr);
     cairo_restore(cr);
     
     // Zero Reference Line (Red, exact middle)
@@ -187,6 +174,74 @@ static void draw_advantage_bar(GtkDrawingArea* area, cairo_t* cr, int width, int
     cairo_move_to(cr, 0, height / 2.0);
     cairo_line_to(cr, width, height / 2.0);
     cairo_stroke(cr);
+}
+
+void right_side_panel_set_analyze_callback(RightSidePanel* panel, GCallback callback, gpointer user_data) {
+    if (!panel || !panel->analyze_btn) {
+        printf("[RightSidePanel] Error: Cannot set analyze callback (panel or btn is NULL)\n");
+        return;
+    }
+    printf("[RightSidePanel] Connecting analyze callback to button %p\n", (void*)panel->analyze_btn);
+    // Disconnect any previous handlers to avoid duplicates if called multiple times?
+    // For now simple connection.
+    g_signal_connect(panel->analyze_btn, "clicked", callback, user_data);
+    g_object_set_data(G_OBJECT(panel->analyze_btn), "user_data", user_data);
+}
+
+// Global reference for loading dialog (simple singleton approach for this UI helper)
+static GtkWidget* g_loading_dialog = NULL;
+
+void right_side_panel_set_analyzing_state(RightSidePanel* panel, bool analyzing) {
+    if (!panel) return;
+    
+    if (analyzing) {
+        gtk_button_set_label(GTK_BUTTON(panel->analyze_btn), "Cancel Analysis");
+        gtk_widget_remove_css_class(panel->analyze_btn, "suggested-action");
+        gtk_widget_add_css_class(panel->analyze_btn, "destructive-action");
+        
+        // Show Loading Overlay
+        if (!g_loading_dialog) {
+            GtkWidget* win = GTK_WIDGET(gtk_widget_get_root(panel->container)); // Cast to GtkWidget*
+            if (GTK_IS_WINDOW(win)) {
+                g_loading_dialog = gtk_window_new();
+                gtk_window_set_transient_for(GTK_WINDOW(g_loading_dialog), GTK_WINDOW(win));
+                gtk_window_set_modal(GTK_WINDOW(g_loading_dialog), TRUE);
+                gtk_window_set_decorated(GTK_WINDOW(g_loading_dialog), FALSE);
+                // gtk_window_set_default_size(GTK_WINDOW(g_loading_dialog), 300, 150);
+                
+                // CSS for styling
+                GtkWidget* box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
+                gtk_widget_set_margin_top(box, 40);
+                gtk_widget_set_margin_bottom(box, 40);
+                gtk_widget_set_margin_start(box, 60);
+                gtk_widget_set_margin_end(box, 60);
+                gtk_window_set_child(GTK_WINDOW(g_loading_dialog), box);
+                
+                GtkWidget* spinner = gtk_spinner_new();
+                gtk_widget_set_size_request(spinner, 64, 64);
+                gtk_spinner_start(GTK_SPINNER(spinner));
+                gtk_widget_set_halign(spinner, GTK_ALIGN_CENTER);
+                gtk_box_append(GTK_BOX(box), spinner);
+                
+                GtkWidget* lbl = gtk_label_new("Analyzing Game...");
+                gtk_widget_add_css_class(lbl, "loading-label"); // Define in CSS
+                gtk_box_append(GTK_BOX(box), lbl);
+                
+                gtk_widget_add_css_class(g_loading_dialog, "loading-overlay"); // Define in CSS
+                
+                gtk_window_present(GTK_WINDOW(g_loading_dialog));
+            }
+        }
+    } else {
+        gtk_button_set_label(GTK_BUTTON(panel->analyze_btn), "Analyze Game");
+        gtk_widget_remove_css_class(panel->analyze_btn, "destructive-action");
+        gtk_widget_add_css_class(panel->analyze_btn, "suggested-action");
+        
+        if (g_loading_dialog) {
+            gtk_window_destroy(GTK_WINDOW(g_loading_dialog));
+            g_loading_dialog = NULL;
+        }
+    }
 }
 
 static void on_toggle_clicked(GtkButton* btn, gpointer user_data) {
@@ -351,6 +406,43 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(panel->history_scrolled), panel->history_list);
     gtk_box_append(GTK_BOX(panel->history_zone), panel->history_scrolled);
     gtk_box_append(GTK_BOX(panel->main_col), panel->history_zone);
+    
+    // --- 4. Analysis Control Zone (New) ---
+    panel->analysis_control_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+    gtk_widget_set_margin_top(panel->analysis_control_box, 10);
+    gtk_widget_set_margin_bottom(panel->analysis_control_box, 10);
+    gtk_widget_set_margin_start(panel->analysis_control_box, 10);
+    gtk_widget_set_margin_end(panel->analysis_control_box, 10);
+    
+    // Analyze Button
+    panel->analyze_btn = gtk_button_new_with_label("Analyze Game");
+    gtk_widget_add_css_class(panel->analyze_btn, "suggested-action"); 
+    gtk_box_append(GTK_BOX(panel->analysis_control_box), panel->analyze_btn);
+    
+    // Stats Box (Initially Hidden)
+    panel->analysis_stats_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_visible(panel->analysis_stats_box, FALSE);
+    gtk_widget_set_margin_top(panel->analysis_stats_box, 8);
+    
+    panel->accuracy_lbl = gtk_label_new("Accuracy: -");
+    gtk_widget_set_halign(panel->accuracy_lbl, GTK_ALIGN_START);
+    gtk_widget_add_css_class(panel->accuracy_lbl, "analysis-stat-label");
+    gtk_box_append(GTK_BOX(panel->analysis_stats_box), panel->accuracy_lbl);
+    
+    panel->acpl_lbl = gtk_label_new("ACPL: -");
+    gtk_widget_set_halign(panel->acpl_lbl, GTK_ALIGN_START);
+    gtk_widget_add_css_class(panel->acpl_lbl, "analysis-stat-label");
+    gtk_box_append(GTK_BOX(panel->analysis_stats_box), panel->acpl_lbl);
+    
+    panel->win_prob_lbl = gtk_label_new("Win Chance: -");
+    gtk_widget_set_halign(panel->win_prob_lbl, GTK_ALIGN_START);
+    gtk_widget_add_css_class(panel->win_prob_lbl, "analysis-stat-label");
+    gtk_box_append(GTK_BOX(panel->analysis_stats_box), panel->win_prob_lbl);
+    
+    gtk_box_append(GTK_BOX(panel->analysis_control_box), panel->analysis_stats_box);
+    gtk_box_append(GTK_BOX(panel->main_col), panel->analysis_control_box);
+
+    // --- 5. Move History List (Scrollable) ---(Moved to InfoPanel)
     
     // Footer Navigation Removed (Moved to InfoPanel)
     
@@ -571,6 +663,153 @@ void right_side_panel_sync_config(RightSidePanel* panel, const void* config) {
 }
 
 // right_side_panel_set_nav_visible removed
+
+// Helper to annotate a specific move cell
+static void annotate_move_cell(GtkWidget* cell, const PlyAnalysisRecord* rec) {
+    if (!cell || !rec) return;
+    GtkWidget* btn = gtk_widget_get_first_child(cell);
+    if (!btn || !GTK_IS_BUTTON(btn)) return;
+
+    // Reset styles first
+    gtk_widget_remove_css_class(btn, "move-best");
+    gtk_widget_remove_css_class(btn, "move-excellent");
+    gtk_widget_remove_css_class(btn, "move-good");
+    gtk_widget_remove_css_class(btn, "move-inaccuracy");
+    gtk_widget_remove_css_class(btn, "move-mistake");
+    gtk_widget_remove_css_class(btn, "move-blunder");
+    
+    const char* style = NULL;
+    if (rec->label == LABEL_BEST) style = "move-best";
+    else if (rec->label == LABEL_EXCELLENT) style = "move-excellent";
+    else if (rec->label == LABEL_GOOD) style = "move-good";
+    else if (rec->label == LABEL_INACCURACY) style = "move-inaccuracy";
+    else if (rec->label == LABEL_MISTAKE) style = "move-mistake";
+    else if (rec->label == LABEL_BLUNDER) style = "move-blunder";
+    
+    if (style) gtk_widget_add_css_class(btn, style);
+
+    // Add/Update Annotation Label
+    // Structure: Button -> Box -> [Icon?, MoveText, Annotation?]
+    GtkWidget* box = gtk_button_get_child(GTK_BUTTON(btn));
+    if (box && GTK_IS_BOX(box)) {
+        // Check if we already have an annotation label
+        GtkWidget* last = gtk_widget_get_last_child(box);
+        const char* name = gtk_widget_get_name(last);
+        
+        bool has_annot = (name && strcmp(name, "annot-lbl") == 0);
+        
+        GtkWidget* annot_lbl = has_annot ? last : NULL;
+        
+        // If not, create it
+        if (!annot_lbl) {
+            annot_lbl = gtk_label_new("");
+            gtk_widget_set_name(annot_lbl, "annot-lbl");
+            gtk_widget_add_css_class(annot_lbl, "move-annotation");
+            gtk_widget_set_margin_start(annot_lbl, 6);
+            gtk_box_append(GTK_BOX(box), annot_lbl);
+        }
+        
+        // Text: Symbol + Eval
+        char buf[32];
+        const char* sym = "";
+        if (rec->label == LABEL_BEST) sym = "!!";
+        else if (rec->label == LABEL_EXCELLENT) sym = "!";
+        else if (rec->label == LABEL_INACCURACY) sym = "?!";
+        else if (rec->label == LABEL_MISTAKE) sym = "?";
+        else if (rec->label == LABEL_BLUNDER) sym = "??";
+        
+        if (abs(rec->played_move_eval) > 10000) {
+             snprintf(buf, sizeof(buf), "%s", sym); 
+        } else {
+             snprintf(buf, sizeof(buf), "%s %.2f", sym, rec->played_move_eval / 100.0);
+        }
+        
+        gtk_label_set_text(GTK_LABEL(annot_lbl), buf);
+    }
+}
+
+void right_side_panel_set_analysis_result(RightSidePanel* panel, const GameAnalysisResult* res) {
+    if (!panel) return;
+    
+    if (!res) {
+        gtk_widget_set_visible(panel->analysis_stats_box, FALSE);
+        return; 
+    }
+    
+    // Update Stats
+    gtk_widget_set_visible(panel->analysis_stats_box, TRUE);
+    
+    char acc_buf[64];
+    // Simple mock accuracy for now until we implement real formula
+    double w_acc = 100.0 - (res->white_acpl / 5.0);
+    double b_acc = 100.0 - (res->black_acpl / 5.0);
+    if(w_acc < 0) w_acc = 0; 
+    if(b_acc < 0) b_acc = 0;
+    
+    snprintf(acc_buf, sizeof(acc_buf), "Accuracy: W %.1f%% | B %.1f%%", w_acc, b_acc);
+    gtk_label_set_text(GTK_LABEL(panel->accuracy_lbl), acc_buf);
+    
+    char acpl_buf[64];
+    snprintf(acpl_buf, sizeof(acpl_buf), "ACPL: W %.1f | B %.1f", res->white_acpl, res->black_acpl);
+    gtk_label_set_text(GTK_LABEL(panel->acpl_lbl), acpl_buf);
+
+    // Calculate approximate Win Probability based on final eval or dominant side in analysis
+    // Using simple logistic formula: P = 1 / (1 + 10^(-eval/4)) where eval is in pawns (approx)
+    // Here we have ACPL, but we can look at the last ply's eval if available, or just omit for now.
+    // Let's deduce "Win Gauge" from ACPL difference for summary.
+    double acpl_diff = res->black_acpl - res->white_acpl; // +ve means White played better (lower ACPL)
+    // This is heuristic. Real win prob requires eval from the engine at the current board position.
+    // We will placeholder or use a derived metric.
+    
+    char wp_buf[64];
+    const char* leader = (acpl_diff > 20) ? "White" : (acpl_diff < -20) ? "Black" : "Drawish";
+    snprintf(wp_buf, sizeof(wp_buf), "perf: %s (diff %.1f)", leader, acpl_diff);
+    gtk_label_set_text(GTK_LABEL(panel->win_prob_lbl), wp_buf);
+
+    // Iterate through history rows
+    int ply_idx = 0;
+    GtkWidget* row = gtk_widget_get_first_child(panel->history_list);
+    while (row && ply_idx < res->total_plies) {
+        GtkWidget* row_box = gtk_list_box_row_get_child(GTK_LIST_BOX_ROW(row));
+        
+        // White Move (ply_idx)
+        if (ply_idx < res->total_plies) {
+             GtkWidget* w_cell = NULL;
+             // Find W cell (2nd child of row_box usually: num, w, b)
+             GtkWidget* child = gtk_widget_get_first_child(row_box); // num
+             if (child) child = gtk_widget_get_next_sibling(child); // w
+             w_cell = child;
+             
+             if (w_cell) {
+                 annotate_move_cell(w_cell, &res->plies[ply_idx]);
+             }
+             ply_idx++;
+        }
+        
+        // Black Move (ply_idx)
+        if (ply_idx < res->total_plies) {
+             GtkWidget* b_cell = NULL;
+             GtkWidget* child = gtk_widget_get_first_child(row_box); // num
+             if (child) child = gtk_widget_get_next_sibling(child); // w
+             if (child) child = gtk_widget_get_next_sibling(child); // b
+             b_cell = child;
+             
+             if (b_cell) {
+                 annotate_move_cell(b_cell, &res->plies[ply_idx]);
+             }
+             ply_idx++;
+        }
+        
+        row = gtk_widget_get_next_sibling(row);
+    }  
+    // Also show toast summary
+    if (res) {
+        char buf[128];
+        snprintf(buf, sizeof(buf), "Analysis Complete. Accuracy: W %.1f | B %.1f", 
+                 (100.0 - res->white_acpl/5.0), (100.0 - res->black_acpl/5.0)); // Mock accuracy
+        right_side_panel_show_toast(panel, buf);
+    }
+}
 
 void right_side_panel_add_uci_move(RightSidePanel* panel, const char* uci, PieceType p_type, int move_number, Player turn) {
     if (!panel) return;

@@ -4,6 +4,7 @@
 #include <gtk/gtk.h>
 #include "gamelogic.h"
 #include "theme_data.h"
+#include "ai_analysis.h" // Full include for GameAnalysisResult visibility
 
 // Navigation callbacks
 typedef void (*RightSidePanelNavCallback)(const char* action, int ply_index, gpointer user_data);
@@ -35,6 +36,14 @@ struct _RightSidePanel {
     GtkWidget* history_zone;
     GtkWidget* history_list;
     GtkWidget* history_scrolled;
+
+    // Analysis UI (New)
+    GtkWidget* analysis_control_box;
+    GtkWidget* analyze_btn;
+    GtkWidget* analysis_stats_box;
+    GtkWidget* accuracy_lbl;
+    GtkWidget* acpl_lbl;
+    GtkWidget* win_prob_lbl; // Win Probability Label
     
     // Footer Navigation (Removed)
     
@@ -74,6 +83,7 @@ void right_side_panel_set_visible(RightSidePanel* panel, bool visible);
 void right_side_panel_set_analysis_visible(RightSidePanel* panel, bool visible);
 void right_side_panel_sync_config(RightSidePanel* panel, const void* config); // Using void* to avoid circular dependency, cast in .c
 void right_side_panel_set_flipped(RightSidePanel* panel, bool flipped); // New
+void right_side_panel_set_analysis_result(RightSidePanel* panel, const GameAnalysisResult* res);
 
 void right_side_panel_add_move(RightSidePanel* panel, Move move, int m_num, Player p);
 void right_side_panel_add_uci_move(RightSidePanel* panel, const char* uci, PieceType p_type, int move_number, Player turn);
@@ -83,6 +93,8 @@ void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index);
 void right_side_panel_refresh(RightSidePanel* panel);
 
 void right_side_panel_set_nav_callback(RightSidePanel* panel, RightSidePanelNavCallback callback, gpointer user_data);
+void right_side_panel_set_analyze_callback(RightSidePanel* panel, GCallback callback, gpointer user_data);
+void right_side_panel_set_analyzing_state(RightSidePanel* panel, bool analyzing);
 
 void right_side_panel_set_replay_lock(RightSidePanel* panel, bool locked);
 
