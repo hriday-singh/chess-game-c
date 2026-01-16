@@ -274,7 +274,8 @@ static void DoBrowse(HWND hwndParent) {
     if (pidl != 0) {
         SHGetPathFromIDListA(pidl, path);
         if (strstr(path, "HalChess") == NULL) {
-            strncat(path, "\\HalChess", MAX_PATH - strlen(path) - 1);
+            size_t current_len = strlen(path);
+            snprintf(path + current_len, sizeof(path) - current_len, "\\HalChess");
         }
         SetWindowTextA(g_hEditPath, path);
         CoTaskMemFree(pidl);
@@ -326,7 +327,8 @@ static DWORD WINAPI InstallThread(LPVOID lpParam) {
             snprintf(targetPath, MAX_PATH, "%s\\HalChess.exe", path);
          
             if (SHGetFolderPathA(NULL, CSIDL_DESKTOP, NULL, 0, linkPath) == S_OK) {
-                strncat(linkPath, "\\HalChess.lnk", MAX_PATH - strlen(linkPath) - 1);
+                size_t current_len = strlen(linkPath);
+                snprintf(linkPath + current_len, sizeof(linkPath) - current_len, "\\HalChess.lnk");
                 CreateLink(targetPath, linkPath, "Play HalChess");
             }
          }

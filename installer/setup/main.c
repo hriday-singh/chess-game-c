@@ -64,6 +64,7 @@ HRESULT CreateLink(LPCSTR lpszPathObj, LPCSTR lpszPathLink, LPCSTR lpszDesc) {
 
 // Browse Folder Callback
 int CALLBACK BrowseCallbackProc(HWND hwnd, UINT uMsg, LPARAM lParam, LPARAM lpData) {
+    (void)lParam;
     if (uMsg == BFFM_INITIALIZED) {
         SendMessage(hwnd, BFFM_SETSELECTION, TRUE, lpData);
     }
@@ -92,7 +93,7 @@ void DoBrowse(HWND hwndParent) {
         }
         
         SetWindowTextA(g_hEditPath, path);
-        CoTaskMemFree(pidl);
+        CoTaskMemFree((void*)pidl);
     }
 }
 
@@ -118,7 +119,7 @@ DWORD WINAPI InstallThread(LPVOID lpParam) {
 
     // 2. Extract
     SetWindowTextA(g_hStatus, "Extracting files...");
-    if (!Extract_ZipPayload(payload_data, payload_size, path)) {
+    if (!Extract_ZipPayload(payload_data, payload_size, path, NULL, NULL)) {
         MessageBoxA(NULL, "Extraction failed.", "Error", MB_ICONERROR);
         EnableWindow(g_hBtnInstall, TRUE);
         return 1;
