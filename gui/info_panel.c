@@ -5,7 +5,6 @@
 #include "board_widget.h"
 #include "sound_engine.h"
 #include "gamelogic.h"
-#include "gamelogic.h"
 #include "gui_utils.h"
 #include <pango/pango.h>
 #include <glib.h>
@@ -2463,14 +2462,14 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     gtk_widget_set_halign(media_box, GTK_ALIGN_CENTER);
     
     // Start |<<
-    panel->replay_ui.start_btn = gtk_button_new_from_icon_name("media-skip-backward-symbolic");
+    panel->replay_ui.start_btn = gui_utils_new_button_from_system_icon("media-skip-backward-symbolic");
     gtk_widget_add_css_class(panel->replay_ui.start_btn, "media-button");
     gtk_widget_set_tooltip_text(panel->replay_ui.start_btn, "Go to Start");
     g_signal_connect(panel->replay_ui.start_btn, "clicked", G_CALLBACK(on_replay_start_clicked), panel);
     gtk_box_append(GTK_BOX(media_box), panel->replay_ui.start_btn);
     
     // Prev <<
-    panel->replay_ui.prev_btn = gtk_button_new_from_icon_name("media-seek-backward-symbolic");
+    panel->replay_ui.prev_btn = gui_utils_new_button_from_system_icon("media-seek-backward-symbolic");
     gtk_widget_add_css_class(panel->replay_ui.prev_btn, "media-button");
     gtk_widget_set_tooltip_text(panel->replay_ui.prev_btn, "Previous Move");
     g_signal_connect(panel->replay_ui.prev_btn, "clicked", G_CALLBACK(on_replay_prev_clicked), panel);
@@ -2479,7 +2478,7 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     // Stop button removed
     
     // Play/Pause > / ||
-    panel->replay_ui.play_pause_btn = gtk_button_new_from_icon_name("media-playback-start-symbolic");
+    panel->replay_ui.play_pause_btn = gui_utils_new_button_from_system_icon("media-playback-start-symbolic");
     gtk_widget_add_css_class(panel->replay_ui.play_pause_btn, "media-button");
     gtk_widget_add_css_class(panel->replay_ui.play_pause_btn, "suggested-action"); // Highlight play
     gtk_widget_set_tooltip_text(panel->replay_ui.play_pause_btn, "Play / Pause");
@@ -2487,14 +2486,14 @@ static void info_panel_create_replay_ui(InfoPanel* panel) {
     gtk_box_append(GTK_BOX(media_box), panel->replay_ui.play_pause_btn);
     
     // Next >>
-    panel->replay_ui.next_btn = gtk_button_new_from_icon_name("media-seek-forward-symbolic");
+    panel->replay_ui.next_btn = gui_utils_new_button_from_system_icon("media-seek-forward-symbolic");
     gtk_widget_add_css_class(panel->replay_ui.next_btn, "media-button");
     gtk_widget_set_tooltip_text(panel->replay_ui.next_btn, "Next Move");
     g_signal_connect(panel->replay_ui.next_btn, "clicked", G_CALLBACK(on_replay_next_clicked), panel);
     gtk_box_append(GTK_BOX(media_box), panel->replay_ui.next_btn);
     
     // End >>|
-    panel->replay_ui.end_btn = gtk_button_new_from_icon_name("media-skip-forward-symbolic");
+    panel->replay_ui.end_btn = gui_utils_new_button_from_system_icon("media-skip-forward-symbolic");
     gtk_widget_add_css_class(panel->replay_ui.end_btn, "media-button");
     gtk_widget_set_tooltip_text(panel->replay_ui.end_btn, "Go to End");
     g_signal_connect(panel->replay_ui.end_btn, "clicked", G_CALLBACK(on_replay_end_clicked), panel);
@@ -2636,11 +2635,11 @@ void info_panel_show_replay_controls(GtkWidget* info_panel, gboolean visible) {
          bool is_playing = (state && state->replay_controller && replay_controller_is_playing(state->replay_controller));
          
          if (is_playing) {
-             gtk_button_set_icon_name(GTK_BUTTON(panel->replay_ui.play_pause_btn), "media-playback-pause-symbolic");
+             gui_utils_set_button_icon_name(GTK_BUTTON(panel->replay_ui.play_pause_btn), "media-playback-pause-symbolic");
              gtk_widget_remove_css_class(panel->replay_ui.play_pause_btn, "suggested-action"); 
              // gtk_widget_add_css_class(panel->replay_ui.play_pause_btn, "destructive-action");
          } else {
-             gtk_button_set_icon_name(GTK_BUTTON(panel->replay_ui.play_pause_btn), "media-playback-start-symbolic");
+             gui_utils_set_button_icon_name(GTK_BUTTON(panel->replay_ui.play_pause_btn), "media-playback-start-symbolic");
              gtk_widget_add_css_class(panel->replay_ui.play_pause_btn, "suggested-action");
              // gtk_widget_remove_css_class(panel->replay_ui.play_pause_btn, "destructive-action");
          }

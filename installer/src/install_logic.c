@@ -177,6 +177,7 @@ static HRESULT CreateLink(LPCSTR lpszPathObj, LPCSTR lpszPathLink, LPCSTR lpszDe
 #define ID_FT_STATUS   302
 #define ID_FT_LAUNCH   303
 #define ID_FT_BACK     304
+#define WM_INSTALL_COMPLETE (WM_USER + 1)
 
 typedef struct {
     HWND hwnd;
@@ -221,22 +222,8 @@ static DWORD WINAPI FastTrack_Worker(LPVOID lpParam) {
     } else {
         ctx->success = TRUE;
         
-        // Show Launch Button and hide progress/info
-        ShowWindow(ctx->hProgress, SW_HIDE);
-        if (ctx->hInfoStatus) ShowWindow(ctx->hInfoStatus, SW_HIDE);
-        SetWindowTextA(ctx->hStatus, "Installation Successful!");
-        
-        // Create Local Shortcut in the portable folder
-        char shortcutPath[MAX_PATH + 64];
-        char exePath[MAX_PATH + 64];
-        snprintf(exePath, sizeof(exePath), "%s\\HalChess.exe", ctx->installDir);
-        snprintf(shortcutPath, sizeof(shortcutPath), "%s\\Run HalChess.lnk", ctx->installDir);
-        CreateLink(exePath, shortcutPath, "Launch HalChess Portable");
-
-        // Create Launch Button at center bottom
-        ctx->hLaunchBtn = CreateWindow("BUTTON", "Launch HalChess Now", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
-            175, 250, 250, 60, ctx->hwnd, (HMENU)ID_FT_LAUNCH, GetModuleHandle(NULL), NULL);
-        Installer_ApplyFont(ctx->hLaunchBtn, Installer_GetFontButton());
+        // Signal UI thread that we are done
+        PostMessage(ctx->hwnd, WM_INSTALL_COMPLETE, 0, 0);
     }
 
     return 0;
@@ -258,6 +245,38 @@ static LRESULT CALLBACK FastTrackProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
                 Installer_DrawRoundedButton(dis, RGB(250, 250, 250), RGB(20, 20, 20), Installer_GetFontButton());
             }
             return TRUE;
+        }
+        case WM_INSTALL_COMPLETE: {
+             // Show Launch Button and hide progress/info/back
+             ShowWindow(s_ctx->hProgress, SW_HIDE);
+             if (s_ctx->hInfoStatus) ShowWindow(s_ctx->hInfoStatus, SW_HIDE);
+             if (s_ctx->hBackBtn) ShowWindow(s_ctx->hBackBtn, SW_HIDE);
+             
+             SetWindowTextA(s_ctx->hStatus, "Installation Successful!");
+
+             // Create Shortcut in the root directory (outside the HalChess folder)
+             char rootDir[MAX_PATH];
+             char shortcutPath[MAX_PATH + 64];
+             char exePath[MAX_PATH + 64];
+             
+             snprintf(rootDir, sizeof(rootDir), "%s", s_ctx->installDir);
+             char* last_slash = strrchr(rootDir, '\\');
+             if (last_slash) {
+                 *last_slash = '\0'; // Get parent directory
+                 
+                 snprintf(exePath, sizeof(exePath), "%s\\HalChess.exe", s_ctx->installDir);
+                 snprintf(shortcutPath, sizeof(shortcutPath), "%s\\Run HalChess.lnk", rootDir);
+                 CreateLink(exePath, shortcutPath, "Play HalChess (Portable)");
+             }
+
+             // Create Launch Button at center bottom (on UI thread)
+             s_ctx->hLaunchBtn = CreateWindow("BUTTON", "Launch HalChess Now", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
+                 175, 250, 250, 60, hwnd, (HMENU)ID_FT_LAUNCH, GetModuleHandle(NULL), NULL);
+             Installer_ApplyFont(s_ctx->hLaunchBtn, Installer_GetFontButton());
+
+             InvalidateRect(hwnd, NULL, TRUE);
+             UpdateWindow(hwnd);
+             return 0;
         }
         case WM_COMMAND:
             if (LOWORD(wParam) == ID_FT_LAUNCH) {
@@ -618,6 +637,7 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             // Browse Button
             HWND hBrowse = CreateWindow("BUTTON", "Browse...", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 550, 75, 100, 35, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
             Installer_ApplyFont(hBrowse, Installer_GetFontButton());
+            InvalidateRect(hBrowse, NULL, TRUE);
 
             // Shortcuts
             HWND hShortcut = CreateWindow("BUTTON", "Create Desktop Shortcut", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 40, 140, 400, 30, hwnd, (HMENU)ID_CHECK_SHORTCUT, NULL, NULL);

@@ -1,6 +1,7 @@
 #include "clock_widget.h"
 #include "clock.h"
 #include <math.h>
+#include "gui_utils.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -168,7 +169,7 @@ ClockWidget* clock_widget_new(Player side) {
     gtk_widget_add_css_class(clock->name_pill, "clock-pill");
     gtk_widget_add_css_class(clock->name_pill, "name-pill");
     
-    clock->icon_image = gtk_image_new_from_icon_name("avatar-default-symbolic");
+    clock->icon_image = gui_utils_new_image_from_system_icon("avatar-default-symbolic");
     gtk_image_set_pixel_size(GTK_IMAGE(clock->icon_image), 18);
     gtk_box_append(GTK_BOX(clock->name_pill), clock->icon_image);
     
@@ -269,9 +270,9 @@ void clock_widget_set_name(ClockWidget* clock, const char* name) {
     // Set Icon
     if (name) {
         if (strstr(name, "Engine") || strstr(name, "Stockfish") || strstr(name, "Bot")) {
-            gtk_image_set_from_icon_name(GTK_IMAGE(clock->icon_image), "computer-symbolic");
+            gtk_image_set_from_file(GTK_IMAGE(clock->icon_image), "assets/images/system/computer-symbolic.svg");
         } else {
-            gtk_image_set_from_icon_name(GTK_IMAGE(clock->icon_image), "avatar-default-symbolic");
+            gtk_image_set_from_file(GTK_IMAGE(clock->icon_image), "assets/images/system/avatar-default-symbolic.svg");
         }
     }
 }

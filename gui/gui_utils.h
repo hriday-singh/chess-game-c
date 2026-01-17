@@ -71,4 +71,24 @@ GtkWidget* gui_utils_create_loading_overlay(GtkOverlay* parent_overlay, GtkWidge
  */
 void gui_utils_set_window_size_relative(GtkWindow* window, GtkWindow* relative_to, double w_factor, double h_factor);
 
+/**
+ * @brief Creates a new GtkImage loaded from assets/images/system/<icon_name>.svg
+ */
+GtkWidget* gui_utils_new_image_from_system_icon(const char* icon_name);
+
+/**
+ * @brief Sets the child of a GtkButton to an icon loaded from assets/images/system/<icon_name>.svg
+ */
+void gui_utils_set_button_system_icon(GtkButton* btn, const char* icon_name);
+
+/**
+ * @brief Creates a new GtkButton with an icon loaded from assets/images/system/<icon_name>.svg
+ */
+GtkWidget* gui_utils_new_button_from_system_icon(const char* icon_name);
+
+/**
+ * @brief Sets the icon of a GtkButton (replacement for gtk_button_set_icon_name)
+ */
+void gui_utils_set_button_icon_name(GtkButton* btn, const char* icon_name);
+
 #endif // GUI_UTILS_H

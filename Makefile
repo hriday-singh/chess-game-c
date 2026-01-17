@@ -17,6 +17,13 @@ SFDIR = src
 BUILDDIR = build
 OBJDIR = $(BUILDDIR)/obj
 
+# Phony targets
+# Installer / Distribution Targets
+
+DIST_DIR = dist
+STAGE_DIR = $(DIST_DIR)/stage/HalChess
+PAYLOAD_ZIP = $(DIST_DIR)/payload.zip
+
 # Source files
 GAME_SOURCES = $(wildcard $(SRCDIR)/*.c)
 GAME_OBJECTS = $(GAME_SOURCES:$(SRCDIR)/%.c=$(OBJDIR)/%.o)
@@ -184,6 +191,7 @@ $(GUI_TARGET): $(GAME_OBJS_FOR_GUI) $(GUI_OBJS_FOR_GUI) $(SF_OBJECTS) $(RES_OBJ)
 clean:
 	@echo "Cleaning..."
 	@-rm -rf $(BUILDDIR) 2>/dev/null || true
+	@-rm -rf $(DIST_DIR) 2>/dev/null || true
 	@echo "Clean complete!"
 
 # Run basic test
@@ -260,13 +268,6 @@ test-pgn: $(GAME_OBJECTS)
 	@echo "Running PGN parser test..."
 	./$(BUILDDIR)/test_pgn_parser.exe
 
-# Phony targets
-# Installer / Distribution Targets
-
-DIST_DIR = dist
-STAGE_DIR = $(DIST_DIR)/stage/HalChess
-PAYLOAD_ZIP = $(DIST_DIR)/payload.zip
-
 # Stage: Create directory, copy game, assets, and runtime dependencies
 stage: $(GUI_TARGET)
 	@echo "Staging for distribution..."
@@ -282,22 +283,11 @@ stage: $(GUI_TARGET)
 	@ldd /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/pixbufloader_svg.dll | grep '/mingw64/' | awk '{print $$3}' | sort | uniq | xargs -I {} cp "{}" $(STAGE_DIR)/
 	@echo "Generating loaders.cache..."
 	@gdk-pixbuf-query-loaders /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/pixbufloader_svg.dll | sed -E "s|.*[\\\\/]lib[\\\\/]gdk-pixbuf|lib/gdk-pixbuf|g" | sed "s|\\\\|/|g" > $(STAGE_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
-	@echo "Copying D-Bus session daemon..."
-	@mkdir -p $(STAGE_DIR)/bin
-	@cp /mingw64/bin/gdbus.exe $(STAGE_DIR)/bin/ 2>/dev/null || true
-	@echo "Copying GTK icon theme (Adwaita)..."
-	@mkdir -p $(STAGE_DIR)/share/icons
-	@cp -r /mingw64/share/icons/Adwaita $(STAGE_DIR)/share/icons/
-	@echo "Copying GTK schemas..."
-	@mkdir -p $(STAGE_DIR)/share/glib-2.0/schemas
-	@cp /mingw64/share/glib-2.0/schemas/gschemas.compiled $(STAGE_DIR)/share/glib-2.0/schemas/
-	@echo "Creating launcher script..."
-	@echo '@echo off' > $(STAGE_DIR)/HalChess_Launcher.bat
-	@echo 'set "APPDIR=%~dp0"' >> $(STAGE_DIR)/HalChess_Launcher.bat
-	@echo 'set "GDK_PIXBUF_MODULEDIR=%APPDIR%lib\gdk-pixbuf-2.0\2.10.0\loaders"' >> $(STAGE_DIR)/HalChess_Launcher.bat
-	@echo 'set "GDK_PIXBUF_MODULE_FILE=%APPDIR%lib\gdk-pixbuf-2.0\2.10.0\loaders.cache"' >> $(STAGE_DIR)/HalChess_Launcher.bat
-	@echo 'set "XDG_DATA_DIRS=%APPDIR%share"' >> $(STAGE_DIR)/HalChess_Launcher.bat
-	@echo 'start "" "%%APPDIR%%HalChess.exe" %%*' >> $(STAGE_DIR)/HalChess_Launcher.bat
+	@echo "Copying gdbus.exe (fixes GLib-GIO warning)..."
+	@cp /mingw64/bin/gdbus.exe $(STAGE_DIR)/ 2>/dev/null || echo "Warning: gdbus.exe not found"
+	@echo "Copying local system icons..."
+	@mkdir -p $(STAGE_DIR)/assets/images/system
+	@cp -r assets/images/system/* $(STAGE_DIR)/assets/images/system/ 2>/dev/null || true
 	@echo "Staging complete at $(STAGE_DIR)"
 
 # Payload: Zip the staging directory

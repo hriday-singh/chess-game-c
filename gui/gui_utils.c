@@ -162,3 +162,25 @@ void gui_utils_set_window_size_relative(GtkWindow* window, GtkWindow* relative_t
     
     gtk_window_set_default_size(window, target_w, target_h);
 }
+
+GtkWidget* gui_utils_new_image_from_system_icon(const char* icon_name) {
+    char path[1024];
+    snprintf(path, sizeof(path), "assets/images/system/%s.svg", icon_name);
+    return gtk_image_new_from_file(path);
+}
+
+void gui_utils_set_button_system_icon(GtkButton* btn, const char* icon_name) {
+    if (!btn) return;
+    GtkWidget* img = gui_utils_new_image_from_system_icon(icon_name);
+    gtk_button_set_child(btn, img);
+}
+
+GtkWidget* gui_utils_new_button_from_system_icon(const char* icon_name) {
+    GtkWidget* btn = gtk_button_new();
+    gui_utils_set_button_system_icon(GTK_BUTTON(btn), icon_name);
+    return btn;
+}
+
+void gui_utils_set_button_icon_name(GtkButton* btn, const char* icon_name) {
+    gui_utils_set_button_system_icon(btn, icon_name);
+}

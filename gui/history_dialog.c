@@ -126,7 +126,7 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
     
     gtk_box_append(GTK_BOX(row_box), btn_replay);
 
-    GtkWidget* btn_del = gtk_button_new_from_icon_name("user-trash-symbolic");
+    GtkWidget* btn_del = gui_utils_new_button_from_system_icon("user-trash-symbolic");
     gtk_widget_add_css_class(btn_del, "destructive-action");
     gtk_widget_set_tooltip_text(btn_del, "Delete match record");
     g_object_set_data_full(G_OBJECT(btn_del), "match-id", g_strdup(m->id), g_free);

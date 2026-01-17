@@ -370,7 +370,7 @@ static void setup_list_item(GtkSignalListItemFactory* factory, GtkListItem* list
     gtk_widget_add_css_class(icon_area, "piece-icon-bg");
     gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(icon_area), on_dropdown_item_draw, NULL, NULL);
     GtkWidget* label = gtk_label_new(NULL);
-    GtkWidget* check = gtk_image_new_from_icon_name("object-select-symbolic");
+    GtkWidget* check = gui_utils_new_image_from_system_icon("object-select-symbolic");
     gtk_widget_set_opacity(check, 0.0); 
     gtk_box_append(GTK_BOX(box), icon_area);
     gtk_box_append(GTK_BOX(box), label);

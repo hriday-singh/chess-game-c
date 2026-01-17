@@ -35,11 +35,11 @@
 
 static bool debug_mode = true;
 static int app_ratio_height = 1035;
-static int app_ratio_width = 1430;
+static int app_ratio_width = 1440;
 
 
 static int app_height = 1035;
-static int app_width = 1430;
+static int app_width = 1440;
 
 // Globals
 #include "history_dialog.h"
@@ -1375,7 +1375,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
 
     GtkWidget* header = gtk_header_bar_new();
     // Replacement for Menu: Settings Button
-    GtkWidget* settings_btn = gtk_button_new_from_icon_name("emblem-system-symbolic");
+    GtkWidget* settings_btn = gui_utils_new_button_from_system_icon("emblem-system-symbolic");
     gtk_widget_add_css_class(settings_btn, "header-button");
     gtk_widget_set_tooltip_text(settings_btn, "Settings");
     state->gui.settings_btn = settings_btn; // Store reference
@@ -1397,7 +1397,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     state->gui.dark_mode_btn = dark_mode_btn; // Store reference
 
     // History Button
-    GtkWidget* history_btn = gtk_button_new_from_icon_name("open-menu-symbolic");
+    GtkWidget* history_btn = gui_utils_new_button_from_system_icon("open-menu-symbolic");
     gtk_widget_set_valign(history_btn, GTK_ALIGN_CENTER);
     gtk_widget_set_tooltip_text(history_btn, "Game History");
     // Ensure it uses the transparent header button class
