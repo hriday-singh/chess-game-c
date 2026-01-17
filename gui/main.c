@@ -1367,7 +1367,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gtk_window_set_default_size(state->gui.window, app_width, app_height);
     PROFILE_MARK("Window & Resolution");
 
-    config_set_app_param("HAL Chess");
+    config_set_app_param("HalChess");
     config_init(); // Initialize config from persistent storage
     PROFILE_MARK("Config Init");
     
