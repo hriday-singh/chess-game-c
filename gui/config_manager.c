@@ -102,7 +102,7 @@ static void set_defaults(void) {
     
     // AI - Internal
     g_config.int_elo = 1500;
-    g_config.int_depth = 10;
+    g_config.int_depth = 20;
     g_config.int_is_advanced = false;
     
     // AI - NNUE
@@ -112,7 +112,7 @@ static void set_defaults(void) {
     // AI - Custom
     g_config.custom_engine_path[0] = '\0';
     g_config.custom_elo = 1500;
-    g_config.custom_depth = 10;
+    g_config.custom_depth = 20;
     g_config.custom_is_advanced = false;
 
     // Board Theme

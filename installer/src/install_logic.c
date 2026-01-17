@@ -79,18 +79,63 @@ void Installer_DrawRoundedButton(DRAWITEMSTRUCT* dis, COLORREF bgColor, COLORREF
     HDC hdc = dis->hDC;
     RECT rc = dis->rcItem;
     BOOL isPressed = dis->itemState & ODS_SELECTED;
-    // BOOL isHovered = dis->itemState & ODS_HOTLIGHT; 
+    BOOL isFocused = dis->itemState & ODS_FOCUS;
 
     // Fill background
     FillRect(hdc, &rc, (HBRUSH)GetStockObject(WHITE_BRUSH));
 
-    // Draw rounded box
-    HBRUSH hBrush = CreateSolidBrush(isPressed ? RGB(220, 220, 220) : bgColor);
-    HPEN hPen = CreatePen(PS_SOLID, 1, textColor);
+    // Enhanced color scheme for modern look
+    COLORREF buttonBg = bgColor;
+    COLORREF borderColor = RGB(180, 180, 180);
+    
+    if (isPressed) {
+        // Darker when pressed
+        buttonBg = RGB(200, 200, 200);
+        borderColor = RGB(140, 140, 140);
+    } else {
+        // Subtle gradient effect by using lighter color
+        buttonBg = RGB(245, 245, 245);
+        borderColor = RGB(200, 200, 200);
+    }
+
+    // Draw subtle shadow for depth (offset by 2px)
+    if (!isPressed) {
+        RECT shadowRc = rc;
+        shadowRc.left += 2;
+        shadowRc.top += 2;
+        shadowRc.right += 2;
+        shadowRc.bottom += 2;
+        
+        HBRUSH hShadowBrush = CreateSolidBrush(RGB(220, 220, 220));
+        HPEN hShadowPen = CreatePen(PS_SOLID, 1, RGB(220, 220, 220));
+        SelectObject(hdc, hShadowBrush);
+        SelectObject(hdc, hShadowPen);
+        RoundRect(hdc, shadowRc.left, shadowRc.top, shadowRc.right, shadowRc.bottom, 15, 15);
+        DeleteObject(hShadowBrush);
+        DeleteObject(hShadowPen);
+    }
+
+    // Draw main rounded button
+    HBRUSH hBrush = CreateSolidBrush(buttonBg);
+    HPEN hPen = CreatePen(PS_SOLID, 2, borderColor);
     SelectObject(hdc, hBrush);
     SelectObject(hdc, hPen);
 
     RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 15, 15);
+
+    // Draw focus indicator if focused
+    if (isFocused && !isPressed) {
+        HPEN hFocusPen = CreatePen(PS_DOT, 1, RGB(100, 149, 237)); // Cornflower blue
+        SelectObject(hdc, hFocusPen);
+        SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        RECT focusRc = rc;
+        focusRc.left += 4;
+        focusRc.top += 4;
+        focusRc.right -= 4;
+        focusRc.bottom -= 4;
+        RoundRect(hdc, focusRc.left, focusRc.top, focusRc.right, focusRc.bottom, 12, 12);
+        DeleteObject(hFocusPen);
+    }
 
     // Draw Text
     SetBkMode(hdc, TRANSPARENT);
@@ -109,9 +154,11 @@ void Installer_DrawRoundedButton(DRAWITEMSTRUCT* dis, COLORREF bgColor, COLORREF
     int boxHeight = rc.bottom - rc.top;
     int yOffset = (boxHeight - textHeight) / 2;
     
+    // Adjust text position slightly when pressed for tactile feedback
     RECT centeredRc = rc;
-    centeredRc.top += yOffset;
+    centeredRc.top += yOffset + (isPressed ? 1 : 0);
     centeredRc.bottom = centeredRc.top + textHeight;
+    centeredRc.left += (isPressed ? 1 : 0);
 
     DrawTextA(hdc, text, len, &centeredRc, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
 
@@ -187,9 +234,9 @@ static DWORD WINAPI FastTrack_Worker(LPVOID lpParam) {
         CreateLink(exePath, shortcutPath, "Launch HalChess Portable");
 
         // Create Launch Button at center bottom
-        ctx->hLaunchBtn = CreateWindow("BUTTON", "Launch HalChess Now", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 
+        ctx->hLaunchBtn = CreateWindow("BUTTON", "Launch HalChess Now", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
             175, 250, 250, 60, ctx->hwnd, (HMENU)ID_FT_LAUNCH, GetModuleHandle(NULL), NULL);
-        Installer_ApplySystemFont(ctx->hwnd);
+        Installer_ApplyFont(ctx->hLaunchBtn, Installer_GetFontButton());
     }
 
     return 0;
@@ -204,6 +251,13 @@ static LRESULT CALLBACK FastTrackProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
              s_ctx = (FastTrackContext*)cs->lpCreateParams;
              s_ctx->hwnd = hwnd;
              return 0;
+        }
+        case WM_DRAWITEM: {
+            DRAWITEMSTRUCT* dis = (DRAWITEMSTRUCT*)lParam;
+            if (dis->CtlType == ODT_BUTTON) {
+                Installer_DrawRoundedButton(dis, RGB(250, 250, 250), RGB(20, 20, 20), Installer_GetFontButton());
+            }
+            return TRUE;
         }
         case WM_COMMAND:
             if (LOWORD(wParam) == ID_FT_LAUNCH) {
@@ -562,7 +616,7 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             Installer_ApplyFont(g_hEditPath, Installer_GetFontNormal());
             
             // Browse Button
-            HWND hBrowse = CreateWindow("BUTTON", "Browse...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 550, 75, 100, 35, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
+            HWND hBrowse = CreateWindow("BUTTON", "Browse...", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 550, 75, 100, 35, hwnd, (HMENU)ID_BTN_BROWSE, NULL, NULL);
             Installer_ApplyFont(hBrowse, Installer_GetFontButton());
 
             // Shortcuts

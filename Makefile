@@ -282,8 +282,22 @@ stage: $(GUI_TARGET)
 	@ldd /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/pixbufloader_svg.dll | grep '/mingw64/' | awk '{print $$3}' | sort | uniq | xargs -I {} cp "{}" $(STAGE_DIR)/
 	@echo "Generating loaders.cache..."
 	@gdk-pixbuf-query-loaders /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/pixbufloader_svg.dll | sed -E "s|.*[\\\\/]lib[\\\\/]gdk-pixbuf|lib/gdk-pixbuf|g" | sed "s|\\\\|/|g" > $(STAGE_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
-	@echo "Copying GTK resources (schema, icons) - placeholder"
-	@# TODO: Copy GTK schemas/loaders if needed. For now assuming minimal.
+	@echo "Copying D-Bus session daemon..."
+	@mkdir -p $(STAGE_DIR)/bin
+	@cp /mingw64/bin/gdbus.exe $(STAGE_DIR)/bin/ 2>/dev/null || true
+	@echo "Copying GTK icon theme (Adwaita)..."
+	@mkdir -p $(STAGE_DIR)/share/icons
+	@cp -r /mingw64/share/icons/Adwaita $(STAGE_DIR)/share/icons/
+	@echo "Copying GTK schemas..."
+	@mkdir -p $(STAGE_DIR)/share/glib-2.0/schemas
+	@cp /mingw64/share/glib-2.0/schemas/gschemas.compiled $(STAGE_DIR)/share/glib-2.0/schemas/
+	@echo "Creating launcher script..."
+	@echo '@echo off' > $(STAGE_DIR)/HalChess_Launcher.bat
+	@echo 'set "APPDIR=%~dp0"' >> $(STAGE_DIR)/HalChess_Launcher.bat
+	@echo 'set "GDK_PIXBUF_MODULEDIR=%APPDIR%lib\gdk-pixbuf-2.0\2.10.0\loaders"' >> $(STAGE_DIR)/HalChess_Launcher.bat
+	@echo 'set "GDK_PIXBUF_MODULE_FILE=%APPDIR%lib\gdk-pixbuf-2.0\2.10.0\loaders.cache"' >> $(STAGE_DIR)/HalChess_Launcher.bat
+	@echo 'set "XDG_DATA_DIRS=%APPDIR%share"' >> $(STAGE_DIR)/HalChess_Launcher.bat
+	@echo 'start "" "%%APPDIR%%HalChess.exe" %%*' >> $(STAGE_DIR)/HalChess_Launcher.bat
 	@echo "Staging complete at $(STAGE_DIR)"
 
 # Payload: Zip the staging directory

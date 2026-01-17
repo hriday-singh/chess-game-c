@@ -10,6 +10,8 @@
 #define DEFAULT_WHITE_STROKE_WIDTH 0.5
 #define DEFAULT_BLACK_STROKE_WIDTH 0.1
 
+static bool debug_mode = false;
+
 struct ThemeData {
     // Board colors (RGB 0.0-1.0)
     double lightSquareR, lightSquareG, lightSquareB;
@@ -41,7 +43,6 @@ static void clear_piece_cache(ThemeData* theme);
 bool theme_data_is_standard_font(const char* font_name) {
     if (!font_name) return true;
     if (strcmp(font_name, "Segoe UI Symbol") == 0) return true;
-    if (strcmp(font_name, "Default") == 0) return true;
     return false;
 }
 
@@ -214,7 +215,7 @@ char* theme_data_get_piece_image_path(ThemeData* theme, PieceType type, Player o
         return path;
     }
 
-    printf("[ThemeData] SVG NOT FOUND: %s/%s\n", theme->fontName, filename);
+    if (debug_mode) printf("[ThemeData] SVG NOT FOUND: %s/%s\n", theme->fontName, filename);
     
     free(path);
     return NULL;
@@ -303,7 +304,7 @@ cairo_surface_t* theme_data_get_piece_surface(ThemeData* theme, PieceType type, 
         
         theme->pieceCache[owner][type] = surface;
         g_object_unref(pixbuf);
-        printf("[ThemeData] Successfully loaded SVG for %d/%d from %s\n", type, owner, path);
+        if (debug_mode) printf("[ThemeData] Successfully loaded SVG for %d/%d from %s\n", type, owner, path);
     } else {
         if (error) {
             fprintf(stderr, "[ThemeData] FAILED to load SVG: %s (Error: %s)\n", path, error->message);

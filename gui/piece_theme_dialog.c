@@ -151,9 +151,9 @@ static void scan_piece_sets(PieceThemeDialog* dialog) {
     }
     dialog->piece_set_count = 0;
 
-    // Manually add Default (Segoe UI Symbol)
+    // Add Segoe UI Symbol as first option
     dialog->piece_sets[0].name = _strdup("Segoe UI Symbol");
-    dialog->piece_sets[0].display_name = _strdup("Default (Segoe UI)");
+    dialog->piece_sets[0].display_name = _strdup("Segoe UI Symbol");
     dialog->piece_set_count = 1;
     
     const char* entry_name;
@@ -177,8 +177,8 @@ static void scan_piece_sets(PieceThemeDialog* dialog) {
     }
     g_dir_close(dir);
     
-    // Sort
-    for (int i = 0; i < dialog->piece_set_count - 1; i++) {
+    // Sort (skip index 0 which is Segoe UI Symbol)
+    for (int i = 1; i < dialog->piece_set_count - 1; i++) {
         for (int j = i + 1; j < dialog->piece_set_count; j++) {
             if (strcmp(dialog->piece_sets[i].display_name, dialog->piece_sets[j].display_name) > 0) {
                 PieceSetInfo temp = dialog->piece_sets[i];
@@ -302,16 +302,37 @@ static GtkWidget* find_first_widget_of_type(GtkWidget* root, GType type) {
     return NULL;
 }
 
+// Scroll data for timeout callback
+typedef struct {
+    GtkListView* list_view;
+    guint selected;
+} ScrollData;
+
+static gboolean scroll_to_selected_timeout(gpointer user_data) {
+    ScrollData* data = (ScrollData*)user_data;
+    if (data && data->list_view && GTK_IS_LIST_VIEW(data->list_view)) {
+        gtk_list_view_scroll_to(data->list_view, data->selected, GTK_LIST_SCROLL_SELECT, NULL);
+    }
+    g_free(data);
+    return G_SOURCE_REMOVE;
+}
+
 static void on_piece_dropdown_popover_visible(GObject* obj, GParamSpec* pspec, gpointer user_data) {
     (void)pspec;
     GtkPopover* popover = GTK_POPOVER(obj);
     PieceThemeDialog* dialog = (PieceThemeDialog*)user_data;
     if (!dialog || !gtk_widget_get_visible(GTK_WIDGET(popover))) return;
+    
     guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(dialog->piece_set_combo));
     GtkWidget* pop_child = gtk_popover_get_child(popover);
     GtkWidget* list_view = find_first_widget_of_type(pop_child, GTK_TYPE_LIST_VIEW);
     if (!list_view) return;
-    gtk_list_view_scroll_to(GTK_LIST_VIEW(list_view), selected, GTK_LIST_SCROLL_FOCUS, NULL);
+    
+    // Use short timeout to ensure list is rendered but minimize delay
+    ScrollData* data = g_new(ScrollData, 1);
+    data->list_view = GTK_LIST_VIEW(list_view);
+    data->selected = selected;
+    g_timeout_add(50, scroll_to_selected_timeout, data);  // 50ms delay
 }
 
 static void update_row_selected_state(PieceThemeDialog* dialog, GtkListItem* list_item) {
@@ -685,10 +706,11 @@ static void on_reset_colors_clicked(GtkButton* button, gpointer user_data) {
 static void on_reset_piece_type_clicked(GtkButton* button, gpointer user_data) {
     (void)button;
     PieceThemeDialog* dialog = (PieceThemeDialog*)user_data;
-    if (dialog->piece_set_count > 0) {
-        // Just select 0. The signal handler will handle the rest (font setting etc).
-        // This avoids the double-set / font mismatch error.
-        gtk_drop_down_set_selected(GTK_DROP_DOWN(dialog->piece_set_combo), 0);
+    
+    // Find and select Caliente theme
+    int caliente_index = find_piece_set_index(dialog, DEFAULT_STARTUP_PIECE_THEME);
+    if (caliente_index >= 0 && caliente_index < dialog->piece_set_count) {
+        gtk_drop_down_set_selected(GTK_DROP_DOWN(dialog->piece_set_combo), caliente_index);
     }
     refresh_dialog(dialog);
 }
@@ -850,7 +872,7 @@ static void piece_theme_dialog_build_ui(PieceThemeDialog* dialog) {
     // Black Stroke Width
     GtkWidget* bsw_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
     GtkWidget* bsw_label = gtk_label_new("Black Stroke Width");
-    gtk_widget_set_hexpand(wsw_label, TRUE);
+    gtk_widget_set_hexpand(bsw_label, TRUE);
     gtk_widget_set_halign(bsw_label, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(bsw_box), bsw_label);
     

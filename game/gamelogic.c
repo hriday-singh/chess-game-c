@@ -34,7 +34,7 @@ int64_t get_monotonic_time_ms(void) {
 #endif
 }
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 // Simple stack implementation for move history
 typedef struct StackNode {

@@ -155,7 +155,7 @@ static gpointer ai_think_thread(gpointer user_data) {
         char skill_str[16];
         snprintf(skill_str, sizeof(skill_str), "%d", skill);
         
-        printf("[AI Thread] Setting Skill Level: %s (Elo: %d)\n", skill_str, data->target_elo);
+        if (debug_mode) printf("[AI Thread] Setting Skill Level: %s (Elo: %d)\n", skill_str, data->target_elo);
         ai_engine_set_option(data->engine, "Skill Level", skill_str);
         ai_engine_send_command(data->engine, "isready");
         ai_engine_wait_for_token(data->engine, "readyok", 2000);
@@ -187,7 +187,7 @@ static gpointer ai_think_thread(gpointer user_data) {
         if (debug_mode) printf("[AI Thread] Non-Advanced Mode (No Clock): Using infinite\n");
     }
     
-    printf("[AI Thread] Sending Logic Command: %s\n", go_cmd);
+    if (debug_mode) printf("[AI Thread] Sending Logic Command: %s\n", go_cmd);
     ai_engine_send_command(data->engine, go_cmd);
 
     if (debug_mode) printf("[AI Thread] Thinking Command Sent: %s\n", go_cmd);
@@ -223,7 +223,7 @@ static gpointer ai_think_thread(gpointer user_data) {
         // Check timeout
         int64_t elapsed_us = g_get_monotonic_time() - start_time;
         if (elapsed_us > timeout_us) {
-            printf("[AI Thread] 15s timeout reached, sending stop\n");
+            if (debug_mode) printf("[AI Thread] 15s timeout reached, sending stop\n");
             ai_engine_send_command(data->engine, "stop");
             // Now wait for bestmove after stop
             bestmove_str = ai_engine_wait_for_bestmove(data->engine);
