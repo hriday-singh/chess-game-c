@@ -47,7 +47,7 @@ static GtkWidget* create_sidebar_row(const char* text, const char* icon_name) {
     gtk_widget_set_margin_start(box, 12);
     gtk_widget_set_margin_end(box, 12);
     
-    GtkWidget* icon = gui_utils_new_image_from_system_icon(icon_name);
+    GtkWidget* icon = gtk_image_new_from_icon_name(icon_name);
     gtk_widget_set_size_request(icon, 24, 24); // Standard icon size
     gtk_box_append(GTK_BOX(box), icon);
     
@@ -88,7 +88,7 @@ static GtkWidget* create_about_page(SettingsDialog* dialog) {
     gtk_widget_set_valign(vbox, GTK_ALIGN_CENTER);
     gtk_widget_set_halign(vbox, GTK_ALIGN_CENTER);
     
-    GtkWidget* logo_icon = gui_utils_new_image_from_system_icon("applications-games");
+    GtkWidget* logo_icon = gtk_image_new_from_icon_name("applications-games");
     gtk_widget_set_size_request(logo_icon, 96, 96);
     gtk_image_set_pixel_size(GTK_IMAGE(logo_icon), 96);
     gtk_box_append(GTK_BOX(vbox), logo_icon);

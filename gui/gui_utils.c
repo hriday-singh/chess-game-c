@@ -163,16 +163,23 @@ void gui_utils_set_window_size_relative(GtkWindow* window, GtkWindow* relative_t
     gtk_window_set_default_size(window, target_w, target_h);
 }
 
+void gui_utils_init_icon_theme(void) {
+    GtkIconTheme* theme = gtk_icon_theme_get_for_display(gdk_display_get_default());
+    gtk_icon_theme_add_search_path(theme, "assets/images/system");
+}
+
 GtkWidget* gui_utils_new_image_from_system_icon(const char* icon_name) {
-    char path[1024];
-    snprintf(path, sizeof(path), "assets/images/system/%s.svg", icon_name);
-    return gtk_image_new_from_file(path);
+    GtkWidget* img = gtk_image_new_from_icon_name(icon_name);
+    // Explicitly add 'symbolic' class to ensure GTK recoloring kicks in
+    if (strstr(icon_name, "symbolic")) {
+        gtk_widget_add_css_class(img, "symbolic");
+    }
+    return img;
 }
 
 void gui_utils_set_button_system_icon(GtkButton* btn, const char* icon_name) {
     if (!btn) return;
-    GtkWidget* img = gui_utils_new_image_from_system_icon(icon_name);
-    gtk_button_set_child(btn, img);
+    gtk_button_set_child(btn, gui_utils_new_image_from_system_icon(icon_name));
 }
 
 GtkWidget* gui_utils_new_button_from_system_icon(const char* icon_name) {
@@ -182,5 +189,5 @@ GtkWidget* gui_utils_new_button_from_system_icon(const char* icon_name) {
 }
 
 void gui_utils_set_button_icon_name(GtkButton* btn, const char* icon_name) {
-    gui_utils_set_button_system_icon(btn, icon_name);
+    gtk_button_set_icon_name(btn, icon_name);
 }

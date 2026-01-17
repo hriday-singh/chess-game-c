@@ -15,6 +15,12 @@
 void gui_utils_focus_root(GtkWidget *context_widget);
 
 /**
+ * @brief Initializes the icon theme to include assets/images/system.
+ * This is crucial for symbolic icon support in portable installations.
+ */
+void gui_utils_init_icon_theme(void);
+
+/**
  * @brief Finds the root window for the given widget.
  * 
  * @param context_widget Any widget in the hierarchy.

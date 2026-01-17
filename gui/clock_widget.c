@@ -26,6 +26,7 @@ struct _ClockWidget {
     int64_t initial_time_ms;    // Starting time for the match/period
     int64_t last_sync_system_us; // System time (monotonic) when last_time_ms was updated
     
+    bool is_engine;            // Cached state to detect engine vs player
     double current_scale;      // Current scale factor to prevent redundant resize queues
     guint tick_id;             // Animation tick callback ID
 };
@@ -49,8 +50,8 @@ void clock_widget_set_scale(ClockWidget* clock, double scale) {
     // Use Absolute Pixels to avoid DPI "huge" jumps.
     // scale 1.0 = ~800px board.
     
-    // Name Label: Smaller (14px base)
-    int base_name_px = 14;
+    // Name Label: Smaller (12px base)
+    int base_name_px = 12;
     PangoAttrList* name_attrs = pango_attr_list_new();
     PangoAttribute* name_size = pango_attr_size_new_absolute((int)(base_name_px * scale * PANGO_SCALE));
     pango_attr_list_insert(name_attrs, name_size);
@@ -152,6 +153,24 @@ static gboolean on_analog_tick(GtkWidget *widget, GdkFrameClock *frame_clock, gp
     return G_SOURCE_CONTINUE;
 }
 
+static void update_player_icon(ClockWidget* clock) {
+    if (!clock) return;
+    
+    const char* icon_name;
+    if (clock->is_engine) {
+        icon_name = "computer-symbolic";
+    } else {
+        icon_name = "avatar-default-symbolic";
+    }
+    
+    gtk_image_set_from_icon_name(GTK_IMAGE(clock->icon_image), icon_name);
+    
+    // Explicitly add symbolic class if needed
+    if (strstr(icon_name, "symbolic")) {
+        gtk_widget_add_css_class(clock->icon_image, "symbolic");
+    }
+}
+
 ClockWidget* clock_widget_new(Player side) {
     ClockWidget* clock = g_new0(ClockWidget, 1);
     clock->side = side;
@@ -222,7 +241,7 @@ Player clock_widget_get_side(ClockWidget* clock) {
 }
 
 void clock_widget_update(ClockWidget* clock, int64_t time_ms, int64_t initial_time_ms, bool is_active) {
-    if (!clock || clock->disabled) return;
+    if (!clock) return;
     
     // Safety check: Ensure widgets are still valid (prevents shutdown errors)
     if (!clock->time_label || !GTK_IS_LABEL(clock->time_label)) return;
@@ -231,7 +250,6 @@ void clock_widget_update(ClockWidget* clock, int64_t time_ms, int64_t initial_ti
     // Store initial time for rotation base
     clock->initial_time_ms = initial_time_ms;
 
-    // Active State Change
     if (clock->active != is_active) {
         clock->active = is_active;
         if (is_active) {
@@ -239,12 +257,19 @@ void clock_widget_update(ClockWidget* clock, int64_t time_ms, int64_t initial_ti
         } else {
             gtk_widget_remove_css_class(clock->main_container, "active");
         }
-        // Force redraw to show/hide the whole drawing area contents
+        
+        // Update the icon based on turn (swaps human icon)
+        update_player_icon(clock);
+
+        // Force redraw to show/hide the whole drawing area contents (hand grey/color)
         if (clock->analog_area && GTK_IS_WIDGET(clock->analog_area)) {
             gtk_widget_queue_draw(clock->analog_area);
         }
     }
     
+    // Return early for time updates if match has no clock
+    if (clock->disabled) return;
+
     // Use the same ceiling logic as clock_get_string to detect if the display string significantly changes
     int64_t current_display_sec = (time_ms + 999) / 1000;
     int64_t last_display_sec = (clock->last_time_ms + 999) / 1000;
@@ -267,13 +292,10 @@ void clock_widget_set_name(ClockWidget* clock, const char* name) {
     if (!clock) return;
     gtk_label_set_text(GTK_LABEL(clock->name_label), name ? name : "");
     
-    // Set Icon
+    // Set Icon and cache type
     if (name) {
-        if (strstr(name, "Engine") || strstr(name, "Stockfish") || strstr(name, "Bot")) {
-            gtk_image_set_from_file(GTK_IMAGE(clock->icon_image), "assets/images/system/computer-symbolic.svg");
-        } else {
-            gtk_image_set_from_file(GTK_IMAGE(clock->icon_image), "assets/images/system/avatar-default-symbolic.svg");
-        }
+        clock->is_engine = (strstr(name, "Engine") || strstr(name, "Stockfish") || strstr(name, "Bot"));
+        update_player_icon(clock);
     }
 }
 

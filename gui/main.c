@@ -592,8 +592,9 @@ static void on_game_reset(gpointer user_data) {
         ClockWidget* white_clk = flipped ? state->gui.top_clock : state->gui.bottom_clock;
         ClockWidget* black_clk = flipped ? state->gui.bottom_clock : state->gui.top_clock;
         
-        clock_widget_update(white_clk, clk->white_time_ms, clk->initial_time_ms, false);
-        clock_widget_update(black_clk, clk->black_time_ms, clk->initial_time_ms, false);
+        Player turn = gamelogic_get_turn(state->logic);
+        clock_widget_update(white_clk, clk->white_time_ms, clk->initial_time_ms, turn == PLAYER_WHITE);
+        clock_widget_update(black_clk, clk->black_time_ms, clk->initial_time_ms, turn == PLAYER_BLACK);
         
         clock_widget_set_disabled(white_clk, !clk->enabled);
         clock_widget_set_disabled(black_clk, !clk->enabled);
@@ -1373,6 +1374,9 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     state->ai_controller = ai_controller_new(state->logic, state->gui.ai_dialog);
     PROFILE_MARK("AI & Components Init");
 
+    // Initialize local icon theme for sharp, recolorable icons
+    gui_utils_init_icon_theme();
+
     GtkWidget* header = gtk_header_bar_new();
     // Replacement for Menu: Settings Button
     GtkWidget* settings_btn = gui_utils_new_button_from_system_icon("emblem-system-symbolic");
@@ -1381,11 +1385,12 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     state->gui.settings_btn = settings_btn; // Store reference
     
     // Register "open-settings" action with string parameter (optional page name)
-    // Note: We use G_VARIANT_TYPE_STRING so we can pass specific pages like "piece" from tutorial
     GSimpleAction* act_settings = g_simple_action_new("open-settings", G_VARIANT_TYPE_STRING);
     g_signal_connect(act_settings, "activate", G_CALLBACK(on_open_settings_action), state);
     g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_settings));
     
+    // Fix: Action name should just be "open-settings" when added to the App's action map
+    // or we use "app.open-settings" if it's indeed in the app map.
     gtk_actionable_set_action_name(GTK_ACTIONABLE(settings_btn), "app.open-settings");
     // Set default target to empty string (will trigger logic to use last page)
     gtk_actionable_set_action_target(GTK_ACTIONABLE(settings_btn), "s", "");
