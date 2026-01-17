@@ -164,24 +164,27 @@ static gpointer ai_think_thread(gpointer user_data) {
     ai_engine_send_command(data->engine, pos_cmd);
 
     // NEW: Go command based on mode and clock
+    // PRIORITY: Advanced mode > Clock > Non-advanced
     char go_cmd[256];
-    if (data->clock_enabled) {
-        // Safety margin to prevent losing on time due to communication/GUI overhead
-        
-        
+    
+    if (is_advanced_mode) {
+        // Advanced mode: Always use depth, regardless of clock state
+        snprintf(go_cmd, sizeof(go_cmd), "go depth %d", data->params.depth);
+        if (debug_mode) printf("[AI Thread] Advanced Mode: Using depth=%d (clock=%s)\n", 
+                               data->params.depth, data->clock_enabled ? "enabled but ignored" : "disabled");
+    } else if (data->clock_enabled) {
+        // Non-advanced with clock: Use time controls
         int64_t safe_wtime = (data->wtime_ms > overhead_ms) ? (data->wtime_ms - overhead_ms) : (data->wtime_ms > 50 ? 50 : 10);
         int64_t safe_btime = (data->btime_ms > overhead_ms) ? (data->btime_ms - overhead_ms) : (data->btime_ms > 50 ? 50 : 10);
 
         snprintf(go_cmd, sizeof(go_cmd), "go wtime %lld btime %lld winc %lld binc %lld",
                  (long long)safe_wtime, (long long)safe_btime,
                  (long long)data->winc_ms, (long long)data->binc_ms);
-        if (debug_mode) printf("[AI Thread] Using Clock: %s\n", go_cmd);
-    } else if (is_advanced_mode) {
-        snprintf(go_cmd, sizeof(go_cmd), "go depth %d", data->params.depth);
-        if (debug_mode) printf("[AI Thread] Advanced Mode (No Clock): Using depth=%d\n", data->params.depth);
+        if (debug_mode) printf("[AI Thread] Non-Advanced Mode with Clock: %s\n", go_cmd);
     } else {
-        snprintf(go_cmd, sizeof(go_cmd), "go movetime %d", data->params.move_time_ms);
-        if (debug_mode) printf("[AI Thread] Non-Advanced Mode (No Clock): Using movetime=%d\n", data->params.move_time_ms);
+        // Non-advanced without clock: Use infinite
+        snprintf(go_cmd, sizeof(go_cmd), "go infinite");
+        if (debug_mode) printf("[AI Thread] Non-Advanced Mode (No Clock): Using infinite\n");
     }
     
     printf("[AI Thread] Sending Logic Command: %s\n", go_cmd);
@@ -189,7 +192,48 @@ static gpointer ai_think_thread(gpointer user_data) {
 
     if (debug_mode) printf("[AI Thread] Thinking Command Sent: %s\n", go_cmd);
 
-    char* bestmove_str = ai_engine_wait_for_bestmove(data->engine);
+    // UNIVERSAL 15-SECOND TIMEOUT: Apply to ALL go commands
+    char* bestmove_str = NULL;
+    int64_t start_time = g_get_monotonic_time();
+    int64_t timeout_us = 15000000; // 15 seconds in microseconds
+    
+    if (debug_mode) printf("[AI Thread] Starting 15s timeout polling (applies to all modes)...\n");
+    
+    while (true) {
+        // Check if we've been cancelled
+        if (!controller || controller->destroyed || data->gen != controller->think_gen) {
+            ai_engine_send_command(data->engine, "stop");
+            if (debug_mode) printf("[AI Thread] Cancelled during timeout wait, sent stop\n");
+            break;
+        }
+        
+        char* response = ai_engine_try_get_response(data->engine);
+        if (response) {
+            if (strstr(response, "bestmove")) {
+                bestmove_str = response;
+                int64_t elapsed_ms = (g_get_monotonic_time() - start_time) / 1000;
+                if (debug_mode) printf("[AI Thread] Received bestmove after %lld ms\n", (long long)elapsed_ms);
+                break;
+            } else {
+                // Not bestmove, discard
+                ai_engine_free_response(response);
+            }
+        }
+        
+        // Check timeout
+        int64_t elapsed_us = g_get_monotonic_time() - start_time;
+        if (elapsed_us > timeout_us) {
+            printf("[AI Thread] 15s timeout reached, sending stop\n");
+            ai_engine_send_command(data->engine, "stop");
+            // Now wait for bestmove after stop
+            bestmove_str = ai_engine_wait_for_bestmove(data->engine);
+            if (debug_mode) printf("[AI Thread] Received bestmove after stop\n");
+            break;
+        }
+        
+        // Sleep for 10ms before next poll
+        g_usleep(10000);
+    }
 
     // Stale gen check
     if (!controller || controller->destroyed || data->gen != controller->think_gen) {

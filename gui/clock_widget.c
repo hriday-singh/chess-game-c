@@ -44,21 +44,31 @@ void clock_widget_set_scale(ClockWidget* clock, double scale) {
     int icon_size = (int)(18 * scale);
     gtk_image_set_pixel_size(GTK_IMAGE(clock->icon_image), icon_size);
     
-    // 2. Scale Text (Pango Attributes) - DISABLED based on user feedback (too small)
-    // Reverting to CSS-based sizing for now.
-    /*
-    PangoAttrList* attr_list = pango_attr_list_new();
-    // Use Points instead of Absolute if enabled later: pango_attr_size_new(...)
-    PangoAttribute* size_attr = pango_attr_size_new((int)(14 * scale * PANGO_SCALE));
-    pango_attr_list_insert(attr_list, size_attr);
+    // 2. Scale Text (Pango Attributes)
+    // Use Absolute Pixels to avoid DPI "huge" jumps.
+    // scale 1.0 = ~800px board.
     
-    gtk_label_set_attributes(GTK_LABEL(clock->name_label), attr_list);
-    gtk_label_set_attributes(GTK_LABEL(clock->time_label), attr_list);
-    pango_attr_list_unref(attr_list);
-    */
+    // Name Label: Smaller (14px base)
+    int base_name_px = 14;
+    PangoAttrList* name_attrs = pango_attr_list_new();
+    PangoAttribute* name_size = pango_attr_size_new_absolute((int)(base_name_px * scale * PANGO_SCALE));
+    pango_attr_list_insert(name_attrs, name_size);
+    gtk_label_set_attributes(GTK_LABEL(clock->name_label), name_attrs);
+    pango_attr_list_unref(name_attrs);
+
+    // Time Label: Bigger (20px base)
+    int base_time_px = 20;
+    PangoAttrList* time_attrs = pango_attr_list_new();
+    PangoAttribute* time_size = pango_attr_size_new_absolute((int)(base_time_px * scale * PANGO_SCALE));
+    pango_attr_list_insert(time_attrs, time_size);
+    gtk_label_set_attributes(GTK_LABEL(clock->time_label), time_attrs);
+    pango_attr_list_unref(time_attrs);
+
+    /*
     // Clear attributes to ensure CSS takes over
     gtk_label_set_attributes(GTK_LABEL(clock->name_label), NULL);
     gtk_label_set_attributes(GTK_LABEL(clock->time_label), NULL);
+    */
     
     // 3. Scale Analog Clock Widget Size
     int clock_size = (int)(18 * scale);

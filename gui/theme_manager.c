@@ -787,7 +787,7 @@ static const char *CSS_STRUCTURAL =
     /* Title */
     " .loading-title {\n"
     "color: @fg_color;\n"
-    "font-size: 16px;\n"
+    "font-size: 20px;\n"
     "font-weight: 700;\n"
     "letter-spacing: 0.2px;\n"
     "}\n"
@@ -795,7 +795,7 @@ static const char *CSS_STRUCTURAL =
     /* Subtitle (dim) */
     " .loading-subtitle {\n"
     "color: @dim_label;\n"
-    "font-size: 13px;\n"
+    "font-size: 15px;\n"
     "font-weight: 500;\n"
     "}\n"
 

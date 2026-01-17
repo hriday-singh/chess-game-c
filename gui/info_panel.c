@@ -235,6 +235,11 @@ set_ai_adv_ui(GtkWidget *elo_box,
               gboolean   adv,
               int        depth)
 {
+    if (debug_mode) {
+        printf("[InfoPanel] set_ai_adv_ui: adv=%d, depth=%d, elo_box=%p, adv_box=%p\n",
+               adv, depth, (void*)elo_box, (void*)adv_box);
+    }
+    
     gtk_widget_set_visible(elo_box, !adv);
     gtk_widget_set_visible(adv_box,  adv);
 
@@ -1820,8 +1825,20 @@ void info_panel_rebuild_layout(GtkWidget* info_panel) {
 
 
 void info_panel_update_ai_settings(GtkWidget* info_panel_widget, bool white_adv, int white_depth, bool black_adv, int black_depth) {
-    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel_widget), "panel");
-    if (!panel) return;
+    if (debug_mode) {
+        printf("[InfoPanel] info_panel_update_ai_settings called: white_adv=%d, white_depth=%d, black_adv=%d, black_depth=%d\n",
+               white_adv, white_depth, black_adv, black_depth);
+    }
+    
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel_widget), "info-panel-data");
+    if (!panel) {
+        if (debug_mode) printf("[InfoPanel] ERROR: panel is NULL!\n");
+        return;
+    }
+
+    if (debug_mode) {
+        printf("[InfoPanel] Panel found, calling set_ai_adv_ui for WHITE\n");
+    }
 
     // White AI
     set_ai_adv_ui(panel->white_ai.elo_box,
@@ -1830,12 +1847,20 @@ void info_panel_update_ai_settings(GtkWidget* info_panel_widget, bool white_adv,
               white_adv,
               white_depth);
 
+    if (debug_mode) {
+        printf("[InfoPanel] Calling set_ai_adv_ui for BLACK\n");
+    }
+
     // Black AI
     set_ai_adv_ui(panel->black_ai.elo_box,
                 panel->black_ai.adv_box,
                 GTK_LABEL(panel->black_ai.depth_label),
                 black_adv,
                 black_depth);
+                
+    if (debug_mode) {
+        printf("[InfoPanel] info_panel_update_ai_settings completed\n");
+    }
 }
 
 void info_panel_set_elo(GtkWidget* info_panel, int elo, bool is_black) {

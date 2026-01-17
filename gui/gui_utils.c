@@ -97,17 +97,18 @@ GtkWidget* gui_utils_create_loading_overlay(GtkOverlay* parent_overlay, GtkWidge
     gtk_box_append(GTK_BOX(loading_overlay), center_box);
 
     /* Card / panel */
-    GtkWidget* card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
+    GtkWidget* card = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
     gtk_widget_add_css_class(card, "loading-card");
-    gtk_widget_set_margin_start(card, 32);
-    gtk_widget_set_margin_end(card, 32);
-    gtk_widget_set_margin_top(card, 24);
-    gtk_widget_set_margin_bottom(card, 24);
+    gtk_widget_set_margin_start(card, 48);
+    gtk_widget_set_margin_end(card, 48);
+    gtk_widget_set_margin_top(card, 36);
+    gtk_widget_set_margin_bottom(card, 36);
+    gtk_widget_set_size_request(card, 280, -1); // Minimum width
     gtk_box_append(GTK_BOX(center_box), card);
 
     /* Spinner */
     GtkWidget* spinner = gtk_spinner_new();
-    gtk_widget_set_size_request(spinner, 40, 40);
+    gtk_widget_set_size_request(spinner, 80, 80);
     gtk_widget_set_halign(spinner, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(card), spinner);
     
