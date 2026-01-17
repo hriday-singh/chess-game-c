@@ -183,8 +183,7 @@ $(GUI_TARGET): $(GAME_OBJS_FOR_GUI) $(GUI_OBJS_FOR_GUI) $(SF_OBJECTS) $(RES_OBJ)
 	@echo "  GUI objects: $(words $(GUI_OBJS_FOR_GUI)) files"
 	@echo "  Stockfish objects: $(words $(SF_OBJECTS)) files"
 	@echo "  Total object files: $(words $^)"
-	
-	$(CXX) $(CXXFLAGS) $^ $(GTK_LIBS) -o $@
+	$(CXX) $(CXXFLAGS) -mwindows $^ $(GTK_LIBS) -o $@
 	@echo "Copying resources..."
 	@if [ -f icon.png ]; then cp icon.png $(BUILDDIR)/icon.png; fi
 	@if [ -d assets ]; then \
@@ -276,6 +275,18 @@ test-ai-strategy: $(SF_OBJECTS) $(OBJDIR)/test_ai_strategy.o | $(BUILDDIR)
 	$(CXX) $(CXXFLAGS) $(SF_FLAGS) $(OBJDIR)/test_ai_strategy.o $(SF_OBJECTS) -o $(AI_STRATEGY_TARGET) $(GTK_LIBS)
 	@echo "Running AI strategy test..."
 	./$(AI_STRATEGY_TARGET)
+
+# AI Tournament (External Stockfish)
+AI_TOURNAMENT_TARGET = $(BUILDDIR)/ai_tournament.exe
+$(OBJDIR)/ai_tournament.o: $(SRCDIR)/ai_tournament.cpp | $(OBJDIR)
+	@echo "Compiling AI tournament tool..."
+	$(CXX) $(CXXFLAGS) $(SF_FLAGS) -I$(SFDIR) -I$(SRCDIR) -c $< -o $@
+
+test-ai-tournament: $(SF_OBJECTS) $(OBJDIR)/ai_tournament.o | $(BUILDDIR)
+	@echo "Linking AI tournament tool..."
+	$(CXX) $(CXXFLAGS) $(SF_FLAGS) $(OBJDIR)/ai_tournament.o $(SF_OBJECTS) -o $(AI_TOURNAMENT_TARGET) $(GTK_LIBS)
+	@echo "Running AI tournament..."
+	./$(AI_TOURNAMENT_TARGET)
 
 # Stage: Create directory, copy game, assets, and runtime dependencies
 stage: $(GUI_TARGET)

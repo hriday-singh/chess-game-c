@@ -123,13 +123,30 @@ void Installer_DrawRoundedButton(DRAWITEMSTRUCT* dis, COLORREF bgColor, COLORREF
     char text[256];
     GetWindowTextA(dis->hwndItem, text, sizeof(text));
     
-    // Vertical centering
-    RECT textRc = rc;
+    // Calculate Text Height for Vertical Centering
+    RECT calcRect = rc;
+    // Reduce rect padding for text to avoid hitting edges
+    InflateRect(&calcRect, -4, -2); 
+    
+    // Measure height required
+    DrawTextA(hdc, text, -1, &calcRect, DT_CENTER | DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX);
+    
+    int textHeight = calcRect.bottom - calcRect.top;
+    int buttonHeight = rc.bottom - rc.top;
+    
+    // Center vertically
+    int topOffset = (buttonHeight - textHeight) / 2;
+    
+    RECT drawRect = rc;
+    drawRect.top += topOffset;
+    drawRect.bottom = drawRect.top + textHeight;
+    InflateRect(&drawRect, -4, 0); // Keep horizontal padding
+
     if (isPressed) {
-        textRc.top += 1;
-        textRc.left += 1;
+        OffsetRect(&drawRect, 1, 1);
     }
-    DrawTextA(hdc, text, -1, &textRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+    DrawTextA(hdc, text, -1, &drawRect, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
 
     // Clean up
     DeleteObject(hBrush);
@@ -226,7 +243,7 @@ static LRESULT CALLBACK FastTrackProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
              SetWindowTextA(s_ctx->hStatus, "Installation Successful!");
              
              // Move status to a more centered position for the end screen
-             SetWindowPos(s_ctx->hStatus, NULL, 50, 160, 500, 40, SWP_NOZORDER);
+             SetWindowPos(s_ctx->hStatus, NULL, 50, 100, 500, 40, SWP_NOZORDER);
              Installer_ApplyFont(s_ctx->hStatus, Installer_GetFontTitle());
 
              // Create Shortcut in the root directory (outside the HalChess folder)
@@ -240,13 +257,13 @@ static LRESULT CALLBACK FastTrackProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
                  *last_slash = '\0'; // Get parent directory
                  
                  snprintf(exePath, sizeof(exePath), "%s\\HalChess.exe", s_ctx->installDir);
-                 snprintf(shortcutPath, sizeof(shortcutPath), "%s\\Run HalChess.lnk", rootDir);
+                 snprintf(shortcutPath, sizeof(shortcutPath), "%s\\HalChess.lnk", rootDir);
                  CreateLink(exePath, shortcutPath, "Play HalChess (Portable)");
              }
 
              // Create Launch Button at center bottom
              s_ctx->hLaunchBtn = CreateWindow("BUTTON", "Launch HalChess Now", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
-                 150, 240, 300, 60, hwnd, (HMENU)ID_FT_LAUNCH, GetModuleHandle(NULL), NULL);
+                 150, 180, 300, 60, hwnd, (HMENU)ID_FT_LAUNCH, GetModuleHandle(NULL), NULL);
              Installer_ApplyFont(s_ctx->hLaunchBtn, Installer_GetFontButton());
 
              InvalidateRect(hwnd, NULL, TRUE);
