@@ -28,13 +28,18 @@ HFONT Installer_GetFontNormal(void);
 HFONT Installer_GetFontButton(void);
 void Installer_DrawRoundedButton(DRAWITEMSTRUCT* dis, COLORREF bgColor, COLORREF textColor, HFONT hFont);
 
+// Installer Return Codes
+#define INSTALLER_RET_SUCCESS 0
+#define INSTALLER_RET_ERROR   1
+#define INSTALLER_RET_BACK    2
+
 // High-Level Workflows
 // Run the FastTrack installation (install to CWD\HalChess, launch immediately)
-// Returns 0 on success, non-zero on error.
+// Returns INSTALLER_RET_* codes
 int ExecuteFastTrack(void);
 
 // Run the Custom Setup Wizard (Path selection, Shortcuts, etc.)
-// Returns 0 on success, non-zero on error/cancellation.
+// Returns INSTALLER_RET_* codes
 int ExecuteCustomSetup(HINSTANCE hInstance);
 
 #endif // INSTALLER_COMMON_H

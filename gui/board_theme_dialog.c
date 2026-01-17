@@ -1,5 +1,6 @@
 #include "board_theme_dialog.h"
 #include "theme_data.h"
+#include "gui_utils.h"
 #include <gtk/gtk.h>
 #include <gio/gio.h>
 #include <cairo.h>
@@ -566,7 +567,7 @@ BoardThemeDialog* board_theme_dialog_new(ThemeData* theme, BoardThemeUpdateCallb
     if (dialog->window) {
         gtk_window_set_title(dialog->window, "Board Theme");
         gtk_window_set_modal(dialog->window, TRUE);
-        gtk_window_set_default_size(dialog->window, 700, 550);
+        gui_utils_set_window_size_relative(dialog->window, parent_window, 0.7, 0.65);
         gtk_window_set_resizable(dialog->window, TRUE);
         
         if (parent_window) {

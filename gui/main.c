@@ -1159,6 +1159,128 @@ static void on_exit_replay(GSimpleAction* action, GVariant* parameter, gpointer 
     if (debug_mode) printf("[Main] Exited replay mode.\n");
 }
 
+// --- Custom Layout Logic for Board + Clocks ---
+
+static void board_layout_measure(GtkWidget *widget,
+                                 GtkOrientation orientation, int for_size,
+                                 int *minimum, int *natural,
+                                 int *minimum_baseline, int *natural_baseline) {
+    (void)for_size; (void)minimum_baseline; (void)natural_baseline;
+    GtkWidget *child;
+    int min_size = 0;
+    int nat_size = 0;
+
+    // We expect 3 children: TopClock, Board, BotClock
+    for (child = gtk_widget_get_first_child(widget);
+         child != NULL;
+         child = gtk_widget_get_next_sibling(child)) {
+        
+        if (!gtk_widget_should_layout(child)) continue;
+
+        int child_min = 0, child_nat = 0;
+        gtk_widget_measure(child, orientation, for_size,
+                           &child_min, &child_nat, NULL, NULL);
+
+        if (orientation == GTK_ORIENTATION_VERTICAL) {
+            min_size += child_min;
+            nat_size += child_nat;
+        } else {
+            // Horizontal: Max of widths
+            if (child_min > min_size) min_size = child_min;
+            if (child_nat > nat_size) nat_size = child_nat;
+        }
+    }
+    
+    if (minimum) *minimum = min_size;
+    if (natural) *natural = nat_size;
+}
+
+static void board_layout_allocate(GtkWidget *widget,
+                                  int width, int height, int baseline) {
+    (void)baseline;
+    GtkWidget *top_clock = NULL;
+    GtkWidget *board = NULL;
+    GtkWidget *bot_clock = NULL;
+
+    // Identify children strictly by order (Top, Board, Bot)
+    GtkWidget *child = gtk_widget_get_first_child(widget);
+    while (child && !gtk_widget_should_layout(child)) child = gtk_widget_get_next_sibling(child);
+    if (child) { top_clock = child; child = gtk_widget_get_next_sibling(child); }
+    while (child && !gtk_widget_should_layout(child)) child = gtk_widget_get_next_sibling(child);
+    if (child) { board = child; child = gtk_widget_get_next_sibling(child); }
+    while (child && !gtk_widget_should_layout(child)) child = gtk_widget_get_next_sibling(child);
+    if (child) { bot_clock = child; }
+
+    // If any component is missing, just return (safety)
+    if (!top_clock || !board || !bot_clock) return;
+
+    // --- PASS 1: Preliminary Measure ---
+    int top_min, top_nat;
+    gtk_widget_measure(top_clock, GTK_ORIENTATION_VERTICAL, width, &top_min, &top_nat, NULL, NULL);
+    
+    int bot_min, bot_nat;
+    gtk_widget_measure(bot_clock, GTK_ORIENTATION_VERTICAL, width, &bot_min, &bot_nat, NULL, NULL);
+
+    int clocks_h = top_nat + bot_nat;
+    int avail_h = height - clocks_h;
+    if (avail_h < 0) avail_h = 0;
+    
+    int s_est = MIN(width, avail_h);
+    if (s_est < 100) s_est = 100;
+    
+    // --- Scale Update ---
+    double scale = (double)s_est / 800.0;
+    
+    ClockWidget* top_ptr = (ClockWidget*)g_object_get_data(G_OBJECT(top_clock), "clock-owner");
+    if (top_ptr) clock_widget_set_scale(top_ptr, scale);
+    
+    ClockWidget* bot_ptr = (ClockWidget*)g_object_get_data(G_OBJECT(bot_clock), "clock-owner");
+    if (bot_ptr) clock_widget_set_scale(bot_ptr, scale);
+    
+    // --- PASS 2: Final Measure (after scale update) ---
+    // Measure using the estimated width 's_est' to be precise
+    gtk_widget_measure(top_clock, GTK_ORIENTATION_VERTICAL, s_est, &top_min, &top_nat, NULL, NULL);
+    gtk_widget_measure(bot_clock, GTK_ORIENTATION_VERTICAL, s_est, &bot_min, &bot_nat, NULL, NULL);
+    
+    clocks_h = top_nat + bot_nat;
+    avail_h = height - clocks_h;
+    if (avail_h < 0) avail_h = 0;
+    
+    int s = MIN(width, avail_h);
+    if (s < 100) s = 100;
+
+    // Center the group
+    int total_group_w = s;
+    int total_group_h = top_nat + s + bot_nat;
+
+    int offset_x = (width - total_group_w) / 2;
+    int offset_y = (height - total_group_h) / 2;
+    if (offset_x < 0) offset_x = 0;
+    if (offset_y < 0) offset_y = 0;
+
+    GtkAllocation alloc;
+
+    // 1. Top Clock allocation
+    alloc.x = offset_x;
+    alloc.y = offset_y;
+    alloc.width = s;          // MATCH BOARD WIDTH
+    alloc.height = top_nat;
+    gtk_widget_size_allocate(top_clock, &alloc, -1);
+
+    // 2. Board allocation
+    alloc.x = offset_x;
+    alloc.y = offset_y + top_nat;
+    alloc.width = s;
+    alloc.height = s;         // SQUARE
+    gtk_widget_size_allocate(board, &alloc, -1);
+    
+    // 3. Bottom Clock allocation
+    alloc.x = offset_x;
+    alloc.y = offset_y + top_nat + s;
+    alloc.width = s;          // MATCH BOARD WIDTH
+    alloc.height = bot_nat;
+    gtk_widget_size_allocate(bot_clock, &alloc, -1);
+}
 
 static void apply_dynamic_resolution(GtkWindow* window) {
     GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(window));
@@ -1171,7 +1293,7 @@ static void apply_dynamic_resolution(GtkWindow* window) {
         GdkRectangle geom;
         gdk_monitor_get_geometry(monitor, &geom);
         
-        // Target aspect ratio from original hardcoded values (1460x1035)
+        // Target aspect ratio from original hardcoded values (1430x1035)
         double aspect = (double)app_ratio_width / app_ratio_height;
         
         // Target area: 70% of screen width and height
@@ -1342,8 +1464,12 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     
     PROFILE_MARK("Registry & Actions Finish");
 
-    GtkWidget* main_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    // Use GtkPaned for resizable panels: Info | Center | Right
+    // Root Paned: [Info Panel] | [Center + Right]
+    GtkWidget* root_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_paned_set_position(GTK_PANED(root_paned), 290); // Initial info panel width
     
+    // Board Widget
     state->gui.board = board_widget_new(state->logic);
     board_widget_set_pre_move_callback(state->gui.board, on_board_before_move, state);
     board_widget_set_theme(state->gui.board, state->theme);
@@ -1361,14 +1487,30 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     PROFILE_MARK("Info Panel Create & Wiring");
     
     puzzle_controller_refresh_list(state);
-    gtk_widget_set_size_request(state->gui.info_panel, 290, -1);
-    gtk_widget_set_hexpand(state->gui.info_panel, FALSE);
-    gtk_box_append(GTK_BOX(main_box), state->gui.info_panel);
+    gtk_widget_set_size_request(state->gui.info_panel, 290, -1); // Min width
+    
+    // Add Info Panel to Root Paned (Start)
+    gtk_paned_set_start_child(GTK_PANED(root_paned), state->gui.info_panel);
+    gtk_paned_set_resize_start_child(GTK_PANED(root_paned), FALSE); // Fixed initial width, but resizable via handle
+    gtk_paned_set_shrink_start_child(GTK_PANED(root_paned), FALSE); // Don't shrink below min size
+    
+    // Create Secondary Paned: [Board] | [Right Panel]
+    GtkWidget* right_split_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    // Add Secondary Paned to Root Paned (End)
+    gtk_paned_set_end_child(GTK_PANED(root_paned), right_split_paned);
+    gtk_paned_set_resize_end_child(GTK_PANED(root_paned), TRUE); // Right side expands
+    gtk_paned_set_shrink_end_child(GTK_PANED(root_paned), FALSE);
     
     // Board Area (Center)
-    GtkWidget* board_area = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0); 
+    // Board Area (Custom Layout)
+    // We use a GtkBox but override its layout manager to center Board+Clocks as a unit
+    GtkWidget* board_area = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    GtkLayoutManager* layout = gtk_custom_layout_new(NULL, board_layout_measure, board_layout_allocate);
+    gtk_widget_set_layout_manager(board_area, layout);
+    
     gtk_widget_set_hexpand(board_area, TRUE);
     gtk_widget_set_vexpand(board_area, TRUE);
+    // Margins affect the container itself
     gtk_widget_set_margin_start(board_area, 8);
     gtk_widget_set_margin_end(board_area, 8);
 
@@ -1376,38 +1518,50 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     state->gui.top_clock = clock_widget_new(PLAYER_BLACK);
     state->gui.bottom_clock = clock_widget_new(PLAYER_WHITE);
 
-    // Top Clock Row
+    // 1. Top Clock (Directly added)
     GtkWidget* top_clk = clock_widget_get_widget(state->gui.top_clock);
-    gtk_widget_set_margin_top(top_clk, 12);
+    g_object_set_data(G_OBJECT(top_clk), "clock-owner", state->gui.top_clock); // Binding for scaling
+    gtk_widget_set_margin_top(top_clk, 0);
     gtk_widget_set_margin_bottom(top_clk, 0);
-    gtk_widget_set_halign(top_clk, GTK_ALIGN_FILL);
-    gtk_widget_set_hexpand(top_clk, TRUE);
     gtk_box_append(GTK_BOX(board_area), top_clk);
 
-    // Aspect Frame - Keeps board square
-    GtkWidget* board_aspect = gtk_aspect_frame_new(0.5, 0.5, 1.0, FALSE);
-    gtk_widget_set_hexpand(board_aspect, TRUE);
-    gtk_widget_set_vexpand(board_aspect, TRUE);
-    
+    // 2. Board (Directly added, NO AspectFrame)
     gtk_widget_add_css_class(state->gui.board, "board-frame");
-    gtk_aspect_frame_set_child(GTK_ASPECT_FRAME(board_aspect), state->gui.board);
-    gtk_box_append(GTK_BOX(board_area), board_aspect);
+    gtk_box_append(GTK_BOX(board_area), state->gui.board);
     
-    // Bottom Clock Row
+    // 3. Bottom Clock (Directly added)
     GtkWidget* bot_clk = clock_widget_get_widget(state->gui.bottom_clock);
+    g_object_set_data(G_OBJECT(bot_clk), "clock-owner", state->gui.bottom_clock); // Binding for scaling
     gtk_widget_set_margin_top(bot_clk, 0);
-    gtk_widget_set_margin_bottom(bot_clk, 12);
-    gtk_widget_set_halign(bot_clk, GTK_ALIGN_FILL);
-    gtk_widget_set_hexpand(bot_clk, TRUE);
+    gtk_widget_set_margin_bottom(bot_clk, 0);
     gtk_box_append(GTK_BOX(board_area), bot_clk);
     
-    gtk_box_append(GTK_BOX(main_box), board_area);
+    // Add Board Area to Secondary Paned (Start)
+    gtk_paned_set_start_child(GTK_PANED(right_split_paned), board_area);
+    gtk_paned_set_resize_start_child(GTK_PANED(right_split_paned), TRUE);
+    gtk_paned_set_shrink_start_child(GTK_PANED(right_split_paned), FALSE);
+
     PROFILE_MARK("Clocks & Center Layout");
 
     // Right Side Panel
     state->gui.right_side_panel = right_side_panel_new(state->logic, state->theme);
     right_side_panel_set_nav_callback(state->gui.right_side_panel, on_right_panel_nav, state);
-    gtk_box_append(GTK_BOX(main_box), right_side_panel_get_widget(state->gui.right_side_panel));
+    
+    GtkWidget* right_widget = right_side_panel_get_widget(state->gui.right_side_panel);
+    gtk_widget_set_size_request(right_widget, 280, -1); // Min width
+    
+    // Add Right Panel to Secondary Paned (End)
+    gtk_paned_set_end_child(GTK_PANED(right_split_paned), right_widget);
+    gtk_paned_set_resize_end_child(GTK_PANED(right_split_paned), FALSE);
+    gtk_paned_set_shrink_end_child(GTK_PANED(right_split_paned), FALSE);
+
+    // Set splitter handle position for right panel (reverse from width)
+    // We can't set "end position" easily, so we just let it size naturally or set a large position
+    // GTK4 Paned position is from left. If we want right panel 280, position = Total - 280.
+    // Setting a broad value like 800 might work, or rely on size requests.
+    
+    // Use proper variable for overlay child
+    GtkWidget* main_box = root_paned;
 
     GtkWidget* main_overlay = gtk_overlay_new();
     gtk_overlay_set_child(GTK_OVERLAY(main_overlay), main_box);

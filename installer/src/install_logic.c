@@ -129,6 +129,7 @@ static HRESULT CreateLink(LPCSTR lpszPathObj, LPCSTR lpszPathLink, LPCSTR lpszDe
 #define ID_FT_PROGRESS 301
 #define ID_FT_STATUS   302
 #define ID_FT_LAUNCH   303
+#define ID_FT_BACK     304
 
 typedef struct {
     HWND hwnd;
@@ -136,8 +137,10 @@ typedef struct {
     HWND hStatus;
     HWND hInfoStatus; // "Setting up portable..." label
     HWND hLaunchBtn;
+    HWND hBackBtn;
     char installDir[MAX_PATH];
     BOOL success;
+    BOOL backRequested;
 } FastTrackContext;
 
 static void FastTrack_ProgressCb(int pct, const char* status, void* user_data) {
@@ -207,7 +210,11 @@ static LRESULT CALLBACK FastTrackProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
                 char game_exe[MAX_PATH + 32];
                 snprintf(game_exe, sizeof(game_exe), "%s\\HalChess.exe", s_ctx->installDir);
                 System_LaunchProcess(game_exe);
-                PostQuitMessage(0);
+                s_ctx->success = TRUE;
+                DestroyWindow(hwnd);
+            } else if (LOWORD(wParam) == ID_FT_BACK) {
+                s_ctx->backRequested = TRUE;
+                DestroyWindow(hwnd);
             }
             break;
         case WM_CTLCOLORSTATIC:
@@ -217,7 +224,13 @@ static LRESULT CALLBACK FastTrackProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
             DestroyWindow(hwnd);
             return 0;
         case WM_DESTROY:
-            PostQuitMessage(0);
+            if (s_ctx->backRequested) {
+                PostQuitMessage(INSTALLER_RET_BACK);
+            } else if (s_ctx->success) {
+                PostQuitMessage(INSTALLER_RET_SUCCESS);
+            } else {
+                PostQuitMessage(INSTALLER_RET_ERROR);
+            }
             return 0;
     }
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -263,6 +276,11 @@ int ExecuteFastTrack(void) {
     ctx.hStatus = CreateWindow("STATIC", "Initializing...", WS_CHILD | WS_VISIBLE | SS_CENTER, 
         50, 220, 500, 40, hwnd, (HMENU)ID_FT_STATUS, NULL, NULL);
 
+    // Back Button (Top Left)
+    ctx.hBackBtn = CreateWindow("BUTTON", "Back", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW, 
+        20, 10, 80, 30, hwnd, (HMENU)ID_FT_BACK, NULL, NULL);
+    Installer_ApplyFont(ctx.hBackBtn, Installer_GetFontButton());
+
     ShowWindow(hwnd, SW_SHOW);
     UpdateWindow(hwnd);
 
@@ -274,7 +292,7 @@ int ExecuteFastTrack(void) {
         DispatchMessage(&msg);
     }
 
-    return ctx.success ? 0 : 1;
+    return msg.wParam; // Returns return code from PostQuitMessage
 }
 
 // =================================================================================
@@ -288,6 +306,7 @@ int ExecuteFastTrack(void) {
 #define ID_CHECK_RUN 105
 #define ID_STATIC_STATUS 106
 #define ID_LBL_PATH 107
+#define ID_BTN_BACK 108
 #define ID_PROGRESS_BAR 109
 
 static HWND g_hEditPath;
@@ -295,6 +314,7 @@ static HWND g_hStatus;
 static HWND g_hBtnInstall;
 static HWND g_hProgress;
 static BOOL g_SetupSuccess = FALSE;
+static BOOL g_BackRequested = FALSE;
 
 // Helper: Create Shortcut
 static HRESULT CreateLink(LPCSTR lpszPathObj, LPCSTR lpszPathLink, LPCSTR lpszDesc) {
@@ -573,6 +593,12 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
             g_hStatus = CreateWindow("STATIC", "", WS_CHILD | WS_VISIBLE | SS_CENTER, 40, 420, 610, 30, hwnd, (HMENU)ID_STATIC_STATUS, NULL, NULL);
             Installer_ApplyFont(g_hStatus, Installer_GetFontNormal());
             
+            // Back Button (Top Left)
+            CreateWindow("BUTTON", "Back", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
+                20, 5, 80, 30, hwnd, (HMENU)ID_BTN_BACK, NULL, NULL);
+            // Move status to avoid overlap
+            SetWindowPos(g_hStatus, NULL, 40, 310, 610, 30, SWP_NOZORDER);
+
             return 0;
         }
         case WM_DRAWITEM: {
@@ -592,19 +618,30 @@ static LRESULT CALLBACK SetupWindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
                 CreateThread(NULL, 0, InstallThread, NULL, 0, NULL);
             } else if (LOWORD(wParam) == 999) { // Uninstall
                 CreateThread(NULL, 0, UninstallThread, NULL, 0, NULL);
+            } else if (LOWORD(wParam) == ID_BTN_BACK) {
+                g_BackRequested = TRUE;
+                DestroyWindow(hwnd);
             }
             break;
         case WM_CLOSE:
             DestroyWindow(hwnd);
             return 0;
         case WM_DESTROY:
-            PostQuitMessage(0);
+            if (g_BackRequested) {
+                 PostQuitMessage(INSTALLER_RET_BACK);
+            } else if (g_SetupSuccess) {
+                 PostQuitMessage(INSTALLER_RET_SUCCESS);
+            } else {
+                 PostQuitMessage(INSTALLER_RET_ERROR);
+            }
             return 0;
     }
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
 int ExecuteCustomSetup(HINSTANCE hInstance) {
+    g_BackRequested = FALSE;
+    g_SetupSuccess = FALSE;
     Installer_InitUI();
 
     WNDCLASSEXA wc;
@@ -636,5 +673,5 @@ int ExecuteCustomSetup(HINSTANCE hInstance) {
         DispatchMessage(&msg);
     }
     
-    return g_SetupSuccess ? 0 : 1;
+    return msg.wParam;
 }

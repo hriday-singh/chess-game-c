@@ -283,7 +283,12 @@ SettingsDialog* settings_dialog_new(AppState* app_state) {
     GtkWidget* win = gtk_window_new();
     dialog->window = GTK_WINDOW(win);
     gtk_window_set_title(dialog->window, "Settings");
-    gtk_window_set_default_size(dialog->window, 850, 580);
+    if (app_state && app_state->gui.window) {
+        gui_utils_set_window_size_relative(dialog->window, app_state->gui.window, 0.8, 0.8);
+    } else {
+        gtk_window_set_default_size(dialog->window, 850, 580);
+    }
+    gtk_window_set_resizable(dialog->window, TRUE);
     gtk_window_set_modal(dialog->window, TRUE);
     gtk_widget_add_css_class(GTK_WIDGET(dialog->window), "window"); // Ensure theme background
     if (app_state && app_state->gui.window) {

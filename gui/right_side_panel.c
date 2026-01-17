@@ -259,10 +259,10 @@ RightSidePanel* right_side_panel_new(GameLogic* logic, ThemeData* theme) {
     panel->container = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_widget_add_css_class(panel->container, "right-side-panel-v4");
     gtk_widget_set_size_request(panel->container, 290, -1); // Denser default width
-    gtk_widget_set_hexpand(panel->container, FALSE); 
+    gtk_widget_set_hexpand(panel->container, TRUE); 
     gtk_widget_set_vexpand(panel->container, TRUE);
     gtk_widget_set_valign(panel->container, GTK_ALIGN_FILL);
-    gtk_widget_set_halign(panel->container, GTK_ALIGN_END);
+    gtk_widget_set_halign(panel->container, GTK_ALIGN_FILL);
 
     // Toggle button removed.
 

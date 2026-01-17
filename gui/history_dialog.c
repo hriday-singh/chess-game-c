@@ -1,6 +1,6 @@
 #include "history_dialog.h"
-#include "history_dialog.h"
 #include "config_manager.h"
+#include "gui_utils.h"
 #include "import_dialog.h" // NEW
 #include "app_state.h"     // Need AppState to pass to import
 #include <time.h>
@@ -249,7 +249,8 @@ HistoryDialog* history_dialog_new(GtkWindow* parent) {
     
     dialog->window = GTK_WINDOW(gtk_window_new());
     gtk_window_set_title(dialog->window, "Game History");
-    gtk_window_set_default_size(dialog->window, 700, 500); // Slightly larger
+    gui_utils_set_window_size_relative(dialog->window, parent, 0.7, 0.7);
+    gtk_window_set_resizable(dialog->window, TRUE);
     gtk_window_set_modal(dialog->window, TRUE);
     gtk_widget_add_css_class(GTK_WIDGET(dialog->window), "window"); // Ensure theme background
     gtk_window_set_transient_for(dialog->window, parent);

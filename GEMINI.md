@@ -511,3 +511,14 @@ When uncertain:
 
 The user knows the destination.
 Your role is to **execute precisely, incrementally, and transparently**.
+
+---
+
+## 15. Recent Architectural Changes
+
+### Refactoring Deprecated strdup Calls
+Replaced legacy POSIX `strdup` with modern `_strdup` for better Windows/MSVC compatibility across the entire project (except external headers).
+
+### Match History Improvements
+Added a dedicated `g_lookup_entry` for safe on-demand match loading.
+Integrated detailed `printf` debug statements in `match_history_find_by_id` to trace lookup success.

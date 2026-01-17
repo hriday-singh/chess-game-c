@@ -64,12 +64,20 @@ LRESULT CALLBACK ModeSelectionProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM l
         case WM_COMMAND:
             if (LOWORD(wParam) == ID_BTN_FAST) {
                 ShowWindow(hwnd, SW_HIDE); // Hide selection while installing
-                ExecuteFastTrack();
-                DestroyWindow(hwnd);
+                int ret = ExecuteFastTrack();
+                if (ret == INSTALLER_RET_BACK) {
+                    ShowWindow(hwnd, SW_SHOW);
+                } else {
+                    DestroyWindow(hwnd);
+                }
             } else if (LOWORD(wParam) == ID_BTN_CUSTOM) {
                 ShowWindow(hwnd, SW_HIDE);
-                ExecuteCustomSetup((HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE));
-                DestroyWindow(hwnd);
+                int ret = ExecuteCustomSetup((HINSTANCE)GetWindowLongPtr(hwnd, GWLP_HINSTANCE));
+                 if (ret == INSTALLER_RET_BACK) {
+                    ShowWindow(hwnd, SW_SHOW);
+                } else {
+                    DestroyWindow(hwnd);
+                }
             }
             break;
 

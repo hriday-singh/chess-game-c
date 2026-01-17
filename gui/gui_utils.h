@@ -65,4 +65,10 @@ void gui_utils_add_esc_close(GtkWidget* window);
  */
 GtkWidget* gui_utils_create_loading_overlay(GtkOverlay* parent_overlay, GtkWidget** out_spinner, const char* title, const char* subtitle);
 
+/**
+ * @brief Sets the window size relative to a parent window (e.g. 0.8 width).
+ * Falls back to reasonable defaults if parent is too small or NULL.
+ */
+void gui_utils_set_window_size_relative(GtkWindow* window, GtkWindow* relative_to, double w_factor, double h_factor);
+
 #endif // GUI_UTILS_H

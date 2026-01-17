@@ -197,7 +197,12 @@ void import_dialog_show(AppState* state) {
     
     s_dialog = gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(s_dialog), "Import Game");
-    gtk_window_set_default_size(GTK_WINDOW(s_dialog), 600, 700);
+    if (state->gui.window) {
+        gui_utils_set_window_size_relative(GTK_WINDOW(s_dialog), GTK_WINDOW(state->gui.window), 0.6, 0.7);
+    } else {
+        gtk_window_set_default_size(GTK_WINDOW(s_dialog), 600, 700);
+    }
+    gtk_window_set_resizable(GTK_WINDOW(s_dialog), TRUE);
     gtk_window_set_modal(GTK_WINDOW(s_dialog), TRUE);
     if (state->gui.window) {
         gtk_window_set_transient_for(GTK_WINDOW(s_dialog), GTK_WINDOW(state->gui.window));

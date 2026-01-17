@@ -1,5 +1,6 @@
 #include "piece_theme_dialog.h"
 #include "theme_data.h"
+#include "gui_utils.h"
 #include "../game/types.h"
 #include <gtk/gtk.h>
 #include <gio/gio.h>
@@ -955,7 +956,8 @@ PieceThemeDialog* piece_theme_dialog_new(ThemeData* theme, PieceThemeUpdateCallb
     dialog->window = GTK_WINDOW(win);
     gtk_window_set_title(dialog->window, "Piece Theme");
     gtk_window_set_modal(dialog->window, TRUE);
-    gtk_window_set_default_size(dialog->window, 1000, 600);
+    gui_utils_set_window_size_relative(dialog->window, parent_window, 0.85, 0.75);
+    gtk_window_set_resizable(dialog->window, TRUE);
     if (parent_window) gtk_window_set_transient_for(dialog->window, parent_window);
     
     g_signal_connect(dialog->window, "close-request", G_CALLBACK(on_window_close_request), dialog);

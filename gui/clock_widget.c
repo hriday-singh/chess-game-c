@@ -25,8 +25,52 @@ struct _ClockWidget {
     int64_t initial_time_ms;    // Starting time for the match/period
     int64_t last_sync_system_us; // System time (monotonic) when last_time_ms was updated
     
+    double current_scale;      // Current scale factor to prevent redundant resize queues
     guint tick_id;             // Animation tick callback ID
 };
+
+void clock_widget_set_scale(ClockWidget* clock, double scale) {
+    if (!clock) return;
+    
+    // Bounds check scale
+    if (scale < 0.5) scale = 0.5;
+    if (scale > 2.0) scale = 2.0;
+    
+    // Check if changed (epsilon 0.001)
+    if (fabs(clock->current_scale - scale) < 0.001) return;
+    clock->current_scale = scale;
+    
+    // 1. Scale Icon
+    int icon_size = (int)(18 * scale);
+    gtk_image_set_pixel_size(GTK_IMAGE(clock->icon_image), icon_size);
+    
+    // 2. Scale Text (Pango Attributes) - DISABLED based on user feedback (too small)
+    // Reverting to CSS-based sizing for now.
+    /*
+    PangoAttrList* attr_list = pango_attr_list_new();
+    // Use Points instead of Absolute if enabled later: pango_attr_size_new(...)
+    PangoAttribute* size_attr = pango_attr_size_new((int)(14 * scale * PANGO_SCALE));
+    pango_attr_list_insert(attr_list, size_attr);
+    
+    gtk_label_set_attributes(GTK_LABEL(clock->name_label), attr_list);
+    gtk_label_set_attributes(GTK_LABEL(clock->time_label), attr_list);
+    pango_attr_list_unref(attr_list);
+    */
+    // Clear attributes to ensure CSS takes over
+    gtk_label_set_attributes(GTK_LABEL(clock->name_label), NULL);
+    gtk_label_set_attributes(GTK_LABEL(clock->time_label), NULL);
+    
+    // 3. Scale Analog Clock Widget Size
+    int clock_size = (int)(18 * scale);
+    gtk_widget_set_size_request(clock->analog_area, clock_size, clock_size);
+    
+    // 4. Adjust internal spacing/margins
+    gtk_box_set_spacing(GTK_BOX(clock->name_pill), (int)(8 * scale));
+    gtk_box_set_spacing(GTK_BOX(clock->clock_pill), (int)(12 * scale));
+    
+    // Force redraw
+    gtk_widget_queue_resize(clock->main_container);
+}
 
 // Draw the discrete analog clock
 static void draw_analog(GtkDrawingArea *area, cairo_t *cr, int width, int height, gpointer user_data) {
@@ -102,14 +146,15 @@ ClockWidget* clock_widget_new(Player side) {
     clock->side = side;
     clock->last_time_ms = -1;
     
-    // Main Container (Horizontal box to hold two pills)
-    clock->main_container = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    gtk_widget_set_halign(clock->main_container, GTK_ALIGN_END); // Right aligned within its row
+    // Main Container (Center Box for strict Left/Right alignment)
+    clock->main_container = gtk_center_box_new();
+    gtk_widget_set_halign(clock->main_container, GTK_ALIGN_FILL); 
     gtk_widget_set_valign(clock->main_container, GTK_ALIGN_CENTER);
     gtk_widget_add_css_class(clock->main_container, "clock-widget-container");
 
     // 1. Name Pill
     clock->name_pill = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_valign(clock->name_pill, GTK_ALIGN_CENTER); // Center Vertically
     gtk_widget_add_css_class(clock->name_pill, "clock-pill");
     gtk_widget_add_css_class(clock->name_pill, "name-pill");
     
@@ -122,10 +167,12 @@ ClockWidget* clock_widget_new(Player side) {
     gtk_label_set_xalign(GTK_LABEL(clock->name_label), 0.0);
     gtk_box_append(GTK_BOX(clock->name_pill), clock->name_label);
     
-    gtk_box_append(GTK_BOX(clock->main_container), clock->name_pill);
+    // Set as START widget (Left)
+    gtk_center_box_set_start_widget(GTK_CENTER_BOX(clock->main_container), clock->name_pill);
 
     // 2. Clock Pill
     clock->clock_pill = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
+    gtk_widget_set_valign(clock->clock_pill, GTK_ALIGN_CENTER); // Center Vertically
     gtk_widget_add_css_class(clock->clock_pill, "clock-pill");
     if (side == PLAYER_WHITE) {
         gtk_widget_add_css_class(clock->clock_pill, "clock-white");
@@ -146,12 +193,8 @@ ClockWidget* clock_widget_new(Player side) {
     gtk_label_set_xalign(GTK_LABEL(clock->time_label), 1.0); // Right align text
     gtk_box_append(GTK_BOX(clock->clock_pill), clock->time_label);
     
-    // Add spacer to push pills to edges
-    GtkWidget* spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-    gtk_widget_set_hexpand(spacer, TRUE);
-    gtk_box_append(GTK_BOX(clock->main_container), spacer);
-    
-    gtk_box_append(GTK_BOX(clock->main_container), clock->clock_pill);
+    // Set as END widget (Right)
+    gtk_center_box_set_end_widget(GTK_CENTER_BOX(clock->main_container), clock->clock_pill);
 
     // Register tick callback for analog hand updates
     clock->tick_id = gtk_widget_add_tick_callback(clock->analog_area, on_analog_tick, clock, NULL);

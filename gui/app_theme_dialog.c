@@ -925,7 +925,8 @@ AppThemeDialog* app_theme_dialog_new(GtkWindow* parent) {
     
     dialog->window = GTK_WINDOW(gtk_window_new());
     gtk_window_set_title(dialog->window, "App Theme Editor");
-    gtk_window_set_default_size(dialog->window, 500, 600);
+    gui_utils_set_window_size_relative(dialog->window, parent, 0.5, 0.7);
+    gtk_window_set_resizable(dialog->window, TRUE);
     gtk_window_set_child(dialog->window, dialog->content_box);
     
     // Auto-Focus Parent on Destroy

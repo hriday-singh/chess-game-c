@@ -30,6 +30,9 @@ void clock_widget_set_name(ClockWidget* clock, const char* name);
 // Set "Disabled/Zero" state (for Tutorial/Puzzle modes)
 void clock_widget_set_disabled(ClockWidget* clock, bool disabled);
 
+// Set scale factor for resizing (1.0 = ~800px board width)
+void clock_widget_set_scale(ClockWidget* clock, double scale);
+
 // Destroy and free
 void clock_widget_free(ClockWidget* clock);
 

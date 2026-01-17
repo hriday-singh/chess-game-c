@@ -616,6 +616,10 @@ static const char *CSS_STRUCTURAL =
     /* -------------------- Standard Components -------------------- */
     "separator { background-color: alpha(@border_color, 0.6); min-height: 1px; min-width: 1px; }\n"
     
+     /* Paned Separator (Hidden/Minimal) */
+    "paned > separator { min-width: 1px; min-height: 1px; background: transparent; transition: all 0.2s; margin: 0; padding: 0; }\n"
+    "paned > separator:hover { background: alpha(@accent_color, 0.4); }\n"
+
     "checkbutton { color: @fg_color; }\n"
     "checkbutton:checked check { background-color: @accent_color; color: @accent_fg; border-color: @accent_color; }\n"
     "checkbutton:hover check { border-color: @accent_color; }\n"

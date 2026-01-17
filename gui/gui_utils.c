@@ -137,3 +137,27 @@ GtkWidget* gui_utils_create_loading_overlay(GtkOverlay* parent_overlay, GtkWidge
     
     return loading_overlay;
 }
+
+void gui_utils_set_window_size_relative(GtkWindow* window, GtkWindow* relative_to, double w_factor, double h_factor) {
+    if (!window) return;
+    
+    int w = 1200;
+    int h = 900;
+    
+    if (relative_to && GTK_IS_WINDOW(relative_to)) {
+        int rw = gtk_widget_get_width(GTK_WIDGET(relative_to));
+        int rh = gtk_widget_get_height(GTK_WIDGET(relative_to));
+        if (rw > 200 && rh > 200) {
+            w = rw;
+            h = rh;
+        }
+    }
+    
+    int target_w = (int)(w * w_factor);
+    int target_h = (int)(h * h_factor);
+    
+    if (target_w < 400) target_w = 400;
+    if (target_h < 300) target_h = 300;
+    
+    gtk_window_set_default_size(window, target_w, target_h);
+}

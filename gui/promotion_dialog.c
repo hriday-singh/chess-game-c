@@ -155,7 +155,7 @@ PieceType promotion_dialog_show(GtkWindow* parent, ThemeData* theme, Player play
     gtk_window_set_title(GTK_WINDOW(dialog), "Choose Promotion");
     gtk_window_set_modal(GTK_WINDOW(dialog), TRUE);
     gtk_window_set_transient_for(GTK_WINDOW(dialog), parent);
-    gtk_window_set_resizable(GTK_WINDOW(dialog), FALSE);
+    gtk_window_set_resizable(GTK_WINDOW(dialog), TRUE);
     gtk_window_set_decorated(GTK_WINDOW(dialog), TRUE);
     
     // Auto-Focus Parent on Destroy

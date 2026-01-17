@@ -438,11 +438,7 @@ void theme_data_set_black_stroke_width(ThemeData* theme, double width) {
 
 // Font getter/setter
 const char* theme_data_get_font_name(ThemeData* theme) {
-    if (!theme || !theme->fontName) return "Segoe UI Symbol";
-    if (theme_data_is_standard_font(theme->fontName)) {
-        return theme->fontName;
-    }
-    return "Segoe UI Symbol";
+    return theme ? theme->fontName : DEFAULT_FONT_NAME;
 }
 
 void theme_data_set_font_name(ThemeData* theme, const char* font_name) {

@@ -276,6 +276,12 @@ stage: $(GUI_TARGET)
 	@cp -r assets/* $(STAGE_DIR)/assets/
 	@echo "Copying runtime DLLs (using ldd)..."
 	@ldd $(GUI_TARGET) | grep '/mingw64/' | awk '{print $$3}' | sort | uniq | xargs -I {} cp "{}" $(STAGE_DIR)/
+	@echo "Copying GDK Pixbuf SVG Loader and dependencies..."
+	@mkdir -p $(STAGE_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders
+	@cp /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/pixbufloader_svg.dll $(STAGE_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders/
+	@ldd /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/pixbufloader_svg.dll | grep '/mingw64/' | awk '{print $$3}' | sort | uniq | xargs -I {} cp "{}" $(STAGE_DIR)/
+	@echo "Generating loaders.cache..."
+	@gdk-pixbuf-query-loaders $(STAGE_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders/pixbufloader_svg.dll | sed -E "s|.*[\\\\/]lib[\\\\/]gdk-pixbuf|lib/gdk-pixbuf|g" | sed "s|\\\\|/|g" > $(STAGE_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
 	@echo "Copying GTK resources (schema, icons) - placeholder"
 	@# TODO: Copy GTK schemas/loaders if needed. For now assuming minimal.
 	@echo "Staging complete at $(STAGE_DIR)"
