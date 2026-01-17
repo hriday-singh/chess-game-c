@@ -79,89 +79,59 @@ void Installer_DrawRoundedButton(DRAWITEMSTRUCT* dis, COLORREF bgColor, COLORREF
     HDC hdc = dis->hDC;
     RECT rc = dis->rcItem;
     BOOL isPressed = dis->itemState & ODS_SELECTED;
-    BOOL isFocused = dis->itemState & ODS_FOCUS;
+    // BOOL isFocused = dis->itemState & ODS_FOCUS;
+    BOOL isDisabled = dis->itemState & ODS_DISABLED;
 
-    // Fill background
-    FillRect(hdc, &rc, (HBRUSH)GetStockObject(WHITE_BRUSH));
+    // Fill background (window background color)
+    HBRUSH hWinBrush = CreateSolidBrush(RGB(255, 255, 255));
+    FillRect(hdc, &rc, hWinBrush);
+    DeleteObject(hWinBrush);
 
-    // Enhanced color scheme for modern look
     COLORREF buttonBg = bgColor;
-    COLORREF borderColor = RGB(180, 180, 180);
-    
-    if (isPressed) {
-        // Darker when pressed
-        buttonBg = RGB(200, 200, 200);
-        borderColor = RGB(140, 140, 140);
+    COLORREF buttonText = textColor;
+    COLORREF borderColor;
+
+    // Determine colors based on state
+    if (isDisabled) {
+        buttonBg = RGB(230, 230, 230);
+        buttonText = RGB(160, 160, 160);
+        borderColor = RGB(210, 210, 210);
+    } else if (isPressed) {
+        // Darken the background slightly
+        int r = GetRValue(bgColor), g = GetGValue(bgColor), b = GetBValue(bgColor);
+        buttonBg = RGB(max(0, r - 30), max(0, g - 30), max(0, b - 30));
+        borderColor = RGB(max(0, r - 50), max(0, g - 50), max(0, b - 50));
     } else {
-        // Subtle gradient effect by using lighter color
-        buttonBg = RGB(245, 245, 245);
-        borderColor = RGB(200, 200, 200);
+        buttonBg = bgColor;
+        int r = GetRValue(bgColor), g = GetGValue(bgColor), b = GetBValue(bgColor);
+        borderColor = RGB(max(0, r - 40), max(0, g - 40), max(0, b - 40));
     }
 
-    // Draw subtle shadow for depth (offset by 2px)
-    if (!isPressed) {
-        RECT shadowRc = rc;
-        shadowRc.left += 2;
-        shadowRc.top += 2;
-        shadowRc.right += 2;
-        shadowRc.bottom += 2;
-        
-        HBRUSH hShadowBrush = CreateSolidBrush(RGB(220, 220, 220));
-        HPEN hShadowPen = CreatePen(PS_SOLID, 1, RGB(220, 220, 220));
-        SelectObject(hdc, hShadowBrush);
-        SelectObject(hdc, hShadowPen);
-        RoundRect(hdc, shadowRc.left, shadowRc.top, shadowRc.right, shadowRc.bottom, 15, 15);
-        DeleteObject(hShadowBrush);
-        DeleteObject(hShadowPen);
-    }
-
-    // Draw main rounded button
+    // Draw main rounded button body
     HBRUSH hBrush = CreateSolidBrush(buttonBg);
-    HPEN hPen = CreatePen(PS_SOLID, 2, borderColor);
+    HPEN hPen = CreatePen(PS_SOLID, 1, borderColor);
     SelectObject(hdc, hBrush);
     SelectObject(hdc, hPen);
 
-    RoundRect(hdc, rc.left, rc.top, rc.right, rc.bottom, 15, 15);
-
-    // Draw focus indicator if focused
-    if (isFocused && !isPressed) {
-        HPEN hFocusPen = CreatePen(PS_DOT, 1, RGB(100, 149, 237)); // Cornflower blue
-        SelectObject(hdc, hFocusPen);
-        SelectObject(hdc, GetStockObject(NULL_BRUSH));
-        RECT focusRc = rc;
-        focusRc.left += 4;
-        focusRc.top += 4;
-        focusRc.right -= 4;
-        focusRc.bottom -= 4;
-        RoundRect(hdc, focusRc.left, focusRc.top, focusRc.right, focusRc.bottom, 12, 12);
-        DeleteObject(hFocusPen);
-    }
+    RoundRect(hdc, rc.left, rc.top, rc.right - 1, rc.bottom - 1, 12, 12);
 
     // Draw Text
     SetBkMode(hdc, TRANSPARENT);
-    SetTextColor(hdc, textColor);
+    SetTextColor(hdc, buttonText);
     SelectObject(hdc, hFont ? hFont : g_hFontNormal);
 
     char text[256];
-    int len = GetWindowTextA(dis->hwndItem, text, sizeof(text));
+    GetWindowTextA(dis->hwndItem, text, sizeof(text));
     
-    // Calculate required rect for vertical centering
+    // Vertical centering
     RECT textRc = rc;
-    // DT_WORDBREAK | DT_CALCRECT calculates the height needed
-    DrawTextA(hdc, text, len, &textRc, DT_CENTER | DT_WORDBREAK | DT_CALCRECT);
-    
-    int textHeight = textRc.bottom - textRc.top;
-    int boxHeight = rc.bottom - rc.top;
-    int yOffset = (boxHeight - textHeight) / 2;
-    
-    // Adjust text position slightly when pressed for tactile feedback
-    RECT centeredRc = rc;
-    centeredRc.top += yOffset + (isPressed ? 1 : 0);
-    centeredRc.bottom = centeredRc.top + textHeight;
-    centeredRc.left += (isPressed ? 1 : 0);
+    if (isPressed) {
+        textRc.top += 1;
+        textRc.left += 1;
+    }
+    DrawTextA(hdc, text, -1, &textRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
-    DrawTextA(hdc, text, len, &centeredRc, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
-
+    // Clean up
     DeleteObject(hBrush);
     DeleteObject(hPen);
 }
@@ -252,7 +222,12 @@ static LRESULT CALLBACK FastTrackProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
              if (s_ctx->hInfoStatus) ShowWindow(s_ctx->hInfoStatus, SW_HIDE);
              if (s_ctx->hBackBtn) ShowWindow(s_ctx->hBackBtn, SW_HIDE);
              
+             // Update Status text to be more prominent
              SetWindowTextA(s_ctx->hStatus, "Installation Successful!");
+             
+             // Move status to a more centered position for the end screen
+             SetWindowPos(s_ctx->hStatus, NULL, 50, 160, 500, 40, SWP_NOZORDER);
+             Installer_ApplyFont(s_ctx->hStatus, Installer_GetFontTitle());
 
              // Create Shortcut in the root directory (outside the HalChess folder)
              char rootDir[MAX_PATH];
@@ -269,9 +244,9 @@ static LRESULT CALLBACK FastTrackProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
                  CreateLink(exePath, shortcutPath, "Play HalChess (Portable)");
              }
 
-             // Create Launch Button at center bottom (on UI thread)
+             // Create Launch Button at center bottom
              s_ctx->hLaunchBtn = CreateWindow("BUTTON", "Launch HalChess Now", WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 
-                 175, 250, 250, 60, hwnd, (HMENU)ID_FT_LAUNCH, GetModuleHandle(NULL), NULL);
+                 150, 240, 300, 60, hwnd, (HMENU)ID_FT_LAUNCH, GetModuleHandle(NULL), NULL);
              Installer_ApplyFont(s_ctx->hLaunchBtn, Installer_GetFontButton());
 
              InvalidateRect(hwnd, NULL, TRUE);

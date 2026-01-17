@@ -5,8 +5,9 @@
 #include "move.h"
 #include <stdbool.h>
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 static const int64_t overhead_ms = 5000;
+static const int64_t DEFAULT_TIMEOUT_US = 5000000; // 5s baseline
 
 struct _AiController {
     GameLogic* logic;
@@ -144,22 +145,16 @@ static gpointer ai_think_thread(gpointer user_data) {
     }
     if (debug_mode && drained > 0) printf("[AI Thread] Drained %d stale messages.\n", drained);
 
-    // NEW: Apply Skill Level in non-advanced mode
+    // Set Skill Level (Mandatory for consistency across modes)
+    int skill = 20; // Default to max for advanced/high-ELO
     if (!is_advanced_mode && data->target_elo > 0) {
-        // Compute skill from ELO using the shared helper
-        int skill = ai_engine_elo_to_skill(data->target_elo);
-                
-        if (debug_mode) printf("[AI Thread] Non-Advanced Mode: ELO=%d -> Skill=%d\n", data->target_elo, skill);
-        
-        // Set Skill Level option
-        char skill_str[16];
-        snprintf(skill_str, sizeof(skill_str), "%d", skill);
-        
-        if (debug_mode) printf("[AI Thread] Setting Skill Level: %s (Elo: %d)\n", skill_str, data->target_elo);
-        ai_engine_set_option(data->engine, "Skill Level", skill_str);
-        ai_engine_send_command(data->engine, "isready");
-        ai_engine_wait_for_token(data->engine, "readyok", 2000);
+        skill = ai_engine_elo_to_skill(data->target_elo);
     }
+    
+    if (debug_mode) printf("[AI Thread] Applying Skill Level: %d (Mode: %s)\n", 
+                           skill, is_advanced_mode ? "Advanced" : "ELO-based");
+    
+    ai_engine_set_skill_level(data->engine, skill);
 
     ai_engine_send_command(data->engine, pos_cmd);
 
@@ -182,9 +177,9 @@ static gpointer ai_think_thread(gpointer user_data) {
                  (long long)data->winc_ms, (long long)data->binc_ms);
         if (debug_mode) printf("[AI Thread] Non-Advanced Mode with Clock: %s\n", go_cmd);
     } else {
-        // Non-advanced without clock: Use infinite
-        snprintf(go_cmd, sizeof(go_cmd), "go infinite");
-        if (debug_mode) printf("[AI Thread] Non-Advanced Mode (No Clock): Using infinite\n");
+        // Non-advanced without clock: Use movetime based on ELO
+        snprintf(go_cmd, sizeof(go_cmd), "go movetime %d", data->params.move_time_ms);
+        if (debug_mode) printf("[AI Thread] Non-Advanced Mode (No Clock): Using movetime=%d\n", data->params.move_time_ms);
     }
     
     if (debug_mode) printf("[AI Thread] Sending Logic Command: %s\n", go_cmd);
@@ -192,12 +187,24 @@ static gpointer ai_think_thread(gpointer user_data) {
 
     if (debug_mode) printf("[AI Thread] Thinking Command Sent: %s\n", go_cmd);
 
-    // UNIVERSAL 15-SECOND TIMEOUT: Apply to ALL go commands
+    // DYNAMIC UNIVERSAL TIMEOUT: Determine safety limit based on ELO
+    // CHANGE HERE FOR AI ELO TUNING STOCKFISH
+    int64_t current_timeout_us = DEFAULT_TIMEOUT_US;
+    if (!is_advanced_mode) {
+        if (data->target_elo < 900) {
+            current_timeout_us = 1100000; // 1.1s
+        } else if (data->target_elo < 1800) {
+            current_timeout_us = 2100000; // 2.1s
+        } else {
+            current_timeout_us = 5200000; // 5.2s
+        }
+    }
+
     char* bestmove_str = NULL;
     int64_t start_time = g_get_monotonic_time();
-    int64_t timeout_us = 15000000; // 15 seconds in microseconds
     
-    if (debug_mode) printf("[AI Thread] Starting 15s timeout polling (applies to all modes)...\n");
+    if (debug_mode) printf("[AI Thread] Starting %lld us universal timeout polling (ELO: %d)...\n", 
+                           (long long)current_timeout_us, data->target_elo);
     
     while (true) {
         // Check if we've been cancelled
@@ -222,8 +229,8 @@ static gpointer ai_think_thread(gpointer user_data) {
         
         // Check timeout
         int64_t elapsed_us = g_get_monotonic_time() - start_time;
-        if (elapsed_us > timeout_us) {
-            if (debug_mode) printf("[AI Thread] 15s timeout reached, sending stop\n");
+        if (elapsed_us > current_timeout_us) {
+            if (debug_mode) printf("[AI Thread] Dynamic timeout reached (%lld us), sending stop\n", (long long)current_timeout_us);
             ai_engine_send_command(data->engine, "stop");
             // Now wait for bestmove after stop
             bestmove_str = ai_engine_wait_for_bestmove(data->engine);

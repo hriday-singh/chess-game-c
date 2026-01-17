@@ -428,7 +428,11 @@ static void update_ui_callback(void) {
         // Detect move change for rating
         if (count > state->last_move_count) {
             state->last_move_count = count;
-            state->match_saved = false; // New move made, any previous "saved" state for this match is potentially stale
+            // Only invalidate save status if the game is still ongoing.
+            // If the game ended, the auto-save logic (above) handled it, and we shouldn't revert that.
+            if (!state->logic->isGameOver) {
+                state->match_saved = false;
+            }
         }
 
         bool is_live_match = !state->logic->isGameOver && !state->tutorial.step && !state->is_replaying;
@@ -1171,7 +1175,7 @@ static void board_layout_measure(GtkWidget *widget,
     int min_size = 0;
     int nat_size = 0;
 
-    // We expect 3 children: TopClock, Board, BotClock
+    // Robust measure: Find children by name
     for (child = gtk_widget_get_first_child(widget);
          child != NULL;
          child = gtk_widget_get_next_sibling(child)) {
@@ -1203,24 +1207,32 @@ static void board_layout_allocate(GtkWidget *widget,
     GtkWidget *board = NULL;
     GtkWidget *bot_clock = NULL;
 
-    // Identify children strictly by order (Top, Board, Bot)
-    GtkWidget *child = gtk_widget_get_first_child(widget);
-    while (child && !gtk_widget_should_layout(child)) child = gtk_widget_get_next_sibling(child);
-    if (child) { top_clock = child; child = gtk_widget_get_next_sibling(child); }
-    while (child && !gtk_widget_should_layout(child)) child = gtk_widget_get_next_sibling(child);
-    if (child) { board = child; child = gtk_widget_get_next_sibling(child); }
-    while (child && !gtk_widget_should_layout(child)) child = gtk_widget_get_next_sibling(child);
-    if (child) { bot_clock = child; }
+    // Robust allocation: Find children by name
+    // This supports scenarios where clocks are hidden (Tutorial)
+    GtkWidget *child;
+    for (child = gtk_widget_get_first_child(widget);
+         child != NULL;
+         child = gtk_widget_get_next_sibling(child)) {
+         
+         const char* name = gtk_widget_get_name(child);
+         if (g_strcmp0(name, "layout_top_clock") == 0) top_clock = child;
+         else if (g_strcmp0(name, "layout_board") == 0) board = child;
+         else if (g_strcmp0(name, "layout_bot_clock") == 0) bot_clock = child;
+    }
 
-    // If any component is missing, just return (safety)
-    if (!top_clock || !board || !bot_clock) return;
+    // Must have board at minimum
+    if (!board) return;
 
     // --- PASS 1: Preliminary Measure ---
-    int top_min, top_nat;
-    gtk_widget_measure(top_clock, GTK_ORIENTATION_VERTICAL, width, &top_min, &top_nat, NULL, NULL);
+    int top_min = 0, top_nat = 0;
+    if (top_clock && gtk_widget_should_layout(top_clock)) {
+        gtk_widget_measure(top_clock, GTK_ORIENTATION_VERTICAL, width, &top_min, &top_nat, NULL, NULL);
+    }
     
-    int bot_min, bot_nat;
-    gtk_widget_measure(bot_clock, GTK_ORIENTATION_VERTICAL, width, &bot_min, &bot_nat, NULL, NULL);
+    int bot_min = 0, bot_nat = 0;
+    if (bot_clock && gtk_widget_should_layout(bot_clock)) {
+        gtk_widget_measure(bot_clock, GTK_ORIENTATION_VERTICAL, width, &bot_min, &bot_nat, NULL, NULL);
+    }
 
     int clocks_h = top_nat + bot_nat;
     int avail_h = height - clocks_h;
@@ -1232,16 +1244,24 @@ static void board_layout_allocate(GtkWidget *widget,
     // --- Scale Update ---
     double scale = (double)s_est / 800.0;
     
-    ClockWidget* top_ptr = (ClockWidget*)g_object_get_data(G_OBJECT(top_clock), "clock-owner");
-    if (top_ptr) clock_widget_set_scale(top_ptr, scale);
+    if (top_clock) {
+        ClockWidget* top_ptr = (ClockWidget*)g_object_get_data(G_OBJECT(top_clock), "clock-owner");
+        if (top_ptr) clock_widget_set_scale(top_ptr, scale);
+    }
     
-    ClockWidget* bot_ptr = (ClockWidget*)g_object_get_data(G_OBJECT(bot_clock), "clock-owner");
-    if (bot_ptr) clock_widget_set_scale(bot_ptr, scale);
+    if (bot_clock) {
+        ClockWidget* bot_ptr = (ClockWidget*)g_object_get_data(G_OBJECT(bot_clock), "clock-owner");
+        if (bot_ptr) clock_widget_set_scale(bot_ptr, scale);
+    }
     
     // --- PASS 2: Final Measure (after scale update) ---
     // Measure using the estimated width 's_est' to be precise
-    gtk_widget_measure(top_clock, GTK_ORIENTATION_VERTICAL, s_est, &top_min, &top_nat, NULL, NULL);
-    gtk_widget_measure(bot_clock, GTK_ORIENTATION_VERTICAL, s_est, &bot_min, &bot_nat, NULL, NULL);
+    if (top_clock && gtk_widget_should_layout(top_clock)) {
+        gtk_widget_measure(top_clock, GTK_ORIENTATION_VERTICAL, s_est, &top_min, &top_nat, NULL, NULL);
+    }
+    if (bot_clock && gtk_widget_should_layout(bot_clock)) {
+        gtk_widget_measure(bot_clock, GTK_ORIENTATION_VERTICAL, s_est, &bot_min, &bot_nat, NULL, NULL);
+    }
     
     clocks_h = top_nat + bot_nat;
     avail_h = height - clocks_h;
@@ -1261,26 +1281,32 @@ static void board_layout_allocate(GtkWidget *widget,
 
     GtkAllocation alloc;
 
-    // 1. Top Clock allocation
-    alloc.x = offset_x;
-    alloc.y = offset_y;
-    alloc.width = s;          // MATCH BOARD WIDTH
-    alloc.height = top_nat;
-    gtk_widget_size_allocate(top_clock, &alloc, -1);
+    // 1. Top Clock allocation (if visible)
+    if (top_clock && gtk_widget_should_layout(top_clock)) {
+        alloc.x = offset_x;
+        alloc.y = offset_y;
+        alloc.width = s;          // MATCH BOARD WIDTH
+        alloc.height = top_nat;
+        gtk_widget_size_allocate(top_clock, &alloc, -1);
+    }
 
-    // 2. Board allocation
-    alloc.x = offset_x;
-    alloc.y = offset_y + top_nat;
-    alloc.width = s;
-    alloc.height = s;         // SQUARE
-    gtk_widget_size_allocate(board, &alloc, -1);
+    // 2. Board allocation (Always visible usually)
+    if (board && gtk_widget_should_layout(board)) {
+        alloc.x = offset_x;
+        alloc.y = offset_y + top_nat; // Even if top_clock hidden, top_nat is 0 so this works
+        alloc.width = s;
+        alloc.height = s;         // SQUARE
+        gtk_widget_size_allocate(board, &alloc, -1);
+    }
     
-    // 3. Bottom Clock allocation
-    alloc.x = offset_x;
-    alloc.y = offset_y + top_nat + s;
-    alloc.width = s;          // MATCH BOARD WIDTH
-    alloc.height = bot_nat;
-    gtk_widget_size_allocate(bot_clock, &alloc, -1);
+    // 3. Bottom Clock allocation (if visible)
+    if (bot_clock && gtk_widget_should_layout(bot_clock)) {
+        alloc.x = offset_x;
+        alloc.y = offset_y + top_nat + s;
+        alloc.width = s;          // MATCH BOARD WIDTH
+        alloc.height = bot_nat;
+        gtk_widget_size_allocate(bot_clock, &alloc, -1);
+    }
 }
 
 static void apply_dynamic_resolution(GtkWindow* window) {
@@ -1526,17 +1552,20 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     // 1. Top Clock (Directly added)
     GtkWidget* top_clk = clock_widget_get_widget(state->gui.top_clock);
     g_object_set_data(G_OBJECT(top_clk), "clock-owner", state->gui.top_clock); // Binding for scaling
+    gtk_widget_set_name(top_clk, "layout_top_clock"); // ID for custom layout
     gtk_widget_set_margin_top(top_clk, 0);
     gtk_widget_set_margin_bottom(top_clk, 0);
     gtk_box_append(GTK_BOX(board_area), top_clk);
 
     // 2. Board (Directly added, NO AspectFrame)
     gtk_widget_add_css_class(state->gui.board, "board-frame");
+    gtk_widget_set_name(state->gui.board, "layout_board"); // ID for custom layout
     gtk_box_append(GTK_BOX(board_area), state->gui.board);
     
     // 3. Bottom Clock (Directly added)
     GtkWidget* bot_clk = clock_widget_get_widget(state->gui.bottom_clock);
     g_object_set_data(G_OBJECT(bot_clk), "clock-owner", state->gui.bottom_clock); // Binding for scaling
+    gtk_widget_set_name(bot_clk, "layout_bot_clock"); // ID for custom layout
     gtk_widget_set_margin_top(bot_clk, 0);
     gtk_widget_set_margin_bottom(bot_clk, 0);
     gtk_box_append(GTK_BOX(board_area), bot_clk);

@@ -19,7 +19,7 @@
 #include <fcntl.h>
 #endif
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 using namespace Stockfish;
 
@@ -380,13 +380,23 @@ bool ai_engine_wait_for_token(EngineHandle* handle, const char* token, int timeo
 AiDifficultyParams ai_get_difficulty_params(int elo) {
     AiDifficultyParams p;
 
+    // CHANGE HERE FOR AI ELO TUNING STOCKFISH
+
     // 1) Clamp ELO to avoid nonsense
     elo = clampi(elo, 200, 3600);
 
-    // 2) movetime = elo * 5 / 3  (ms)
-    // This is used as a fallback for non-advanced mode when no clock is present.
-    int ms = (elo * 5) / 3;
-    ms = clampi(ms, 80, 3500);
+    // 2) Redesigned Thinking Strategy:
+    // < 900 ELO: 1 second
+    // 900 - 1800 ELO: 2 seconds
+    // > 1800 ELO: 5 seconds
+    int ms;
+    if (elo < 900) {
+        ms = 1000;
+    } else if (elo < 1800) {
+        ms = 2000;
+    } else {
+        ms = 5000;
+    }
 
     p.depth = 0; // Not used in ELO-mode (Skill Level is used instead)
     p.move_time_ms = ms;
@@ -402,6 +412,29 @@ void ai_engine_ensure_uci(EngineHandle* handle) {
         ai_engine_wait_for_token(handle, "uciok", 2000);
         handle->uci_initialized = true;
     }
+}
+
+void ai_engine_set_skill_level(EngineHandle* handle, int skill) {
+    if (!handle) return;
+    
+    // Clamp skill level
+    skill = (skill < 0) ? 0 : (skill > 20) ? 20 : skill;
+    
+    // Skip if already set to this level
+    if (handle->last_skill_level == skill) return;
+    
+    char skill_str[16];
+    snprintf(skill_str, sizeof(skill_str), "%d", skill);
+    
+    if (debug_mode) fprintf(stderr, "[AI Engine] Setting Skill Level to %s (was %d)\n", skill_str, handle->last_skill_level);
+    
+    ai_engine_set_option(handle, "Skill Level", skill_str);
+    
+    // We should send isready/readyok to ensure the engine processes the option
+    ai_engine_send_command(handle, "isready");
+    ai_engine_wait_for_token(handle, "readyok", 1000);
+    
+    handle->last_skill_level = skill;
 }
 
 } // extern "C"

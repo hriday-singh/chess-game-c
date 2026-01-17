@@ -233,12 +233,7 @@ set_ai_adv_ui(GtkWidget *elo_box,
               GtkLabel  *depth_label,
               gboolean   adv,
               int        depth)
-{
-    if (debug_mode) {
-        printf("[InfoPanel] set_ai_adv_ui: adv=%d, depth=%d, elo_box=%p, adv_box=%p\n",
-               adv, depth, (void*)elo_box, (void*)adv_box);
-    }
-    
+{   
     gtk_widget_set_visible(elo_box, !adv);
     gtk_widget_set_visible(adv_box,  adv);
 
@@ -823,9 +818,19 @@ static void on_reset_clicked(GtkButton* button, gpointer user_data) {
     (void)button;
     InfoPanel* panel = (InfoPanel*)user_data;
     
+    // Check for auto-skip condition: Game Over AND already saved
+    // This allows quick resetting after a game concludes without redundant prompts
+    AppState* app_state = (AppState*)panel->game_reset_callback_data;
+    if (app_state && panel->logic->isGameOver && app_state->match_saved) {
+         sound_engine_play(SOUND_RESET);
+         reset_game(panel);
+         return;
+    }
+
     // Check if there are at least 5 complete moves (10 plies)
     if (panel && panel->logic) {
         int move_count = gamelogic_get_move_count(panel->logic);
+        // If not auto-skipped above, ask to save if significant progress
         if (move_count >= 10) {
             // Show save dialog
             show_save_before_reset_dialog(panel);
@@ -976,7 +981,7 @@ static void on_game_mode_changed(GObject* obj, GParamSpec* pspec, gpointer user_
             if (app && G_IS_ACTION_GROUP(app)) {
                 g_action_group_activate_action(G_ACTION_GROUP(app), "open-puzzles", NULL);
             } else {
-                printf("[InfoPanel] ERROR: Application not valid for launching puzzles!\n");
+               if (debug_mode) printf("[InfoPanel] ERROR: Application not valid for launching puzzles!\n");
             }
             gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->game_mode_dropdown), GAME_MODE_PVC);
         }
@@ -1824,11 +1829,6 @@ void info_panel_rebuild_layout(GtkWidget* info_panel) {
 
 
 void info_panel_update_ai_settings(GtkWidget* info_panel_widget, bool white_adv, int white_depth, bool black_adv, int black_depth) {
-    if (debug_mode) {
-        printf("[InfoPanel] info_panel_update_ai_settings called: white_adv=%d, white_depth=%d, black_adv=%d, black_depth=%d\n",
-               white_adv, white_depth, black_adv, black_depth);
-    }
-    
     InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel_widget), "info-panel-data");
     if (!panel) {
         if (debug_mode) printf("[InfoPanel] ERROR: panel is NULL!\n");

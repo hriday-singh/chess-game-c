@@ -65,6 +65,9 @@ GUI_TARGET = $(BUILDDIR)/HalChess.exe
 # SVG loader test
 SVG_TEST_TARGET = $(BUILDDIR)/test_svg_loader.exe
 
+# AI Strategy test
+AI_STRATEGY_TARGET = $(BUILDDIR)/test_ai_strategy.exe
+
 # Default target - build GUI executable (MUST be first target in Makefile)
 all: $(GUI_TARGET)
 
@@ -173,13 +176,15 @@ GAME_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/main_test.o $(OBJDIR)/test_suite.o $(
 GUI_OBJS_FOR_GUI = $(filter-out $(OBJDIR)/gui_icon_test.o, $(GUI_OBJECTS))
 
 # Force all dependencies to be built before linking
+# $(CXX) $(CXXFLAGS) -mwindows $^ $(GTK_LIBS) -o $@
 $(GUI_TARGET): $(GAME_OBJS_FOR_GUI) $(GUI_OBJS_FOR_GUI) $(SF_OBJECTS) $(RES_OBJ) | $(OBJDIR)
 	@echo "Linking $@ (GUI + Stockfish + Icon)..."
 	@echo "  Game objects: $(words $(GAME_OBJS_FOR_GUI)) files"
 	@echo "  GUI objects: $(words $(GUI_OBJS_FOR_GUI)) files"
 	@echo "  Stockfish objects: $(words $(SF_OBJECTS)) files"
 	@echo "  Total object files: $(words $^)"
-	$(CXX) $(CXXFLAGS) -mwindows $^ $(GTK_LIBS) -o $@
+	
+	$(CXX) $(CXXFLAGS) $^ $(GTK_LIBS) -o $@
 	@echo "Copying resources..."
 	@if [ -f icon.png ]; then cp icon.png $(BUILDDIR)/icon.png; fi
 	@if [ -d assets ]; then \
@@ -261,12 +266,16 @@ test-ai-stress: $(AI_STRESS_GAME_OBJS) $(AI_STRESS_GUI_OBJS) $(SF_OBJECTS) $(AI_
 	@echo "Running AI stress test..."
 	./$(AI_STRESS_TARGET)
 
-# PGN Parser Test
-test-pgn: $(GAME_OBJECTS)
-	@echo "Building PGN parser test..."
-	$(CC) $(CFLAGS) -I. -I$(SRCDIR) $(SRCDIR)/test_pgn_parser.c $(filter-out $(OBJDIR)/test_suite.o $(OBJDIR)/main_test.o $(OBJDIR)/test_extended.o $(OBJDIR)/test_pgn_parser.o, $(GAME_OBJECTS)) -o $(BUILDDIR)/test_pgn_parser.exe
-	@echo "Running PGN parser test..."
-	./$(BUILDDIR)/test_pgn_parser.exe
+# AI Strategy Test
+$(OBJDIR)/test_ai_strategy.o: $(SRCDIR)/test_ai_strategy.cpp | $(OBJDIR)
+	@echo "Compiling AI strategy test..."
+	$(CXX) $(CXXFLAGS) $(SF_FLAGS) -I$(SFDIR) -I$(SRCDIR) -c $< -o $@
+
+test-ai-strategy: $(SF_OBJECTS) $(OBJDIR)/test_ai_strategy.o | $(BUILDDIR)
+	@echo "Linking AI strategy test..."
+	$(CXX) $(CXXFLAGS) $(SF_FLAGS) $(OBJDIR)/test_ai_strategy.o $(SF_OBJECTS) -o $(AI_STRATEGY_TARGET) $(GTK_LIBS)
+	@echo "Running AI strategy test..."
+	./$(AI_STRATEGY_TARGET)
 
 # Stage: Create directory, copy game, assets, and runtime dependencies
 stage: $(GUI_TARGET)
@@ -326,4 +335,4 @@ $(UNIFIED_TARGET): $(UNIFIED_SRC) $(UNIFIED_RES_OBJ)
 	$(CC) $(CFLAGS) -mwindows -Iinstaller/src -Iinstaller/lib $(UNIFIED_SRC) $(UNIFIED_RES_OBJ) -o $@ -lshlwapi -luser32 -lshell32 -lole32 -luuid -lcomdlg32 -lcomctl32
 	@echo "Installer created at $@"
 
-.PHONY: all all-tests clean test test-suite gui test-svg test-focus test-ai-stress test-pgn stage payload dist unified_installer
+.PHONY: all all-tests clean test test-suite gui test-svg test-focus test-ai-stress test-pgn test-ai-strategy stage payload dist unified_installer

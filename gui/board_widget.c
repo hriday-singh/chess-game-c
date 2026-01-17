@@ -528,6 +528,9 @@ static void draw_square(GtkDrawingArea* area, cairo_t* cr, int width, int height
         return;
     }
     
+    // Extra safety: Don't draw if not mapped (visible)
+    if (!gtk_widget_get_mapped(GTK_WIDGET(area))) return;
+    
     int visualR = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(area), "row"));
     int visualC = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(area), "col"));
     
@@ -799,12 +802,19 @@ static void draw_square(GtkDrawingArea* area, cairo_t* cr, int width, int height
 static void update_square(BoardWidget* board, int r, int c) {
     GtkWidget* area = board->squares[r][c];
     
-    // Queue a redraw
-    gtk_widget_queue_draw(area);
+    // Prevents drawing if widget is not ready to avoid GTK snapshot warnings
+    if (gtk_widget_get_mapped(area) && gtk_widget_get_width(area) > 0 && gtk_widget_get_height(area) > 0) {
+        gtk_widget_queue_draw(area);
+    }
 }
 
 // Refresh entire board display
 static void refresh_board(BoardWidget* board) {
+    if (!board || !board->grid) return;
+    
+    // If board itself isn't mapped, don't try to update children
+    if (!gtk_widget_get_mapped(board->grid)) return;
+
     for (int r = 0; r < 8; r++) {
         for (int c = 0; c < 8; c++) {
             update_square(board, r, c);

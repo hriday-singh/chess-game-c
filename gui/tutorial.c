@@ -149,7 +149,11 @@ static void tutorial_update_view(AppState* state, const char* instruction, const
 static void tutorial_clear_board(AppState* state) {
     if (!state || !state->logic) return;
     
-    // Full reset of board array and piece memory
+    // IMPORTANT: Reset game logic first to clear history/undo stack!
+    // This prevents the UI from trying to highlight 'last move' from relevant history.
+    gamelogic_reset(state->logic);
+    
+    // Now perform full reset of board array (clear pieces placed by reset)
     for (int r=0; r<8; r++) {
         for (int c=0; c<8; c++) {
             if (state->logic->board[r][c]) {

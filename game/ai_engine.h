@@ -80,6 +80,12 @@ int ai_engine_elo_to_skill(int elo);
 void ai_engine_ensure_uci(EngineHandle* handle);
 
 /**
+ * Sets the Skill Level option (0-20).
+ * Uses caching to avoid redundant UCI commands.
+ */
+void ai_engine_set_skill_level(EngineHandle* handle, int skill);
+
+/**
  * Maps ELO rating to Stockfish parameters.
  */
 AiDifficultyParams ai_get_difficulty_params(int elo);
