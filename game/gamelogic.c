@@ -16,7 +16,7 @@
 #endif
 
 // Helper: Get Monotonic Time in MS
-static int64_t get_monotonic_time_ms(void) {
+int64_t get_monotonic_time_ms(void) {
 #ifdef _WIN32
     static LARGE_INTEGER frequency;
     static bool init = false;
@@ -1381,7 +1381,7 @@ void gamelogic_load_from_uci_moves(GameLogic* logic, const char* moves_uci, cons
     }
     
     // 2. Tokenize UCI string (e.g., "e2e4 g1f3")
-    char* moves_copy = strdup(moves_uci);
+    char* moves_copy = _strdup(moves_uci);
     if (!moves_copy) return;
     
     char* cursor = moves_copy;

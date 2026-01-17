@@ -264,11 +264,11 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
         printf("  Timestamps: Started=%lld, Ended=%lld\n", (long long)started_at, (long long)ended_at);
         printf("  Clock: %s (Initial: %d ms, Increment: %d ms)\n", 
                clock_enabled ? "ENABLED" : "DISABLED", initial_ms, increment_ms);
-        printf("  White: %s (ELO=%d, Depth=%d, MoveTime=%d, Engine=%d, Path=%s)\n",
-               white.is_ai ? "AI" : "Human", white.elo, white.depth, white.movetime, 
+        printf("  White: %s (ELO=%d, Depth=%d, Engine=%d, Path=%s)\n",
+               white.is_ai ? "AI" : "Human", white.elo, white.depth, 
                white.engine_type, white.engine_path[0] != '\0' ? white.engine_path : "N/A");
-        printf("  Black: %s (ELO=%d, Depth=%d, MoveTime=%d, Engine=%d, Path=%s)\n",
-               black.is_ai ? "AI" : "Human", black.elo, black.depth, black.movetime, 
+        printf("  Black: %s (ELO=%d, Depth=%d, Engine=%d, Path=%s)\n",
+               black.is_ai ? "AI" : "Human", black.elo, black.depth, 
                black.engine_type, black.engine_path[0] != '\0' ? black.engine_path : "N/A");
     }
 
@@ -1261,7 +1261,7 @@ void replay_controller_analyze_match(ReplayController* self) {
     
     if (app_config->analysis_use_custom && strlen(app_config->custom_engine_path) > 0) {
         cfg.engine_path = app_config->custom_engine_path;
-        cfg.move_time_pass1 = app_config->custom_movetime;
+        cfg.move_time_pass1 = 1000; // Default analysis time (ms)
     } else {
         // Internal/Stockfish
         // TODO: Is there a unified getter? For now assume standard path or config path

@@ -24,7 +24,7 @@ static bool debug_mode = false;
 static AppConfig g_config;
 static char g_config_path[2048] = {0};
 static char g_base_dir[2048] = {0};
-static char g_app_name[64] = "HAL Chess";
+static char g_app_name[64] = "HalChess";
 
 void config_set_app_param(const char* app_name) {
     if (app_name && strlen(app_name) > 0) {
@@ -103,7 +103,6 @@ static void set_defaults(void) {
     // AI - Internal
     g_config.int_elo = 1500;
     g_config.int_depth = 10;
-    g_config.int_movetime = 500;
     g_config.int_is_advanced = false;
     
     // AI - NNUE
@@ -114,7 +113,6 @@ static void set_defaults(void) {
     g_config.custom_engine_path[0] = '\0';
     g_config.custom_elo = 1500;
     g_config.custom_depth = 10;
-    g_config.custom_movetime = 500;
     g_config.custom_is_advanced = false;
 
     // Board Theme
@@ -214,12 +212,10 @@ static void parse_line(char* line) {
     else {
         if (strcmp(key, "int_elo") == 0) g_config.int_elo = atoi(val_start);
         else if (strcmp(key, "int_depth") == 0) g_config.int_depth = atoi(val_start);
-        else if (strcmp(key, "int_movetime") == 0) g_config.int_movetime = atoi(val_start);
         else if (strcmp(key, "game_mode") == 0) g_config.game_mode = atoi(val_start);
         else if (strcmp(key, "play_as") == 0) g_config.play_as = atoi(val_start);
         else if (strcmp(key, "custom_elo") == 0) g_config.custom_elo = atoi(val_start);
         else if (strcmp(key, "custom_depth") == 0) g_config.custom_depth = atoi(val_start);
-        else if (strcmp(key, "custom_movetime") == 0) g_config.custom_movetime = atoi(val_start);
         else if (strcmp(key, "white_stroke_width") == 0) g_config.white_stroke_width = atof(val_start);
         else if (strcmp(key, "white_stroke_width") == 0) g_config.white_stroke_width = atof(val_start);
         else if (strcmp(key, "black_stroke_width") == 0) g_config.black_stroke_width = atof(val_start);
@@ -262,7 +258,7 @@ bool config_load(void) {
         printf("  Mate Warning: %s\n", g_config.show_mate_warning ? "ON" : "OFF");
         printf("  Hanging Pieces: %s\n", g_config.show_hanging_pieces ? "ON" : "OFF");
         printf("  Move Rating: %s\n", g_config.show_move_rating ? "ON" : "OFF");
-        printf("  Internal AI: ELO=%d, Depth=%d, MoveTime=%d\n", g_config.int_elo, g_config.int_depth, g_config.int_movetime);
+        printf("  Internal AI: ELO=%d, Depth=%d\n", g_config.int_elo, g_config.int_depth);
         printf("  NNUE: %s (Path: %s)\n", g_config.nnue_enabled ? "ON" : "OFF", g_config.nnue_path);
         printf("  Custom Engine: %s (ELO=%d)\n", g_config.custom_engine_path, g_config.custom_elo);
         printf("------------------------------\n");
@@ -301,7 +297,6 @@ bool config_save(void) {
 
     fprintf(f, "    \"int_elo\": %d,\n", g_config.int_elo);
     fprintf(f, "    \"int_depth\": %d,\n", g_config.int_depth);
-    fprintf(f, "    \"int_movetime\": %d,\n", g_config.int_movetime);
     fprintf(f, "    \"int_is_advanced\": %s,\n", g_config.int_is_advanced ? "true" : "false");
     
     fprintf(f, "    \"nnue_enabled\": %s,\n", g_config.nnue_enabled ? "true" : "false");
@@ -310,7 +305,6 @@ bool config_save(void) {
     fprintf(f, "    \"custom_engine_path\": \"%s\",\n", g_config.custom_engine_path);
     fprintf(f, "    \"custom_elo\": %d,\n", g_config.custom_elo);
     fprintf(f, "    \"custom_depth\": %d,\n", g_config.custom_depth);
-    fprintf(f, "    \"custom_movetime\": %d,\n", g_config.custom_movetime);
     fprintf(f, "    \"custom_is_advanced\": %s,\n", g_config.custom_is_advanced ? "true" : "false");
     
     fprintf(f, "    \"board_theme_name\": \"%s\",\n", g_config.board_theme_name);
@@ -344,7 +338,7 @@ bool config_save(void) {
         printf("  Mate Warning: %s\n", g_config.show_mate_warning ? "ON" : "OFF");
         printf("  Hanging Pieces: %s\n", g_config.show_hanging_pieces ? "ON" : "OFF");
         printf("  Move Rating: %s\n", g_config.show_move_rating ? "ON" : "OFF");
-        printf("  Internal AI: ELO=%d, Depth=%d, MoveTime=%d\n", g_config.int_elo, g_config.int_depth, g_config.int_movetime);
+        printf("  Internal AI: ELO=%d, Depth=%d\n", g_config.int_elo, g_config.int_depth);
         printf("  NNUE: %s (Path: %s)\n", g_config.nnue_enabled ? "ON" : "OFF", g_config.nnue_path);
         printf("  Custom Engine: %s (ELO=%d)\n", g_config.custom_engine_path, g_config.custom_elo);
         printf("------------------------------\n");
@@ -613,6 +607,10 @@ typedef struct {
 static MatchIndex g_match_index = {0};
 static MatchCache g_match_cache = {0};
 
+// Cache for lookups that aren't currently in a loaded page
+static MatchHistoryEntry g_lookup_entry = {0};
+static bool g_lookup_entry_active = false;
+
 // Legacy: Keep for backward compatibility
 static MatchHistoryEntry* g_history_list = NULL;
 static int g_history_count = 0;
@@ -628,6 +626,9 @@ void match_history_free_entry(MatchHistoryEntry* entry) {
         entry->think_time_ms = NULL;
     }
 }
+
+// Forward declaration for lookup helper
+static bool load_match_by_id(const char* id, MatchHistoryEntry* entry);
 
 // Forward declaration for pagination cache invalidation
 static void invalidate_cache(void);
@@ -669,13 +670,13 @@ static void save_single_match(MatchHistoryEntry* m) {
     fprintf(f, "  },\n");
     
     fprintf(f, "  \"white\": {\n");
-    fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-            m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.movetime, m->white.engine_type, m->white.engine_path);
+    fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+            m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.engine_type, m->white.engine_path);
     fprintf(f, "  },\n");
     
     fprintf(f, "  \"black\": {\n");
-    fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-            m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.movetime, m->black.engine_type, m->black.engine_path);
+    fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+            m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.engine_type, m->black.engine_path);
     fprintf(f, "  },\n");
     
     fprintf(f, "  \"result\": \"%s\",\n", m->result);
@@ -713,13 +714,13 @@ static void save_single_match(MatchHistoryEntry* m) {
         printf("  },\n");
         
         printf("  \"white\": {\n");
-        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-                m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.movetime, m->white.engine_type, m->white.engine_path);
+        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+                m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.engine_type, m->white.engine_path);
         printf("  },\n");
         
         printf("  \"black\": {\n");
-        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-                m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.movetime, m->black.engine_type, m->black.engine_path);
+        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+                m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.engine_type, m->black.engine_path);
         printf("  },\n");
         
         printf("  \"result\": \"%s\",\n", m->result);
@@ -980,11 +981,6 @@ static void parse_match_file(const char* path) {
                 p = strchr(p, ':'); if(p) p_cfg->depth = atoi(p+1);
             }
             
-            if (strstr(line, "\"movetime\"")) {
-                char* p = strstr(line, "\"movetime\"");
-                p = strchr(p, ':'); if(p) p_cfg->movetime = atoi(p+1);
-            }
-            
             if (strstr(line, "\"engine_type\"")) {
                 char* p = strstr(line, "\"engine_type\"");
                 p = strchr(p, ':'); if(p) p_cfg->engine_type = atoi(p+1);
@@ -1036,7 +1032,7 @@ static void parse_match_file(const char* path) {
             char val[4096];
             extract_json_str(line, "moves_uci", val, sizeof(val));
             if (m->moves_uci) free(m->moves_uci);
-            m->moves_uci = strdup(val);
+            m->moves_uci = _strdup(val);
         }
         else if (strstr(line, "\"start_fen\"")) extract_json_str(line, "start_fen", m->start_fen, sizeof(m->start_fen));
         else if (strstr(line, "\"final_fen\"")) extract_json_str(line, "final_fen", m->final_fen, sizeof(m->final_fen));
@@ -1060,13 +1056,13 @@ static void parse_match_file(const char* path) {
         printf("  },\n");
         
         printf("  \"white\": {\n");
-        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-                m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.movetime, m->white.engine_type, m->white.engine_path);
+        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+                m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.engine_type, m->white.engine_path);
         printf("  },\n");
         
         printf("  \"black\": {\n");
-        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"movetime\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-                m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.movetime, m->black.engine_type, m->black.engine_path);
+        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
+                m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.engine_type, m->black.engine_path);
         printf("  },\n");
         
         printf("  \"result\": \"%s\",\n", m->result);
@@ -1178,7 +1174,7 @@ void match_history_add(MatchHistoryEntry* entry) {
     MatchHistoryEntry* dest = &g_history_list[g_history_count++];
     *dest = *entry;
     *dest = *entry;
-    if (entry->moves_uci) dest->moves_uci = strdup(entry->moves_uci);
+    if (entry->moves_uci) dest->moves_uci = _strdup(entry->moves_uci);
     
     save_single_match(dest);
     
@@ -1188,9 +1184,46 @@ void match_history_add(MatchHistoryEntry* entry) {
 
 MatchHistoryEntry* match_history_find_by_id(const char* id) {
     if (!id) return NULL;
+    if (debug_mode) printf("[MatchHistory] Finding match by ID: %s\n", id);
+    
+    // 1. Search in legacy list (for matches added during current session)
     for (int i = 0; i < g_history_count; i++) {
-        if (strcmp(g_history_list[i].id, id) == 0) return &g_history_list[i];
+        if (strcmp(g_history_list[i].id, id) == 0) {
+            if (debug_mode) printf("[MatchHistory] Found in session list\n");
+            return &g_history_list[i];
+        }
     }
+    
+    // 2. Search in pagination cache
+    for (int p = 0; p < g_match_cache.page_count; p++) {
+        CachePage* page = &g_match_cache.pages[p];
+        for (int i = 0; i < page->entry_count; i++) {
+            if (strcmp(page->entries[i].id, id) == 0) {
+                if (debug_mode) printf("[MatchHistory] Found in pagination cache (Page %d)\n", page->page_number);
+                page->last_access_time = get_time_ms(); // Update LRU
+                return &page->entries[i];
+            }
+        }
+    }
+    
+    // 3. Search in global index and load on demand
+    for (int i = 0; i < g_match_index.count; i++) {
+        if (strcmp(g_match_index.items[i].id, id) == 0) {
+            if (debug_mode) printf("[MatchHistory] Found in global index, performing on-demand load\n");
+            // Free previous lookup results
+            if (g_lookup_entry_active) {
+                match_history_free_entry(&g_lookup_entry);
+            }
+            
+            if (load_match_by_id(id, &g_lookup_entry)) {
+                g_lookup_entry_active = true;
+                return &g_lookup_entry;
+            }
+            break;
+        }
+    }
+    
+    if (debug_mode) printf("[MatchHistory] Match ID not found in any storage\n");
     return NULL;
 }
 
@@ -1311,10 +1344,6 @@ static bool load_match_by_id(const char* id, MatchHistoryEntry* entry) {
                 char* p = strstr(line, "\"depth\"");
                 p = strchr(p, ':'); if(p) p_cfg->depth = atoi(p+1);
             }
-            if (strstr(line, "\"movetime\"")) {
-                char* p = strstr(line, "\"movetime\"");
-                p = strchr(p, ':'); if(p) p_cfg->movetime = atoi(p+1);
-            }
             if (strstr(line, "\"engine_type\"")) {
                 char* p = strstr(line, "\"engine_type\"");
                 p = strchr(p, ':'); if(p) p_cfg->engine_type = atoi(p+1);
@@ -1341,7 +1370,7 @@ static bool load_match_by_id(const char* id, MatchHistoryEntry* entry) {
             char val[4096];
             extract_json_str(line, "moves_uci", val, sizeof(val));
             if (entry->moves_uci) free(entry->moves_uci);
-            entry->moves_uci = strdup(val);
+            entry->moves_uci = _strdup(val);
         }
         else if (strstr(line, "\"start_fen\"")) extract_json_str(line, "start_fen", entry->start_fen, sizeof(entry->start_fen));
         else if (strstr(line, "\"final_fen\"")) extract_json_str(line, "final_fen", entry->final_fen, sizeof(entry->final_fen));

@@ -34,7 +34,6 @@ typedef struct {
     // AI - Internal
     int int_elo;
     int int_depth;
-    int int_movetime;
     bool int_is_advanced;
     
     // AI - NNUE
@@ -45,7 +44,6 @@ typedef struct {
     char custom_engine_path[512];
     int custom_elo;
     int custom_depth;
-    int custom_movetime;
     bool custom_is_advanced;
     
     // Board Theme
@@ -81,7 +79,7 @@ AppConfig* config_get(void);
 // Get the full path to the config file.
 const char* config_get_path(void);
 
-// Set the directory name for the config file (default is "HAL Chess")
+// Set the directory name for the config file (default is "HalChess")
 // Must be called before config_init() if you want to change it.
 void config_set_app_param(const char* app_name);
 
@@ -110,7 +108,6 @@ typedef struct {
     bool is_ai;
     int elo;
     int depth;
-    int movetime;
     int engine_type; // 0: Internal, 1: Custom
     char engine_path[512];
 } MatchPlayerConfig;

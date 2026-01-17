@@ -261,6 +261,10 @@ static void execute_move_with_updates(BoardWidget* board, Move* move) {
 
     // 2. Update Game Logic
     bool moved = gamelogic_perform_move(board->logic, move);
+    if (debug_mode) {
+        printf("[BoardWidget] execute_move_with_updates: Move %d->%d. performed=%d. Logic Turn after: %d\n", 
+               move->from_sq, move->to_sq, moved, board->logic->turn);
+    }
     if (!moved) {
         // Special Check: Logic might be already updated (Replay Mode)
         // If the destination square already has the piece we expect, force a refresh
@@ -341,10 +345,9 @@ static void draw_piece_graphic(cairo_t* cr, BoardWidget* board, PieceType type, 
         return;
     }
     
-    // Fallback to text rendering
+    // Fallback to text rendering - ALWAYS use Segoe UI Symbol
     const char* symbol = theme_data_get_piece_symbol(board->theme, type, owner);
-    const char* font_family = theme_data_get_font_name(board->theme);
-    if (!font_family) font_family = "Segoe UI Symbol, DejaVu Sans, Sans";
+    const char* font_family = "Segoe UI Symbol";
     
     if (!symbol) symbol = "?";
     

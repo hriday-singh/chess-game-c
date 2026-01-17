@@ -110,7 +110,6 @@ typedef struct {
         GtkWidget* elo_spin;
         GtkWidget* adv_box;
         GtkWidget* depth_label;
-        GtkWidget* time_label;
     } white_ai, black_ai;
 
     bool custom_available;
@@ -233,10 +232,8 @@ static void
 set_ai_adv_ui(GtkWidget *elo_box,
               GtkWidget *adv_box,
               GtkLabel  *depth_label,
-              GtkLabel  *time_label,
               gboolean   adv,
-              int        depth,
-              int        time_ms)
+              int        depth)
 {
     gtk_widget_set_visible(elo_box, !adv);
     gtk_widget_set_visible(adv_box,  adv);
@@ -244,23 +241,14 @@ set_ai_adv_ui(GtkWidget *elo_box,
     if (!adv) return;
 
     gtk_label_set_xalign(depth_label, 0.0f);
-    gtk_label_set_xalign(time_label,  0.0f);
 
     g_autofree char *depth_markup = g_strdup_printf(
         "Depth\n<span size='xx-large' weight='bold'>%d</span>",
         depth
     );
 
-    g_autofree char *time_markup = g_strdup_printf(
-        "Time\n<span size='xx-large' weight='bold'>%d</span><span size='large' weight='bold'>ms</span>",
-        time_ms
-    );
-
     gtk_label_set_use_markup(depth_label, TRUE);
-    gtk_label_set_use_markup(time_label,  TRUE);
-
     gtk_label_set_markup(depth_label, depth_markup);
-    gtk_label_set_markup(time_label,  time_markup);
 }
 
 // Helper to build a side's AI settings block
@@ -307,10 +295,6 @@ static GtkWidget* create_ai_side_block(InfoPanel* panel, bool is_black, const ch
     GtkWidget* depth_label = gtk_label_new("Depth: 10");
     gtk_widget_set_halign(depth_label, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(adv_box), depth_label);
-    
-    GtkWidget* time_label = gtk_label_new("Time: 500ms");
-    gtk_widget_set_halign(time_label, GTK_ALIGN_START);
-    gtk_box_append(GTK_BOX(adv_box), time_label);
     gtk_box_append(GTK_BOX(vbox), adv_box);
 
     // Save references to panel
@@ -323,7 +307,6 @@ static GtkWidget* create_ai_side_block(InfoPanel* panel, bool is_black, const ch
         panel->black_ai.elo_spin = elo_spin;
         panel->black_ai.adv_box = adv_box;
         panel->black_ai.depth_label = depth_label;
-        panel->black_ai.time_label = time_label;
     } else {
         panel->white_ai.box = vbox;
         panel->white_ai.title_label = title_label;
@@ -333,7 +316,6 @@ static GtkWidget* create_ai_side_block(InfoPanel* panel, bool is_black, const ch
         panel->white_ai.elo_spin = elo_spin;
         panel->white_ai.adv_box = adv_box;
         panel->white_ai.depth_label = depth_label;
-        panel->white_ai.time_label = time_label;
     }
 
     return vbox;
@@ -497,16 +479,9 @@ static void draw_graveyard_piece(GtkDrawingArea* area, cairo_t* cr, int width, i
     } else {       
         // Match board_widget.c 'draw_piece_graphic' logic exactly for consistency
         const char* symbol = theme_data_get_piece_symbol(panel->theme, type, owner);
-        const char* font_name = theme_data_get_font_name(panel->theme);
-        if (!font_name) font_name = "Segoe UI Symbol, DejaVu Sans, Sans";
-        
         PangoLayout* layout = pango_cairo_create_layout(cr);
-        if (!layout) {
-            cairo_restore(cr);
-            return;
-        }
         PangoFontDescription* desc = pango_font_description_new();
-        pango_font_description_set_family(desc, font_name);
+        pango_font_description_set_family(desc, "Segoe UI Symbol");
         pango_font_description_set_size(desc, (int)(height * 0.7 * PANGO_SCALE)); 
         pango_font_description_set_weight(desc, PANGO_WEIGHT_SEMIBOLD);
         pango_layout_set_font_description(layout, desc);
@@ -1844,26 +1819,23 @@ void info_panel_rebuild_layout(GtkWidget* info_panel) {
 }
 
 
-void info_panel_update_ai_settings(GtkWidget* info_panel, bool white_adv, int white_depth, int white_time, bool black_adv, int black_depth, int black_time) {
-    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel), "info-panel-data");
+void info_panel_update_ai_settings(GtkWidget* info_panel_widget, bool white_adv, int white_depth, bool black_adv, int black_depth) {
+    InfoPanel* panel = (InfoPanel*)g_object_get_data(G_OBJECT(info_panel_widget), "panel");
     if (!panel) return;
 
     // White AI
     set_ai_adv_ui(panel->white_ai.elo_box,
               panel->white_ai.adv_box,
               GTK_LABEL(panel->white_ai.depth_label),
-              GTK_LABEL(panel->white_ai.time_label),
               white_adv,
-              white_depth,
-              white_time);
+              white_depth);
 
+    // Black AI
     set_ai_adv_ui(panel->black_ai.elo_box,
                 panel->black_ai.adv_box,
                 GTK_LABEL(panel->black_ai.depth_label),
-                GTK_LABEL(panel->black_ai.time_label),
                 black_adv,
-                black_depth,
-                black_time);
+                black_depth);
 }
 
 void info_panel_set_elo(GtkWidget* info_panel, int elo, bool is_black) {

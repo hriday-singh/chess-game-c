@@ -49,6 +49,10 @@ typedef struct GuiState {
     // Clock Widgets
     struct _ClockWidget* top_clock;
     struct _ClockWidget* bottom_clock;
+
+    // Loading Overlay
+    GtkWidget* loading_overlay;
+    GtkWidget* loading_spinner;
 } GuiState;
 
 typedef struct TutorialState {

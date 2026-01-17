@@ -19,8 +19,6 @@ struct _AiDialog {
     GtkWidget* int_adv_check;
     GtkWidget* int_adv_vbox;
     GtkWidget* int_depth_spin;
-    GtkWidget* int_time_spin;
-    bool int_manual_movetime;
     
     // NNUE (Internal)
     GtkWidget* nnue_path_label;
@@ -33,8 +31,6 @@ struct _AiDialog {
     GtkWidget* custom_adv_check;
     GtkWidget* custom_adv_vbox;
     GtkWidget* custom_depth_spin;
-    GtkWidget* custom_time_spin;
-    bool custom_manual_movetime;
     bool is_custom_configured;
     
     // State
@@ -102,16 +98,6 @@ static void on_custom_elo_changed(GtkAdjustment* adj, gpointer data) {
     if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
 
-// Fixed Movetime sync math: 1.5x multiplier per depth unit baseline 10@500ms
-static int calculate_movetime(int depth) {
-    if (depth <= 1) return 10;
-    // 500 * (1.5 ^ (depth - 10))
-    double val = 500.0 * pow(1.5, (double)depth - 10.0);
-    if (val < 10) return 10;
-    if (val > 60000) return 60000;
-    return (int)val;
-}
-
 static bool validate_nnue_file(const char* path) {
     if (!path || strlen(path) == 0) return false;
     
@@ -159,24 +145,7 @@ static bool validate_nnue_file(const char* path) {
 static void on_int_depth_changed(GtkSpinButton* spin, gpointer user_data) {
     AiDialog* dialog = (AiDialog*)user_data;
     if (dialog->is_loading) return;
-    if (!dialog->int_manual_movetime) {
-        int depth = gtk_spin_button_get_value_as_int(spin);
-        gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_time_spin), calculate_movetime(depth));
-    }
-    
-    AppConfig* cfg = config_get();
-    if (cfg) {
-        ai_dialog_save_config(dialog, cfg);
-        // config_save();
-    }
-    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
-}
-
-static void on_int_time_changed(GtkSpinButton* spin, gpointer user_data) {
     (void)spin;
-    AiDialog* dialog = (AiDialog*)user_data;
-    if (dialog->is_loading) return;
-    dialog->int_manual_movetime = true;
     
     AppConfig* cfg = config_get();
     if (cfg) {
@@ -214,8 +183,6 @@ static void on_int_reset_adv_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn;
     AiDialog* dialog = (AiDialog*)user_data;
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_depth_spin), 10);
-    dialog->int_manual_movetime = false;
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_time_spin), 500);
     
     AppConfig* cfg = config_get();
     if (cfg) {
@@ -228,24 +195,7 @@ static void on_int_reset_adv_clicked(GtkButton* btn, gpointer user_data) {
 static void on_custom_depth_changed(GtkSpinButton* spin, gpointer user_data) {
     AiDialog* dialog = (AiDialog*)user_data;
     if (dialog->is_loading) return;
-    if (!dialog->custom_manual_movetime) {
-        int depth = gtk_spin_button_get_value_as_int(spin);
-        gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_time_spin), calculate_movetime(depth));
-    }
-    
-    AppConfig* cfg = config_get();
-    if (cfg) {
-        ai_dialog_save_config(dialog, cfg);
-        // config_save();
-    }
-    if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
-}
-
-static void on_custom_time_changed(GtkSpinButton* spin, gpointer user_data) {
     (void)spin;
-    AiDialog* dialog = (AiDialog*)user_data;
-    if (dialog->is_loading) return;
-    dialog->custom_manual_movetime = true;
     
     AppConfig* cfg = config_get();
     if (cfg) {
@@ -295,8 +245,6 @@ static void on_custom_reset_adv_clicked(GtkButton* btn, gpointer user_data) {
     (void)btn;
     AiDialog* dialog = (AiDialog*)user_data;
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_depth_spin), 10);
-    dialog->custom_manual_movetime = false;
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_time_spin), 500);
     
     AppConfig* cfg = config_get();
     if (cfg) {
@@ -676,20 +624,6 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     gtk_box_append(GTK_BOX(d_hbox), dialog->int_depth_spin);
     gtk_box_append(GTK_BOX(dialog->int_adv_vbox), d_hbox);
     
-    GtkWidget* t_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    GtkWidget* t_label = gtk_label_new("Move Time (ms):");
-    gtk_widget_set_size_request(t_label, 140, -1); // Fixed width for alignment
-    gtk_widget_set_halign(t_label, GTK_ALIGN_START);
-    gtk_label_set_xalign(GTK_LABEL(t_label), 0.0);
-    // gtk_widget_set_margin_end(t_label, 12);
-    gtk_box_append(GTK_BOX(t_hbox), t_label);
-    dialog->int_time_spin = gtk_spin_button_new_with_range(10, 600000, 100);
-    gtk_widget_set_size_request(dialog->int_time_spin, 120, -1); // Fixed width
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_time_spin), 500);
-    g_signal_connect(dialog->int_time_spin, "value-changed", G_CALLBACK(on_int_time_changed), dialog);
-    gtk_box_append(GTK_BOX(t_hbox), dialog->int_time_spin);
-    gtk_box_append(GTK_BOX(dialog->int_adv_vbox), t_hbox);
-    
     GtkWidget* int_reset_btn = gtk_button_new_with_label("Reset to Defaults");
     gtk_widget_add_css_class(int_reset_btn, "destructive-action");
     g_signal_connect(int_reset_btn, "clicked", G_CALLBACK(on_int_reset_adv_clicked), dialog);
@@ -816,20 +750,6 @@ static void ai_dialog_build_ui(AiDialog* dialog) {
     g_signal_connect(dialog->custom_depth_spin, "value-changed", G_CALLBACK(on_custom_depth_changed), dialog);
     gtk_box_append(GTK_BOX(cd_hbox), dialog->custom_depth_spin);
     gtk_box_append(GTK_BOX(dialog->custom_adv_vbox), cd_hbox);
-
-    GtkWidget* ct_hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    GtkWidget* ct_label = gtk_label_new("Move Time (ms):");
-    gtk_widget_set_size_request(ct_label, 140, -1);
-    gtk_widget_set_halign(ct_label, GTK_ALIGN_START);
-    gtk_label_set_xalign(GTK_LABEL(ct_label), 0.0);
-    // gtk_widget_set_margin_end(ct_label, 12);
-    gtk_box_append(GTK_BOX(ct_hbox), ct_label);
-    dialog->custom_time_spin = gtk_spin_button_new_with_range(10, 600000, 100);
-    gtk_widget_set_size_request(dialog->custom_time_spin, 120, -1); // Fixed width
-    gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_time_spin), 500);
-    g_signal_connect(dialog->custom_time_spin, "value-changed", G_CALLBACK(on_custom_time_changed), dialog);
-    gtk_box_append(GTK_BOX(ct_hbox), dialog->custom_time_spin);
-    gtk_box_append(GTK_BOX(dialog->custom_adv_vbox), ct_hbox);
 
     GtkWidget* cust_reset_btn = gtk_button_new_with_label("Reset to Defaults");
     gtk_widget_add_css_class(cust_reset_btn, "destructive-action");
@@ -966,8 +886,6 @@ AiDialog* ai_dialog_new_embedded(void) {
     
     dialog->int_elo = 1500;
     dialog->custom_elo = 1500;
-    dialog->int_manual_movetime = false;
-    dialog->custom_manual_movetime = false;
     dialog->is_loading = false;
     
     ai_dialog_build_ui(dialog);
@@ -1076,17 +994,6 @@ int ai_dialog_get_depth(AiDialog* dialog, bool is_custom) {
     }
 }
 
-int ai_dialog_get_movetime(AiDialog* dialog, bool is_custom) {
-    if (!dialog) return 500;
-    if (is_custom) {
-        if (!dialog->custom_time_spin) return 500;
-        return gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->custom_time_spin));
-    } else {
-        if (!dialog->int_time_spin) return 500;
-        return gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->int_time_spin));
-    }
-}
-
 const char* ai_dialog_get_nnue_path(AiDialog* dialog, bool* enabled) {
     if (!dialog) { *enabled = false; return NULL; }
     if (!dialog->nnue_toggle) { *enabled = false; return NULL; } // Added NULL check for nnue_toggle
@@ -1141,7 +1048,6 @@ void ai_dialog_load_config(AiDialog* dialog, void* config_struct) {
     // Internal Engine
     if (cfg->int_elo >= 100) ai_dialog_set_elo(dialog, cfg->int_elo, false);
     if (dialog->int_depth_spin) gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_depth_spin), (double)cfg->int_depth);
-    if (dialog->int_time_spin) gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->int_time_spin), (double)cfg->int_movetime);
     if (dialog->int_adv_check) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->int_adv_check), cfg->int_is_advanced);
     if (dialog->int_adv_vbox) gtk_widget_set_visible(dialog->int_adv_vbox, cfg->int_is_advanced);
     
@@ -1163,7 +1069,6 @@ void ai_dialog_load_config(AiDialog* dialog, void* config_struct) {
     }
     if (cfg->custom_elo >= 100) ai_dialog_set_elo(dialog, cfg->custom_elo, true);
     if (dialog->custom_depth_spin) gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_depth_spin), (double)cfg->custom_depth);
-    if (dialog->custom_time_spin) gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_time_spin), (double)cfg->custom_movetime);
     if (dialog->custom_adv_check) gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->custom_adv_check), cfg->custom_is_advanced);
     if (dialog->custom_adv_vbox) gtk_widget_set_visible(dialog->custom_adv_vbox, cfg->custom_is_advanced);
     
@@ -1201,7 +1106,6 @@ void ai_dialog_save_config(AiDialog* dialog, void* config_struct) {
     // Internal
     cfg->int_elo = ai_dialog_get_elo(dialog, false);
     if (dialog->int_depth_spin) cfg->int_depth = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->int_depth_spin));
-    if (dialog->int_time_spin) cfg->int_movetime = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->int_time_spin));
     if (dialog->int_adv_check) cfg->int_is_advanced = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->int_adv_check));
     
     // NNUE
@@ -1224,7 +1128,6 @@ void ai_dialog_save_config(AiDialog* dialog, void* config_struct) {
     
     cfg->custom_elo = ai_dialog_get_elo(dialog, true);
     if (dialog->custom_depth_spin) cfg->custom_depth = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->custom_depth_spin));
-    if (dialog->custom_time_spin) cfg->custom_movetime = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->custom_time_spin));
     if (dialog->custom_adv_check) cfg->custom_is_advanced = gtk_check_button_get_active(GTK_CHECK_BUTTON(dialog->custom_adv_check));
 
     // Analysis

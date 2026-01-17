@@ -24,7 +24,6 @@ void ai_dialog_set_elo(AiDialog* dialog, int elo, bool is_custom);
 void ai_dialog_set_settings_changed_callback(AiDialog* dialog, AiSettingsChangedCallback cb, void* data);
 bool ai_dialog_is_advanced_enabled(AiDialog* dialog, bool for_custom);
 int ai_dialog_get_depth(AiDialog* dialog, bool for_custom);
-int ai_dialog_get_movetime(AiDialog* dialog, bool for_custom);
 
 // Engine management
 const char* ai_dialog_get_custom_path(AiDialog* dialog);

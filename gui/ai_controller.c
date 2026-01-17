@@ -6,6 +6,7 @@
 #include <stdbool.h>
 
 static bool debug_mode = false;
+static const int64_t overhead_ms = 5000;
 
 struct _AiController {
     GameLogic* logic;
@@ -28,6 +29,14 @@ typedef struct {
     AiController* controller;
     char* fen;
     AiDifficultyParams params;
+    
+    // NEW: Clock State for UCI
+    int64_t wtime_ms;
+    int64_t btime_ms;
+    int64_t winc_ms;
+    int64_t binc_ms;
+    bool clock_enabled;
+    
     EngineHandle* engine;
     char* nnue_path;
     bool nnue_enabled;
@@ -146,7 +155,7 @@ static gpointer ai_think_thread(gpointer user_data) {
         char skill_str[16];
         snprintf(skill_str, sizeof(skill_str), "%d", skill);
         
-        printf("[DEBUG] Setting Skill Level: %s (Elo: %d)\n", skill_str, data->target_elo);
+        printf("[AI Thread] Setting Skill Level: %s (Elo: %d)\n", skill_str, data->target_elo);
         ai_engine_set_option(data->engine, "Skill Level", skill_str);
         ai_engine_send_command(data->engine, "isready");
         ai_engine_wait_for_token(data->engine, "readyok", 2000);
@@ -154,17 +163,28 @@ static gpointer ai_think_thread(gpointer user_data) {
 
     ai_engine_send_command(data->engine, pos_cmd);
 
-    // NEW: Go command based on mode
-    char go_cmd[128];
-    if (is_advanced_mode) {
+    // NEW: Go command based on mode and clock
+    char go_cmd[256];
+    if (data->clock_enabled) {
+        // Safety margin to prevent losing on time due to communication/GUI overhead
+        
+        
+        int64_t safe_wtime = (data->wtime_ms > overhead_ms) ? (data->wtime_ms - overhead_ms) : (data->wtime_ms > 50 ? 50 : 10);
+        int64_t safe_btime = (data->btime_ms > overhead_ms) ? (data->btime_ms - overhead_ms) : (data->btime_ms > 50 ? 50 : 10);
+
+        snprintf(go_cmd, sizeof(go_cmd), "go wtime %lld btime %lld winc %lld binc %lld",
+                 (long long)safe_wtime, (long long)safe_btime,
+                 (long long)data->winc_ms, (long long)data->binc_ms);
+        if (debug_mode) printf("[AI Thread] Using Clock: %s\n", go_cmd);
+    } else if (is_advanced_mode) {
         snprintf(go_cmd, sizeof(go_cmd), "go depth %d", data->params.depth);
-        if (debug_mode) printf("[AI Thread] Advanced Mode: Using depth=%d\n", data->params.depth);
+        if (debug_mode) printf("[AI Thread] Advanced Mode (No Clock): Using depth=%d\n", data->params.depth);
     } else {
         snprintf(go_cmd, sizeof(go_cmd), "go movetime %d", data->params.move_time_ms);
-        if (debug_mode) printf("[AI Thread] Non-Advanced Mode: Using movetime=%d\n", data->params.move_time_ms);
+        if (debug_mode) printf("[AI Thread] Non-Advanced Mode (No Clock): Using movetime=%d\n", data->params.move_time_ms);
     }
     
-    printf("[DEBUG] Sending Logic Command: %s\n", go_cmd);
+    printf("[AI Thread] Sending Logic Command: %s\n", go_cmd);
     ai_engine_send_command(data->engine, go_cmd);
 
     if (debug_mode) printf("[AI Thread] Thinking Command Sent: %s\n", go_cmd);
@@ -242,6 +262,9 @@ void ai_controller_request_move(AiController* controller,
                                 bool use_custom,
                                 AiDifficultyParams params,
                                 const char* custom_path,
+                                int64_t wtime_ms, int64_t btime_ms,
+                                int64_t winc_ms, int64_t binc_ms,
+                                bool clock_enabled,
                                 AiMoveReadyCallback callback,
                                 gpointer user_data) {
     if (controller->ai_thinking) return;
@@ -284,6 +307,13 @@ void ai_controller_request_move(AiController* controller,
     data->callback = callback;
     data->user_data = user_data;
     data->gen = controller->think_gen;
+
+    // NEW: Copy clock state
+    data->wtime_ms = wtime_ms;
+    data->btime_ms = btime_ms;
+    data->winc_ms = winc_ms;
+    data->binc_ms = binc_ms;
+    data->clock_enabled = clock_enabled;
 
     bool nnue_enabled = false;
     const char* nn_path = ai_dialog_get_nnue_path(controller->ai_dialog, &nnue_enabled);

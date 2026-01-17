@@ -549,13 +549,13 @@ void puzzles_add_custom(const Puzzle* p) {
     Puzzle new_p = *p;
     
     // Duplicate strings
-    new_p.title = strdup(p->title ? p->title : "Custom Puzzle");
-    new_p.description = strdup(p->description ? p->description : "");
-    new_p.fen = strdup(p->fen);
+    new_p.title = _strdup(p->title ? p->title : "Custom Puzzle");
+    new_p.description = _strdup(p->description ? p->description : "");
+    new_p.fen = _strdup(p->fen);
     
     for (int i = 0; i < MAX_PUZZLE_MOVES; i++) {
         if (p->solution_moves[i]) {
-            new_p.solution_moves[i] = strdup(p->solution_moves[i]);
+            new_p.solution_moves[i] = _strdup(p->solution_moves[i]);
         } else {
             new_p.solution_moves[i] = NULL;
         }

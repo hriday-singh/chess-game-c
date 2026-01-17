@@ -48,11 +48,7 @@ void theme_data_set_black_stroke_width(ThemeData* theme, double width);
 // Font
 const char* theme_data_get_font_name(ThemeData* theme);
 void theme_data_set_font_name(ThemeData* theme, const char* font_name);
-
-// Font management
-void theme_data_load_fonts(void);
-int theme_data_get_available_font_count(void);
-const char* theme_data_get_available_font(int index);
+bool theme_data_is_standard_font(const char* font_name);
 
 // JSON export/import
 char* theme_data_to_board_json(ThemeData* theme);
@@ -67,9 +63,6 @@ void theme_data_reset_piece_colors_only(ThemeData* theme);
 
 // Apply templates
 void theme_data_apply_board_template(ThemeData* theme, const char* template_name);
-
-// Check if font is standard Unicode
-bool theme_data_is_standard_font(const char* fontName);
 
 // Load from config
 void theme_data_load_config(ThemeData* theme, void* config_struct);

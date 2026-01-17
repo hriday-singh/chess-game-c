@@ -114,7 +114,7 @@ static void draw_piece_button(GtkDrawingArea* area, cairo_t* cr, int width, int 
         
         PangoLayout* layout = pango_cairo_create_layout(cr);
         PangoFontDescription* desc = pango_font_description_new();
-        pango_font_description_set_family(desc, theme_data_get_font_name(theme));
+        pango_font_description_set_family(desc, "Segoe UI Symbol");
         pango_font_description_set_size(desc, (int)(width * 0.7 * PANGO_SCALE));
         pango_font_description_set_weight(desc, PANGO_WEIGHT_SEMIBOLD);
         pango_layout_set_font_description(layout, desc);

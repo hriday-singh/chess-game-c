@@ -4,19 +4,11 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
-#include <dirent.h>
 #include <sys/stat.h>
 
-#define DEFAULT_FONT_NAME "Segoe UI Symbol"
-#define DEFAULT_WHITE_STROKE_WIDTH 0.5  // Thinner outline for white pieces
+#define DEFAULT_FONT_NAME "caliente"
+#define DEFAULT_WHITE_STROKE_WIDTH 0.5
 #define DEFAULT_BLACK_STROKE_WIDTH 0.1
-
-// Font list structure
-typedef struct FontNode {
-    char* name;
-    char* file_path;
-    struct FontNode* next;
-} FontNode;
 
 struct ThemeData {
     // Board colors (RGB 0.0-1.0)
@@ -33,12 +25,8 @@ struct ThemeData {
     double blackStrokeR, blackStrokeG, blackStrokeB;
     double blackStrokeWidth;
     
-    // Font
+    // SVG piece set name
     char* fontName;
-    
-    // Available fonts (linked list)
-    FontNode* availableFonts;
-    int fontCount;
 
     // SVG Cache
     // [owner][type] (0=White, 1=Black)
@@ -49,28 +37,12 @@ struct ThemeData {
 // Forward declarations
 static void clear_piece_cache(ThemeData* theme);
 
-// Static font list (shared across all instances)
-static FontNode* g_availableFonts = NULL;
-static int g_fontCount = 0;
 
-// Helper: Case-insensitive string comparison
-static int str_casecmp(const char* s1, const char* s2) {
-    if (!s1 || !s2) return s1 ? 1 : (s2 ? -1 : 0);
-    while (*s1 && *s2) {
-        char c1 = (*s1 >= 'A' && *s1 <= 'Z') ? (*s1 + 32) : *s1;
-        char c2 = (*s2 >= 'A' && *s2 <= 'Z') ? (*s2 + 32) : *s2;
-        if (c1 != c2) return c1 - c2;
-        s1++; s2++;
-    }
-    return (*s1 - *s2);
-}
-
-// Helper: Check if font is standard Unicode
-bool theme_data_is_standard_font(const char* fontName) {
-    if (!fontName) return false;
-    return (str_casecmp(fontName, "Segoe UI Symbol") == 0 ||
-            str_casecmp(fontName, "Serif") == 0 ||
-            str_casecmp(fontName, "Chess Merida Unicode") == 0);
+bool theme_data_is_standard_font(const char* font_name) {
+    if (!font_name) return true;
+    if (strcmp(font_name, "Segoe UI Symbol") == 0) return true;
+    if (strcmp(font_name, "Default") == 0) return true;
+    return false;
 }
 
 // Helper: Color to hex string
@@ -115,49 +87,6 @@ static char* extract_json_value(const char* json, const char* key) {
     return result;
 }
 
-#ifdef G_OS_UNIX
-#include <dirent.h>
-#include <sys/stat.h>
-
-// Load fonts from directory
-static void load_fonts_recursive(const char* dir_path) {
-    DIR* dir = opendir(dir_path);
-    if (!dir) return;
-    
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_name[0] == '.') continue;
-        
-        char full_path[1024];
-        snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
-        
-        struct stat st;
-        if (stat(full_path, &st) == 0) {
-            if (S_ISDIR(st.st_mode)) {
-                load_fonts_recursive(full_path);
-            } else if (S_ISREG(st.st_mode)) {
-                const char* ext = strrchr(entry->d_name, '.');
-                if (ext && str_casecmp(ext, ".ttf") == 0) {
-                    // Add font to list (for now, just use filename as name)
-                    FontNode* node = (FontNode*)malloc(sizeof(FontNode));
-                    if (node) {
-                        node->name = strdup(entry->d_name);
-                        node->file_path = strdup(full_path);
-                        node->next = g_availableFonts;
-                        g_availableFonts = node;
-                        g_fontCount++;
-                    }
-                }
-            }
-        }
-    }
-    closedir(dir);
-}
-#else
-static void load_fonts_recursive(const char* dir_path) {
-    (void)dir_path; // No-op on Windows
-}
-#endif
 
 ThemeData* theme_data_new(void) {
     ThemeData* theme = (ThemeData*)calloc(1, sizeof(ThemeData));
@@ -189,10 +118,8 @@ ThemeData* theme_data_new(void) {
     theme->blackStrokeB = 0x2b / 255.0;
     theme->blackStrokeWidth = DEFAULT_BLACK_STROKE_WIDTH;
     
-    // Default font
-    theme->fontName = strdup(DEFAULT_FONT_NAME);
-    theme->availableFonts = NULL;
-    theme->fontCount = 0;
+    // Default piece set
+    theme->fontName = _strdup(DEFAULT_FONT_NAME);
     
     // Init cache
     for (int i = 0; i < 2; i++) {
@@ -216,30 +143,25 @@ void theme_data_free(ThemeData* theme) {
 }
 
 const char* theme_data_get_piece_symbol(ThemeData* theme, PieceType type, Player owner) {
-    if (!theme) return "?";
-    
-    bool isStandard = theme_data_is_standard_font(theme->fontName);
-    
-    if (!isStandard) {
-        // Custom font mapping (En Passant style)
+    (void)theme;
+    if (owner == PLAYER_WHITE) {
         switch (type) {
-            case PIECE_PAWN:   return (owner == PLAYER_WHITE) ? "p" : "o";
-            case PIECE_KNIGHT: return (owner == PLAYER_WHITE) ? "n" : "m";
-            case PIECE_BISHOP: return (owner == PLAYER_WHITE) ? "b" : "v";
-            case PIECE_ROOK:   return (owner == PLAYER_WHITE) ? "r" : "t";
-            case PIECE_QUEEN:  return (owner == PLAYER_WHITE) ? "q" : "w";
-            case PIECE_KING:   return (owner == PLAYER_WHITE) ? "k" : "l";
+            case PIECE_KING:   return "♔";
+            case PIECE_QUEEN:  return "♕";
+            case PIECE_ROOK:   return "♖";
+            case PIECE_BISHOP: return "♗";
+            case PIECE_KNIGHT: return "♘";
+            case PIECE_PAWN:   return "♙";
             default: return "?";
         }
     } else {
-        // Standard Unicode
         switch (type) {
-            case PIECE_PAWN:   return "♟";
-            case PIECE_KNIGHT: return "♞";
-            case PIECE_BISHOP: return "♝";
-            case PIECE_ROOK:   return "♜";
-            case PIECE_QUEEN:  return "♛";
             case PIECE_KING:   return "♚";
+            case PIECE_QUEEN:  return "♛";
+            case PIECE_ROOK:   return "♜";
+            case PIECE_BISHOP: return "♝";
+            case PIECE_KNIGHT: return "♞";
+            case PIECE_PAWN:   return "♟";
             default: return "?";
         }
     }
@@ -249,12 +171,11 @@ const char* theme_data_get_piece_symbol(ThemeData* theme, PieceType type, Player
 char* theme_data_get_piece_image_path(ThemeData* theme, PieceType type, Player owner) {
     if (!theme || !theme->fontName) return NULL;
     
-    // Check if it's a standard font
     if (theme_data_is_standard_font(theme->fontName)) {
-        return NULL; // Use text rendering
+        return NULL; // Use text rendering fallback
     }
     
-    // It's likely a piece set folder name
+    // It's a piece set folder name (SVG themes)
     // Construct filename: e.g. "wP.svg", "bN.svg"
     char filename[8];
     char colorChar = (owner == PLAYER_WHITE) ? 'w' : 'b';
@@ -281,11 +202,19 @@ char* theme_data_get_piece_image_path(ThemeData* theme, PieceType type, Player o
     
     snprintf(path, 1024, "assets/images/piece/%s/%s", theme->fontName, filename);
     struct stat st;
-    if (stat(path, &st) == 0) return path;
+    if (stat(path, &st) == 0) {
+        // printf("[ThemeData] Found SVG: %s\n", path);
+        return path;
+    }
     
     // Try build assets
     snprintf(path, 1024, "build/assets/images/piece/%s/%s", theme->fontName, filename);
-    if (stat(path, &st) == 0) return path;
+    if (stat(path, &st) == 0) {
+        // printf("[ThemeData] Found SVG (build): %s\n", path);
+        return path;
+    }
+
+    printf("[ThemeData] SVG NOT FOUND: %s/%s\n", theme->fontName, filename);
     
     free(path);
     return NULL;
@@ -310,23 +239,18 @@ static void clear_piece_cache(ThemeData* theme) {
 cairo_surface_t* theme_data_get_piece_surface(ThemeData* theme, PieceType type, Player owner) {
     if (!theme) return NULL;
     
-    // Check cache first
-    // If standard font (text-based), we don't use this cache (returns NULL),
-    // caller should fallback to text rendering or we can implement text-to-surface here?
-    // Actually, user wants optimized SVG loading. If standard font, we just return NULL
-    // and let the caller handle it or we render the text to a surface too?
-    // For now, let's assume this is for SVG themes.
-    
     if (theme_data_is_standard_font(theme->fontName)) {
-        return NULL; // Caller should fallback to Pango text
+        return NULL; // Caller should fallback to text rendering
     }
+    
+    // Check cache first
 
     // If font name changed, clear cache
     if (theme->cachedFontName && strcmp(theme->cachedFontName, theme->fontName) != 0) {
         clear_piece_cache(theme);
     }
     if (!theme->cachedFontName) {
-        theme->cachedFontName = strdup(theme->fontName);
+        theme->cachedFontName = _strdup(theme->fontName);
     }
 
     if (theme->pieceCache[owner][type]) {
@@ -379,10 +303,13 @@ cairo_surface_t* theme_data_get_piece_surface(ThemeData* theme, PieceType type, 
         
         theme->pieceCache[owner][type] = surface;
         g_object_unref(pixbuf);
+        printf("[ThemeData] Successfully loaded SVG for %d/%d from %s\n", type, owner, path);
     } else {
         if (error) {
-            // fprintf(stderr, "Failed to load SVG: %s\n", error->message); // Optional debug
+            fprintf(stderr, "[ThemeData] FAILED to load SVG: %s (Error: %s)\n", path, error->message);
             g_error_free(error);
+        } else {
+            fprintf(stderr, "[ThemeData] FAILED to load SVG: %s (Unknown error)\n", path);
         }
     }
     free(path);
@@ -511,69 +438,23 @@ void theme_data_set_black_stroke_width(ThemeData* theme, double width) {
 
 // Font getter/setter
 const char* theme_data_get_font_name(ThemeData* theme) {
-    return theme ? theme->fontName : DEFAULT_FONT_NAME;
+    if (!theme || !theme->fontName) return "Segoe UI Symbol";
+    if (theme_data_is_standard_font(theme->fontName)) {
+        return theme->fontName;
+    }
+    return "Segoe UI Symbol";
 }
 
 void theme_data_set_font_name(ThemeData* theme, const char* font_name) {
     if (theme && font_name) {
         if (theme->fontName) free(theme->fontName);
-        theme->fontName = strdup(font_name);
+        theme->fontName = _strdup(font_name);
         
         // Clear cache when theme changes
         clear_piece_cache(theme);
     }
 }
 
-// Font management
-void theme_data_load_fonts(void) {
-    // Clear existing
-    FontNode* node = g_availableFonts;
-    while (node) {
-        FontNode* next = node->next;
-        free(node->name);
-        free(node->file_path);
-        free(node);
-        node = next;
-    }
-    g_availableFonts = NULL;
-    g_fontCount = 0;
-    
-    // Add default fonts
-    FontNode* segoe = (FontNode*)malloc(sizeof(FontNode));
-    if (segoe) {
-        segoe->name = strdup("Segoe UI Symbol");
-        segoe->file_path = NULL;
-        segoe->next = g_availableFonts;
-        g_availableFonts = segoe;
-        g_fontCount++;
-    }
-    
-    FontNode* serif = (FontNode*)malloc(sizeof(FontNode));
-    if (serif) {
-        serif->name = strdup("Serif");
-        serif->file_path = NULL;
-        serif->next = g_availableFonts;
-        g_availableFonts = serif;
-        g_fontCount++;
-    }
-    
-    // Load from Fonts directory
-    load_fonts_recursive("Fonts");
-}
-
-int theme_data_get_available_font_count(void) {
-    return g_fontCount;
-}
-
-const char* theme_data_get_available_font(int index) {
-    FontNode* node = g_availableFonts;
-    int i = 0;
-    while (node && i < index) {
-        node = node->next;
-        i++;
-    }
-    return node ? node->name : NULL;
-}
 
 // JSON export/import
 char* theme_data_to_board_json(ThemeData* theme) {

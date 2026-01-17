@@ -225,7 +225,7 @@ static void on_play_clicked(GtkButton* btn, gpointer user_data) {
     if (strlen(fen) == 0) return; 
     
     // Parse moves
-    char* moves_copy = strdup(moves_str);
+    char* moves_copy = _strdup(moves_str);
     const char* solution_moves[MAX_PUZZLE_MOVES];
     for(int i=0; i<MAX_PUZZLE_MOVES; i++) solution_moves[i] = NULL;
     

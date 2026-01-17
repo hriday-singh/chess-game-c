@@ -134,4 +134,7 @@ void gamelogic_set_custom_clock(GameLogic* logic, int64_t time_ms, int64_t inc_m
 void gamelogic_ensure_clock_running(GameLogic* logic);
 void gamelogic_start_clock_on_interaction(GameLogic* logic);
 
+// Utility
+int64_t get_monotonic_time_ms(void);
+
 #endif // GAMELOGIC_H

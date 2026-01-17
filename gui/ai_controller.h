@@ -42,6 +42,9 @@ void ai_controller_request_move(AiController* controller,
                                 bool use_custom,
                                 AiDifficultyParams params,
                                 const char* custom_path,
+                                int64_t wtime_ms, int64_t btime_ms,
+                                int64_t winc_ms, int64_t binc_ms,
+                                bool clock_enabled,
                                 AiMoveReadyCallback callback,
                                 gpointer user_data);
 

@@ -281,8 +281,6 @@ char* ai_engine_try_get_response(EngineHandle* handle) {
     
     #ifdef _WIN32
     return _strdup(res.c_str());
-    #else
-    return strdup(res.c_str());
     #endif
 }
 
@@ -386,22 +384,13 @@ AiDifficultyParams ai_get_difficulty_params(int elo) {
     elo = clampi(elo, 200, 3600);
 
     // 2) movetime = elo * 5 / 3  (ms)
+    // This is used as a fallback for non-advanced mode when no clock is present.
     int ms = (elo * 5) / 3;
     ms = clampi(ms, 80, 3500);
 
-    // 3) depth mapping:
-    // 1500 -> 10
-    // 3600 -> 17
-    int depth;
-    if (elo <= 1500) depth = 10;
-    else if (elo >= 3600) depth = 17;
-    else depth = 10 + ((elo - 1500) * 7) / 2100;
-
-    depth = clampi(depth, 1, 17);
-
-    p.depth = depth;
+    p.depth = 0; // Not used in ELO-mode (Skill Level is used instead)
     p.move_time_ms = ms;
-    p.target_elo = elo; // Store original ELO for skill mapping
+    p.target_elo = elo; 
     return p;
 }
 

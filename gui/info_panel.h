@@ -28,7 +28,7 @@ void info_panel_set_ai_settings_callback(GtkWidget* info_panel, GCallback callba
 bool info_panel_is_custom_selected(GtkWidget* info_panel, bool for_black);
 void info_panel_show_ai_settings(GtkWidget* info_panel);
 
-void info_panel_update_ai_settings(GtkWidget* info_panel, bool white_adv, int white_depth, int white_time, bool black_adv, int black_depth, int black_time);
+void info_panel_update_ai_settings(GtkWidget* info_panel, bool white_adv, int white_depth, bool black_adv, int black_depth);
 int info_panel_get_elo(GtkWidget* info_panel, bool for_black);
 
 void info_panel_set_sensitive(GtkWidget* info_panel, bool sensitive);

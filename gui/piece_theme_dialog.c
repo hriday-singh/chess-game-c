@@ -13,9 +13,6 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <dirent.h>
-#include <sys/stat.h>
-#include <unistd.h>
 #ifdef _WIN32
 #include <windows.h>
 #include <psapi.h>
@@ -139,29 +136,37 @@ static cairo_surface_t* pixbuf_to_cairo_surface(GdkPixbuf* pixbuf) {
 static void scan_piece_sets(PieceThemeDialog* dialog) {
     if (!dialog) return;
     const char* piece_dir = "assets/images/piece";
-    DIR* dir = opendir(piece_dir);
+    GDir* dir = g_dir_open(piece_dir, 0, NULL);
     if (!dir) {
         piece_dir = "build/assets/images/piece";
-        dir = opendir(piece_dir);
+        dir = g_dir_open(piece_dir, 0, NULL);
         if (!dir) return;
     }
     
     dialog->piece_sets = (PieceSetInfo*)calloc(MAX_PIECE_SETS, sizeof(PieceSetInfo));
-    if (!dialog->piece_sets) return;
+    if (!dialog->piece_sets) {
+        g_dir_close(dir);
+        return;
+    }
     dialog->piece_set_count = 0;
+
+    // Manually add Default (Segoe UI Symbol)
+    dialog->piece_sets[0].name = _strdup("Segoe UI Symbol");
+    dialog->piece_sets[0].display_name = _strdup("Default (Segoe UI)");
+    dialog->piece_set_count = 1;
     
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != NULL && dialog->piece_set_count < MAX_PIECE_SETS) {
-        if (entry->d_name[0] == '.') continue;
-        char* full_path = g_build_filename(piece_dir, entry->d_name, NULL);
+    const char* entry_name;
+    while ((entry_name = g_dir_read_name(dir)) != NULL && dialog->piece_set_count < MAX_PIECE_SETS) {
+        if (entry_name[0] == '.') continue;
+        char* full_path = g_build_filename(piece_dir, entry_name, NULL);
         if (!full_path) continue;
-        struct stat st;
-        if (stat(full_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+        
+        if (g_file_test(full_path, G_FILE_TEST_IS_DIR)) {
             char* knight_path = g_build_filename(full_path, "wN.svg", NULL);
             if (knight_path) {
-                if (access(knight_path, F_OK) == 0) {
-                    dialog->piece_sets[dialog->piece_set_count].name = strdup(entry->d_name);
-                    dialog->piece_sets[dialog->piece_set_count].display_name = capitalize_string(entry->d_name);
+                if (g_file_test(knight_path, G_FILE_TEST_EXISTS)) {
+                    dialog->piece_sets[dialog->piece_set_count].name = _strdup(entry_name);
+                    dialog->piece_sets[dialog->piece_set_count].display_name = capitalize_string(entry_name);
                     dialog->piece_set_count++;
                 }
                 g_free(knight_path);
@@ -169,7 +174,7 @@ static void scan_piece_sets(PieceThemeDialog* dialog) {
         }
         g_free(full_path);
     }
-    closedir(dir);
+    g_dir_close(dir);
     
     // Sort
     for (int i = 0; i < dialog->piece_set_count - 1; i++) {
@@ -182,15 +187,6 @@ static void scan_piece_sets(PieceThemeDialog* dialog) {
         }
     }
     
-    // Add Default
-    if (dialog->piece_set_count < MAX_PIECE_SETS) {
-        for (int i = dialog->piece_set_count; i > 0; i--) {
-            dialog->piece_sets[i] = dialog->piece_sets[i-1];
-        }
-        dialog->piece_sets[0].name = strdup("Default");
-        dialog->piece_sets[0].display_name = strdup("Default (Segoe UI)");
-        dialog->piece_set_count++;
-    }
     
     // Auto-select preference if found
     if (DEFAULT_STARTUP_PIECE_THEME && strlen(DEFAULT_STARTUP_PIECE_THEME) > 0) {
@@ -216,7 +212,6 @@ static void free_piece_sets(PieceThemeDialog* dialog) {
 
 static int find_piece_set_index(PieceThemeDialog* dialog, const char* name) {
     if (!dialog || !name) return 0;
-    if (theme_data_is_standard_font(name) || strcmp(name, "Default (Segoe UI)") == 0) return 0;
     for (int i = 0; i < dialog->piece_set_count; i++) {
         if (dialog->piece_sets[i].name && strcmp(dialog->piece_sets[i].name, name) == 0) return i;
     }
@@ -243,18 +238,12 @@ static void on_dropdown_item_draw(GtkDrawingArea* area, cairo_t* cr, int width, 
     cairo_fill(cr);
 
     if (folder_name) {
-        if (strcmp(folder_name, "Default") == 0 || strcmp(folder_name, "Default (Segoe UI)") == 0) {
-            cairo_set_source_rgb(cr, 1, 1, 1);
-            cairo_select_font_face(cr, "Segoe UI Symbol", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-            cairo_set_font_size(cr, height * 0.9);
-            cairo_text_extents_t extents;
-            cairo_text_extents(cr, "\u2658", &extents);
-            cairo_move_to(cr, (width - extents.width)/2.0 - extents.x_bearing, (height - extents.height)/2.0 - extents.y_bearing);
-            cairo_show_text(cr, "\u2658");
-        } else {
+        bool isStandard = theme_data_is_standard_font(folder_name);
+        bool drawn = false;
+
+        if (!isStandard) {
             char* path = g_strdup_printf("assets/images/piece/%s/wN.svg", folder_name);
-            if (access(path, F_OK) != 0) {
-                // Try build path
+            if (!g_file_test(path, G_FILE_TEST_EXISTS)) {
                 g_free(path);
                 path = g_strdup_printf("build/assets/images/piece/%s/wN.svg", folder_name);
             }
@@ -269,9 +258,35 @@ static void on_dropdown_item_draw(GtkDrawingArea* area, cairo_t* cr, int width, 
                 cairo_paint(cr);
                 cairo_surface_destroy(s);
                 g_object_unref(pixbuf);
+                drawn = true;
+                // printf("[PieceThemeDialog] Loaded dropdown SVG: %s\n", path);
+            } else {
+                if (err) {
+                    fprintf(stderr, "[PieceThemeDialog] FAILED to load dropdown SVG: %s (Error: %s)\n", path, err->message);
+                    g_error_free(err);
+                }
             }
-            if (err) g_error_free(err);
             g_free(path);
+        }
+
+        if (!drawn) {
+            // Text fallback - ALWAYS use Segoe UI Symbol
+            const char* symbol = "♞"; // Knight for preview
+            PangoLayout* layout = pango_cairo_create_layout(cr);
+            PangoFontDescription* desc = pango_font_description_new();
+            pango_font_description_set_family(desc, "Segoe UI Symbol");
+            pango_font_description_set_absolute_size(desc, (height * 0.7) * PANGO_SCALE);
+            pango_layout_set_font_description(layout, desc);
+            pango_layout_set_text(layout, symbol, -1);
+
+            int text_w, text_h;
+            pango_layout_get_pixel_size(layout, &text_w, &text_h);
+            cairo_set_source_rgb(cr, 1.0, 1.0, 1.0); // White symbol
+            cairo_move_to(cr, (width - text_w) / 2.0, (height - text_h) / 2.0);
+            pango_cairo_show_layout(cr, layout);
+
+            g_object_unref(layout);
+            pango_font_description_free(desc);
         }
     }
 }
@@ -448,7 +463,7 @@ static void check_update_preview_cache(PieceThemeDialog* dialog) {
     }
     
     clear_preview_cache(dialog);
-    dialog->cached_font_name = strdup(currentFont);
+    dialog->cached_font_name = _strdup(currentFont);
     
     for (int owner = 0; owner < 2; owner++) {
         for (int type = 0; type < 6; type++) {
@@ -459,8 +474,13 @@ static void check_update_preview_cache(PieceThemeDialog* dialog) {
                 if (pixbuf) {
                     dialog->piece_cache[owner][type] = pixbuf_to_cairo_surface(pixbuf);
                     g_object_unref(pixbuf);
+                    // printf("[PieceThemeDialog] Cached preview SVG: %s\n", path);
+                } else {
+                    if (error) {
+                        fprintf(stderr, "[PieceThemeDialog] FAILED to cache preview SVG: %s (Error: %s)\n", path, error->message);
+                        g_error_free(error);
+                    }
                 }
-                if (error) g_error_free(error);
                 free(path);
             }
         }
@@ -471,6 +491,7 @@ static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int he
     (void)area; (void)height;
     PieceThemeDialog* dialog = (PieceThemeDialog*)user_data;
     if (!dialog || !dialog->theme) return;
+    check_update_preview_cache(dialog);
     
     int cols = 6; int rows = 2;
     double padding = 0.0;
@@ -507,20 +528,6 @@ static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int he
         }
     }
     
-    const char* font_name = theme_data_get_font_name(dialog->theme);
-    if (!font_name) font_name = "Segoe UI Symbol";
-    check_update_preview_cache(dialog);
-    
-    double wr, wg, wb, wsr, wsg, wsb, wsw;
-    theme_data_get_white_piece_color(dialog->theme, &wr, &wg, &wb);
-    theme_data_get_white_piece_stroke(dialog->theme, &wsr, &wsg, &wsb);
-    wsw = theme_data_get_white_stroke_width(dialog->theme);
-
-    double br, bg, bb, bsr, bsg, bsb, bsw;
-    theme_data_get_black_piece_color(dialog->theme, &br, &bg, &bb);
-    theme_data_get_black_piece_stroke(dialog->theme, &bsr, &bsg, &bsb);
-    bsw = theme_data_get_black_stroke_width(dialog->theme);
-
     PieceType pieceTypes[] = {PIECE_PAWN, PIECE_KNIGHT, PIECE_BISHOP, PIECE_ROOK, PIECE_QUEEN, PIECE_KING};
     
     for (int row = 0; row < 2; row++) {
@@ -543,41 +550,34 @@ static void on_preview_draw(GtkDrawingArea* area, cairo_t* cr, int width, int he
                  cairo_paint(cr);
                  cairo_restore(cr);
             } else {
-                // Text fallback
+                // Text fallback - ALWAYS use Segoe UI Symbol
                 const char* symbol = theme_data_get_piece_symbol(dialog->theme, pieceTypes[i], (Player)owner);
+                
                 PangoLayout* layout = pango_cairo_create_layout(cr);
                 PangoFontDescription* desc = pango_font_description_new();
-                pango_font_description_set_family(desc, font_name);
-                pango_font_description_set_size(desc, (int)(squareSize * 0.7 * PANGO_SCALE));
-                pango_font_description_set_weight(desc, PANGO_WEIGHT_SEMIBOLD);
+                pango_font_description_set_family(desc, "Segoe UI Symbol");
+                pango_font_description_set_absolute_size(desc, (squareSize * 0.75) * PANGO_SCALE);
                 pango_layout_set_font_description(layout, desc);
                 pango_layout_set_text(layout, symbol, -1);
-                
-                int tw, th;
-                pango_layout_get_pixel_size(layout, &tw, &th);
-                cairo_move_to(cr, x - tw/2.0, y - th/2.0);
+
+                int text_w, text_h;
+                pango_layout_get_pixel_size(layout, &text_w, &text_h);
                 
                 if (owner == PLAYER_WHITE) {
-                    cairo_set_source_rgb(cr, wr, wg, wb);
-                    pango_cairo_layout_path(cr, layout);
-                    cairo_fill_preserve(cr);
-                    cairo_set_source_rgb(cr, wsr, wsg, wsb);
-                    cairo_set_line_width(cr, wsw);
-                    cairo_stroke(cr);
+                    double r, g, b;
+                    theme_data_get_white_piece_color(dialog->theme, &r, &g, &b);
+                    cairo_set_source_rgb(cr, r, g, b);
                 } else {
-                    cairo_set_source_rgb(cr, br, bg, bb);
-                    pango_cairo_layout_path(cr, layout);
-                    cairo_fill_preserve(cr);
-                    if (bsw > 0) {
-                        cairo_set_source_rgb(cr, bsr, bsg, bsb);
-                        cairo_set_line_width(cr, bsw);
-                        cairo_stroke(cr);
-                    } else {
-                        cairo_new_path(cr); // Clear path
-                    }
+                    double r, g, b;
+                    theme_data_get_black_piece_color(dialog->theme, &r, &g, &b);
+                    cairo_set_source_rgb(cr, r, g, b);
                 }
-                pango_font_description_free(desc);
+                
+                cairo_move_to(cr, x - text_w / 2.0, y - text_h / 2.0);
+                pango_cairo_show_layout(cr, layout);
+
                 g_object_unref(layout);
+                pango_font_description_free(desc);
             }
         }
     }
@@ -642,10 +642,7 @@ static void on_piece_set_changed(GObject* object, GParamSpec* pspec, gpointer us
     if (selected < (guint)dialog->piece_set_count) {
         dialog->selected_piece_set_index = (int)selected;
         const char* name = dialog->piece_sets[selected].name;
-        if (selected == 0 || strcmp(name, "Default") == 0)
-            theme_data_set_font_name(dialog->theme, "Segoe UI Symbol");
-        else
-            theme_data_set_font_name(dialog->theme, name);
+        theme_data_set_font_name(dialog->theme, name);
         refresh_dialog(dialog);
     }
 }

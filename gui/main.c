@@ -31,10 +31,15 @@
 #include "puzzle_controller.h"
 #include "replay_controller.h"
 #include "clock_widget.h"
+#include "gui_utils.h"
 
 static bool debug_mode = true;
+static int app_ratio_height = 1035;
+static int app_ratio_width = 1430;
+
+
 static int app_height = 1035;
-static int app_width = 1460;
+static int app_width = 1430;
 
 // Globals
 #include "history_dialog.h"
@@ -181,7 +186,6 @@ static gboolean clock_tick_callback(gpointer user_data) {
     bool flagged = gamelogic_tick_clock(state->logic);
     
     // Update Display
-    // Update Display
     if (state->gui.right_side_panel) {
         // Legacy call removed or updated if stats needed
         // right_side_panel_update_clock(state->gui.right_side_panel);
@@ -299,7 +303,6 @@ static void record_match_history(AppState* state, const char* reason) {
         bool custom = (state->logic->gameMode == GAME_MODE_CVC) ? true : cfg->analysis_use_custom; // Approximation
         entry.white.elo = cfg->int_elo; 
         entry.white.depth = cfg->int_depth;
-        entry.white.movetime = cfg->int_movetime;
         entry.white.engine_type = custom ? 1 : 0;
         if (custom) {
             snprintf(entry.white.engine_path, sizeof(entry.white.engine_path), "%s", cfg->custom_engine_path);
@@ -311,7 +314,6 @@ static void record_match_history(AppState* state, const char* reason) {
         bool custom = (state->logic->gameMode == GAME_MODE_CVC) ? true : cfg->analysis_use_custom;
         entry.black.elo = cfg->custom_elo;
         entry.black.depth = cfg->custom_depth;
-        entry.black.movetime = cfg->custom_movetime;
         entry.black.engine_type = custom ? 1 : 0;
         if (custom) {
             snprintf(entry.black.engine_path, sizeof(entry.black.engine_path), "%s", cfg->custom_engine_path);
@@ -769,7 +771,6 @@ static void request_ai_move(AppState* state) {
     AiDifficultyParams params;
     if (ai_dialog_is_advanced_enabled(state->gui.ai_dialog, use_custom)) {
         params.depth = ai_dialog_get_depth(state->gui.ai_dialog, use_custom);
-        params.move_time_ms = ai_dialog_get_movetime(state->gui.ai_dialog, use_custom);
         params.target_elo = 0; // Advanced mode: no skill level
     } else {
         int elo = info_panel_get_elo(state->gui.info_panel, is_black);
@@ -778,7 +779,29 @@ static void request_ai_move(AppState* state) {
     
     const char* path = use_custom ? ai_dialog_get_custom_path(state->gui.ai_dialog) : NULL;
     
-    ai_controller_request_move(state->ai_controller, use_custom, params, path, on_ai_move_ready, state);
+    // NEW: Get clock state from logic
+    int64_t wtime = state->logic->clock.white_time_ms;
+    int64_t btime = state->logic->clock.black_time_ms;
+    int64_t winc = state->logic->clock.increment_ms;
+    int64_t binc = state->logic->clock.increment_ms;
+    bool enabled = state->logic->clock.enabled;
+
+    // NEW: Ensure timer is started/synced when AI is requested
+    // This handles the case where AI is White (first move) or Black (after White)
+    if (enabled) {
+         // Sync turn start time to NOW
+         state->logic->turn_start_time = get_monotonic_time_ms();
+         
+         // Force clock to active state so it ticks immediately
+         state->logic->clock.active = true;
+         if (state->logic->clock.last_tick_time == 0) {
+             state->logic->clock.last_tick_time = state->logic->turn_start_time;
+         }
+    }
+
+    ai_controller_request_move(state->ai_controller, use_custom, params, path, 
+                               wtime, btime, winc, binc, enabled,
+                               on_ai_move_ready, state);
 }
 
 static void on_dismiss_onboarding(GtkWidget* btn, gpointer user_data) {
@@ -857,13 +880,10 @@ static gboolean sync_ai_settings_to_panel(gpointer user_data) {
 
     bool w_adv = ai_dialog_is_advanced_enabled(state->gui.ai_dialog, white_uses_custom);
     int w_depth = ai_dialog_get_depth(state->gui.ai_dialog, white_uses_custom);
-    int w_time = ai_dialog_get_movetime(state->gui.ai_dialog, white_uses_custom);
-    
     bool b_adv = ai_dialog_is_advanced_enabled(state->gui.ai_dialog, black_uses_custom);
     int b_depth = ai_dialog_get_depth(state->gui.ai_dialog, black_uses_custom); 
-    int b_time = ai_dialog_get_movetime(state->gui.ai_dialog, black_uses_custom);
     
-    info_panel_update_ai_settings(state->gui.info_panel, w_adv, w_depth, w_time, b_adv, b_depth, b_time);
+    info_panel_update_ai_settings(state->gui.info_panel, w_adv, w_depth, b_adv, b_depth);
     
     // Sync Custom Engine Availability
     bool has_custom = ai_dialog_has_valid_custom_engine(state->gui.ai_dialog);
@@ -959,34 +979,20 @@ static void on_history_dialog_destroyed(GtkWidget *w, gpointer data) {
     g_idle_add(restore_board_focus_idle, app);
 }
 
-static void on_history_clicked(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
-    (void)action; (void)parameter;
-    AppState* state = (AppState*)user_data;
+typedef struct {
+    AppState* state;
+    char* match_id;
+} ReplayLoadContext;
 
-    if (!state->gui.history_dialog) {
-        state->gui.history_dialog = history_dialog_new(state->gui.window);
-        GtkWindow* w = history_dialog_get_window(state->gui.history_dialog);
-        if (w) {
-            g_signal_connect(w, "destroy", G_CALLBACK(on_history_dialog_destroyed), state);
-            history_dialog_set_replay_callback(state->gui.history_dialog, G_CALLBACK(on_start_replay_action), state);
-        }
-    }
-    history_dialog_show(state->gui.history_dialog);
-}
-
-static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
-    (void)action;
-    AppState* state = (AppState*)user_data;
-    if (!state || !state->logic || !parameter) return;
-
-    // Get the match ID from the parameter
-    const char* match_id = g_variant_get_string(parameter, NULL);
-    if (!match_id) return;
+static gboolean delayed_replay_load_task(gpointer user_data) {
+    ReplayLoadContext* ctx = (ReplayLoadContext*)user_data;
+    AppState* state = ctx->state;
+    const char* match_id = ctx->match_id;
 
     MatchHistoryEntry* entry = match_history_find_by_id(match_id);
     if (!entry) {
         g_warning("Match with ID %s not found for replay.", match_id);
-        return;
+        goto cleanup;
     }
 
     // 1. Save current game state before reset
@@ -1011,16 +1017,17 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
         info_panel_show_replay_controls(state->gui.info_panel, TRUE);
     }
     
-    // 4. Load Match (Controller will trigger UI updates which now find initialized widgets)
+    // 4. Load Match
     state->is_replaying = true;
-    state->replay_match_id = g_strdup(match_id);
+    if (state->replay_match_id) free(state->replay_match_id);
+    state->replay_match_id = _strdup(match_id);
     replay_controller_load_match(state->replay_controller, entry->moves_uci, entry->start_fen,
                                  entry->think_time_ms, entry->think_time_count,
                                  entry->started_at_ms, entry->ended_at_ms,
                                  entry->clock.enabled, entry->clock.initial_ms, entry->clock.increment_ms,
                                  entry->white, entry->black);
                                  
-    // Pass result metadata for display at end of replay
+    // Pass result metadata
     replay_controller_set_result(state->replay_controller, entry->result, entry->result_reason);
     
     // 5. Update Side Panel visuals
@@ -1028,7 +1035,7 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
         right_side_panel_set_analysis_visible(state->gui.right_side_panel, FALSE);
     }
 
-    // Disable board interaction and clear any selection
+    // Disable board interaction
     if (state->ai_controller) ai_controller_stop(state->ai_controller);
     board_widget_reset_selection(state->gui.board);
     board_widget_set_interactive(state->gui.board, FALSE);
@@ -1036,14 +1043,60 @@ static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, g
     // Close history dialog
     if (state->gui.history_dialog) {
         gtk_window_destroy(history_dialog_get_window(state->gui.history_dialog));
+        state->gui.history_dialog = NULL; // Already handling via destroy callback but safe here
     }
     
     if (debug_mode) printf("[Main] Started replay for match ID: %s\n", match_id);
     
-    // Ensure board has focus so arrow keys work immediately
     if (state->gui.board) {
         gtk_widget_grab_focus(state->gui.board);
     }
+
+cleanup:
+    // Hide overlay
+    if (state->gui.loading_overlay) {
+        gtk_widget_set_visible(state->gui.loading_overlay, FALSE);
+        if (state->gui.loading_spinner) gtk_spinner_stop(GTK_SPINNER(state->gui.loading_spinner));
+    }
+    free(ctx->match_id);
+    free(ctx);
+    return FALSE;
+}
+
+static void on_history_clicked(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
+    (void)action; (void)parameter;
+    AppState* state = (AppState*)user_data;
+
+    if (!state->gui.history_dialog) {
+        state->gui.history_dialog = history_dialog_new(state->gui.window);
+        GtkWindow* w = history_dialog_get_window(state->gui.history_dialog);
+        if (w) {
+            g_signal_connect(w, "destroy", G_CALLBACK(on_history_dialog_destroyed), state);
+            history_dialog_set_replay_callback(state->gui.history_dialog, G_CALLBACK(on_start_replay_action), state);
+        }
+    }
+    history_dialog_show(state->gui.history_dialog);
+}
+
+static void on_start_replay_action(GSimpleAction* action, GVariant* parameter, gpointer user_data) {
+    (void)action;
+    AppState* state = (AppState*)user_data;
+    if (!state || !state->logic || !parameter) return;
+
+    const char* match_id = g_variant_get_string(parameter, NULL);
+    if (!match_id) return;
+
+    // Show loading overlay
+    if (state->gui.loading_overlay) {
+        gtk_widget_set_visible(state->gui.loading_overlay, TRUE);
+        if (state->gui.loading_spinner) gtk_spinner_start(GTK_SPINNER(state->gui.loading_spinner));
+    }
+
+    // Defer the heavy work so the UI can render the overlay
+    ReplayLoadContext* ctx = (ReplayLoadContext*)malloc(sizeof(ReplayLoadContext));
+    ctx->state = state;
+    ctx->match_id = _strdup(match_id);
+    g_timeout_add(50, delayed_replay_load_task, ctx);
 }
 
 // Bridge callback for InfoPanel exit button
@@ -1107,22 +1160,74 @@ static void on_exit_replay(GSimpleAction* action, GVariant* parameter, gpointer 
 }
 
 
+static void apply_dynamic_resolution(GtkWindow* window) {
+    GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(window));
+    if (!display) display = gdk_display_get_default();
+    if (!display) return;
+
+    GListModel *monitors = gdk_display_get_monitors(display);
+    if (g_list_model_get_n_items(monitors) > 0) {
+        GdkMonitor *monitor = GDK_MONITOR(g_list_model_get_item(monitors, 0));
+        GdkRectangle geom;
+        gdk_monitor_get_geometry(monitor, &geom);
+        
+        // Target aspect ratio from original hardcoded values (1460x1035)
+        double aspect = (double)app_ratio_width / app_ratio_height;
+        
+        // Target area: 70% of screen width and height
+        double max_w = geom.width * 0.7;
+        double max_h = geom.height * 0.7;
+        
+        // Calculate dimensions to fit 70% bounds while maintaining aspect
+        double sw = max_w;
+        double sh = sw / aspect;
+        
+        if (sh > max_h) {
+            sh = max_h;
+            sw = sh * aspect;
+        }
+        
+        app_width = (int)sw;
+        app_height = (int)sh;
+        
+        if (debug_mode) {
+            printf("[Main] Dynamic Resolution: Screen %dx%d -> App %dx%d (70%% scale, aspect %.4f)\n", 
+                   geom.width, geom.height, app_width, app_height, aspect);
+        }
+    }
+}
+
 static void on_app_activate(GtkApplication* app, gpointer user_data) {
+    int64_t total_start = g_get_monotonic_time();
+    int64_t last_mark = total_start;
+    
+    #define PROFILE_MARK(label) \
+        if (debug_mode) { \
+            int64_t now = g_get_monotonic_time(); \
+            printf("[Startup Profile] %-30s: %7.2f ms (Total: %7.2f ms)\n", \
+                   label, (now - last_mark) / 1000.0, (now - total_start) / 1000.0); \
+            last_mark = now; \
+        }
+
     AppState* state = (AppState*)user_data;
     state->gui.window = GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(app)));
     gtk_window_set_title(state->gui.window, "HAL :) Chess");
-    gtk_window_set_default_size(state->gui.window, app_width, app_height);
     
+    // Dynamically adjust resolution based on monitor size
+    apply_dynamic_resolution(state->gui.window);
     gtk_window_set_default_size(state->gui.window, app_width, app_height);
-    
+    PROFILE_MARK("Window & Resolution");
+
     config_set_app_param("HAL Chess");
     config_init(); // Initialize config from persistent storage
+    PROFILE_MARK("Config Init");
     
     // Apply saved config to Theme Manager
     AppConfig* cfg = config_get();
     
     // Init match history
     match_history_init();
+    PROFILE_MARK("Match History Init");
 
     if (cfg) {
         theme_manager_set_dark(cfg->is_dark_mode);
@@ -1132,6 +1237,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     }
     
     theme_manager_init(); // Initialize global theme manager
+    PROFILE_MARK("Theme Init");
     
     // Initialize AI Dialog as embedded (View managed by SettingsDialog)
     state->gui.ai_dialog = ai_dialog_new_embedded();
@@ -1143,6 +1249,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     if (cfg) theme_data_load_config(state->theme, cfg);
     
     state->ai_controller = ai_controller_new(state->logic, state->gui.ai_dialog);
+    PROFILE_MARK("AI & Components Init");
 
     GtkWidget* header = gtk_header_bar_new();
     // Replacement for Menu: Settings Button
@@ -1189,6 +1296,7 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gtk_header_bar_pack_start(GTK_HEADER_BAR(header), exit_replay_btn);
     
     gtk_window_set_titlebar(state->gui.window, header);
+    PROFILE_MARK("Header & Actions Init");
 
     GSimpleAction* act_ai = g_simple_action_new("edit-ai-settings", NULL);
     g_signal_connect(act_ai, "activate", G_CALLBACK(on_edit_ai_settings_action), state);
@@ -1232,35 +1340,25 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     g_signal_connect(act_start_replay, "activate", G_CALLBACK(on_start_replay_action), state);
     g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_start_replay));
     
-    printf("[Main] DEBUG: App Activate complete. Actions connected.\n");
+    PROFILE_MARK("Registry & Actions Finish");
 
     GtkWidget* main_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
     
-    if (debug_mode) printf("[Main] Creating BoardWidget with logic %p\n", (void*)state->logic);
     state->gui.board = board_widget_new(state->logic);
-    
-    // Register Pre-Move Callback for Rating Accuracy
     board_widget_set_pre_move_callback(state->gui.board, on_board_before_move, state);
-    
     board_widget_set_theme(state->gui.board, state->theme);
+    PROFILE_MARK("Board Widget Create");
     
     state->gui.info_panel = info_panel_new(state->logic, state->gui.board, state->theme);
-    g_object_set_data(G_OBJECT(state->gui.info_panel), "app_state", state); // Attach State for Replay UI callbacks
+    g_object_set_data(G_OBJECT(state->gui.info_panel), "app_state", state);
     info_panel_set_cvc_callback(state->gui.info_panel, on_cvc_control_action, state);
     info_panel_set_ai_settings_callback(state->gui.info_panel, (GCallback)show_ai_settings_dialog, state);
     info_panel_set_puzzle_list_callback(state->gui.info_panel, G_CALLBACK(on_panel_puzzle_selected_safe), state);
-    
-    // Set game reset callback to trigger AI after reset/side changes
     info_panel_set_game_reset_callback(state->gui.info_panel, on_game_reset, state);
-    
-    // Connect tutorial callbacks to info panel (Moved here to ensure panel exists)
     info_panel_set_tutorial_callbacks(state->gui.info_panel, G_CALLBACK(tutorial_reset_step), G_CALLBACK(on_tutorial_exit), state);
-    
-    // Connect undo callback to handle analysis state
     info_panel_set_undo_callback(state->gui.info_panel, on_undo_move, state);
-    
-    // Connect Replay Exit Callback
     info_panel_set_replay_exit_callback(state->gui.info_panel, G_CALLBACK(on_replay_exit_requested), state);
+    PROFILE_MARK("Info Panel Create & Wiring");
     
     puzzle_controller_refresh_list(state);
     gtk_widget_set_size_request(state->gui.info_panel, 290, -1);
@@ -1271,7 +1369,6 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* board_area = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0); 
     gtk_widget_set_hexpand(board_area, TRUE);
     gtk_widget_set_vexpand(board_area, TRUE);
-    // Reduced side margins from 20 to 8
     gtk_widget_set_margin_start(board_area, 8);
     gtk_widget_set_margin_end(board_area, 8);
 
@@ -1305,14 +1402,26 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     gtk_box_append(GTK_BOX(board_area), bot_clk);
     
     gtk_box_append(GTK_BOX(main_box), board_area);
+    PROFILE_MARK("Clocks & Center Layout");
 
     // Right Side Panel
-    if (debug_mode) printf("[Main] Creating RightSidePanel with logic %p\n", (void*)state->logic);
     state->gui.right_side_panel = right_side_panel_new(state->logic, state->theme);
     right_side_panel_set_nav_callback(state->gui.right_side_panel, on_right_panel_nav, state);
     gtk_box_append(GTK_BOX(main_box), right_side_panel_get_widget(state->gui.right_side_panel));
 
-    gtk_window_set_child(state->gui.window, main_box);
+    GtkWidget* main_overlay = gtk_overlay_new();
+    gtk_overlay_set_child(GTK_OVERLAY(main_overlay), main_box);
+    
+    // Create loading overlay (hidden by default)
+    state->gui.loading_overlay = gui_utils_create_loading_overlay(
+        GTK_OVERLAY(main_overlay), 
+        &state->gui.loading_spinner, 
+        "Loading Replay", 
+        "Preparing game state..."
+    );
+
+    gtk_window_set_child(state->gui.window, main_overlay);
+    PROFILE_MARK("Right Panel & Final Assembly");
 
     // Onboarding Bubble
     gboolean show_onboarding = cfg ? cfg->show_tutorial_dialog : TRUE;
@@ -1331,19 +1440,13 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         gtk_label_set_justify(GTK_LABEL(lbl), GTK_JUSTIFY_CENTER);
         gtk_box_append(GTK_BOX(main_vbox), lbl);
         
-        // Start Button
         GtkWidget* btn_start = gtk_button_new_with_label("Start Tutorial");
         gtk_widget_add_css_class(btn_start, "suggested-action");
-        // Connect actions
         g_signal_connect(btn_start, "clicked", G_CALLBACK(activate_tutorial_action), state);
         g_signal_connect(btn_start, "clicked", G_CALLBACK(on_dismiss_onboarding), state);
-        
-        // Store button reference for focus grabbing on startup
         g_object_set_data(G_OBJECT(state->gui.window), "tutorial-start-btn", btn_start);
-        
         gtk_box_append(GTK_BOX(main_vbox), btn_start);
         
-        // Close Button
         GtkWidget* btn_close = gtk_button_new_with_label("Close");
         g_signal_connect(btn_close, "clicked", G_CALLBACK(on_dismiss_onboarding), state);
         g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_widget_grab_focus), state->gui.board);
@@ -1353,36 +1456,30 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         gtk_popover_set_position(popover, GTK_POS_BOTTOM);
         gtk_popover_set_autohide(popover, TRUE);
         
-        // Show after a delay - GTK will handle cleanup when header is destroyed
-        // Store ID to cancel on destroy
         state->gui.onboarding_popover = GTK_WIDGET(popover);
         state->onboarding_timer_id = g_timeout_add_seconds(1, popup_popover_delayed, state);
+        PROFILE_MARK("Onboarding Setup");
     }
-
 
     gamelogic_set_callback(state->logic, update_ui_callback);
     state->settings_timer_id = g_timeout_add(500, sync_ai_settings_to_panel, state);
-    
-    // Initial analysis sync
     sync_live_analysis(state);
     
     // Initial side/state sync (Fix for "Play as Black" on startup)
     on_game_reset(state);
+    PROFILE_MARK("Initial State Sync");
     
-    // Connect close-request signal to cleanup BEFORE destruction
     g_signal_connect(state->gui.window, "close-request", G_CALLBACK(on_window_close_request), state);
-    
-    // Enable focus visibility
     gtk_window_set_focus_visible(state->gui.window, TRUE);
-    
-    // Present window only when mapped to ensure correct activation
     g_signal_connect(state->gui.window, "notify::mapped", G_CALLBACK(on_window_mapped_notify), state);
-    // Verify initial clock state
-    if (debug_mode) printf("[Main] Initializing Clock...\n");
+    
     // Clock tick timer (100ms precision)
     g_timeout_add(100, clock_tick_callback, state);
 
     gtk_widget_set_visible(GTK_WIDGET(state->gui.window), TRUE);
+    PROFILE_MARK("Window Show");
+
+    #undef PROFILE_MARK
 }
 
 // Helper to grab focus after window is fully realized

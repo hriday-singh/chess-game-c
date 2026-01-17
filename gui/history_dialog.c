@@ -9,6 +9,8 @@ extern AppState* g_app_state; // Access global state for import dialog
 
 #include <time.h>
 
+static bool debug_mode = false;
+
 struct _HistoryDialog {
     GtkWindow* window;
     GtkWidget* list_box;
@@ -142,6 +144,11 @@ static void load_next_page(HistoryDialog* dialog) {
     int total_count = match_history_get_count();
     int loaded_count = dialog->current_page * 20;  // PAGE_SIZE = 20
     
+    if (debug_mode) {
+        printf("[HistoryDialog] load_next_page: page=%d, loaded=%d, total=%d\n", 
+               dialog->current_page, loaded_count, total_count);
+    }
+
     // Check if we've loaded everything
     if (loaded_count >= total_count) {
         return;
@@ -151,6 +158,7 @@ static void load_next_page(HistoryDialog* dialog) {
     
     int count = 0;
     MatchHistoryEntry* entries = match_history_get_page(dialog->current_page, &count);
+    if (debug_mode) printf("[HistoryDialog] retrieved %d entries for page %d\n", count, dialog->current_page);
     
     if (count == 0 && dialog->current_page == 0) {
         // No matches at all
@@ -162,6 +170,12 @@ static void load_next_page(HistoryDialog* dialog) {
     } else {
         // Append rows for this page
         for (int i = 0; i < count; i++) {
+            if (debug_mode) {
+                printf("[History] Row %d: ID=%s | Mode=%d | Res=%s | W_AI=%d ELO=%d | B_AI=%d ELO=%d\n",
+                       i, entries[i].id, entries[i].game_mode, entries[i].result,
+                       entries[i].white.is_ai, entries[i].white.elo,
+                       entries[i].black.is_ai, entries[i].black.elo);
+            }
             GtkWidget* row_content = create_match_row(&entries[i], dialog);
             
             GtkWidget* row = gtk_list_box_row_new();
