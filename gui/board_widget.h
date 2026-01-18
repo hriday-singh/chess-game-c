@@ -76,5 +76,3 @@ bool board_widget_is_flipped(GtkWidget* board_widget);
 void board_widget_cancel_animation(GtkWidget* board_widget);
 
 #endif // BOARD_WIDGET_H
-
-

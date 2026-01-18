@@ -21,6 +21,10 @@
 
 static bool debug_mode = false;
 
+// NEW: Animation Durations (dev parameters)
+static int g_anim_move_duration_ms = 300;
+static int g_anim_drag_duration_ms = 150;
+
 // Board widget state
 typedef struct {
     GameLogic* logic;
@@ -1329,8 +1333,8 @@ static gboolean animation_tick(gpointer user_data) {
     
     // Calculate elapsed time in milliseconds
     double elapsed_ms = (current_time - board->animStartTime) / 1000.0;
-    // Shorter duration for drag drops (150ms), longer for regular moves (300ms)
-    double duration_ms = board->animatingFromDrag ? 150.0 : 300.0;
+    // Parameterized durations for drag drops and regular moves
+    double duration_ms = board->animatingFromDrag ? (double)g_anim_drag_duration_ms : (double)g_anim_move_duration_ms;
     board->animProgress = elapsed_ms / duration_ms;
     
     if (board->animProgress >= 1.0) {
