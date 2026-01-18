@@ -759,12 +759,35 @@ void replay_controller_set_speed(ReplayController* self, int ms) {
     }
 }
 
+static void reschedule_playback(ReplayController* self) {
+    if (!self || !self->is_playing) return;
+    
+    // Stop existing timer
+    if (self->timer_id > 0) {
+        g_source_remove(self->timer_id);
+    }
+    
+    // Calculate new delay for the current move (start fresh)
+    int nominal_delay = self->speed_ms;
+    if (self->use_think_times && self->think_times && self->current_ply < self->think_time_count) {
+        nominal_delay = self->think_times[self->current_ply];
+        if (nominal_delay < 100) nominal_delay = 100; // Minimum visual floor
+    }
+    
+    int effective_delay = (int)(nominal_delay / self->time_multiplier);
+    if (effective_delay < 10) effective_delay = 10; 
+
+    // Restart timer
+    self->timer_id = g_timeout_add(effective_delay, replay_timer_callback, self);
+    self->move_start_time_monotonic = g_get_monotonic_time();
+}
+
 void replay_controller_next(ReplayController* self, bool from_timer) {
     if (!self) return;
     
-    // Skip Delay: Only pause if this is manual navigation (not from timer)
+    // Skip Delay: If playing, just restart timer for the next move instead of pausing
     if (self->is_playing && !from_timer) {
-        replay_controller_pause(self);
+        reschedule_playback(self);
     }
 
     if (self->current_ply >= self->total_moves) return;
@@ -797,9 +820,9 @@ void replay_controller_next(ReplayController* self, bool from_timer) {
 void replay_controller_prev(ReplayController* self, bool from_timer) {
     if (!self) return;
 
-    // Skip Delay: Only pause if this is manual navigation (not from timer)
+    // Skip Delay: If playing, just restart timer for the new move instead of pausing
     if (self->is_playing && !from_timer) {
-        replay_controller_pause(self);
+        reschedule_playback(self);
     }
 
     if (self->current_ply <= 0) return;
@@ -823,7 +846,14 @@ void replay_controller_seek(ReplayController* self, int ply) {
     if (ply < 0) ply = 0;
     if (ply >= self->snapshot_count) ply = self->snapshot_count - 1;
     
-    replay_controller_pause(self);
+    // Pause if jumping to Start or End boundaries
+    if (ply == 0 || ply >= self->total_moves) {
+         replay_controller_pause(self);
+    }
+    
+    bool was_playing = self->is_playing;
+    // NOTE: We do NOT pause unconditionally anymore.
+    // If we were playing, we'll resume after seek.
     
     if (self->app_state) {
         board_widget_reset_selection(self->app_state->gui.board);
@@ -854,6 +884,11 @@ void replay_controller_seek(ReplayController* self, int ply) {
         // Highlights synced in replay_ui_update
     }
     replay_ui_update(self);
+    
+    // If we were playing, restart playback from this new position
+    if (was_playing && self->is_playing) {
+        reschedule_playback(self);
+    }
 }
 
 // "Start From Here" Logic
