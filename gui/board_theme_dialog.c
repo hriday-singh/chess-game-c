@@ -119,20 +119,20 @@ static bool colors_match_template(double lightR, double lightG, double lightB,
     double template_darkR, template_darkG, template_darkB;
     
     // Get template colors
-    if (strcmp(template_name, "Classic Wood") == 0) {
-        template_lightR = 240.0 / 255.0;
-        template_lightG = 217.0 / 255.0;
-        template_lightB = 181.0 / 255.0;
-        template_darkR = 181.0 / 255.0;
-        template_darkG = 136.0 / 255.0;
-        template_darkB = 99.0 / 255.0;
-    } else if (strcmp(template_name, "Green & White") == 0) {
+    if (strcmp(template_name, "Green & White") == 0) {
         template_lightR = 238.0 / 255.0;
         template_lightG = 238.0 / 255.0;
         template_lightB = 210.0 / 255.0;
         template_darkR = 118.0 / 255.0;
         template_darkG = 150.0 / 255.0;
         template_darkB = 86.0 / 255.0;
+    } else if (strcmp(template_name, "Classic Wood") == 0) {
+        template_lightR = 240.0 / 255.0;
+        template_lightG = 217.0 / 255.0;
+        template_lightB = 181.0 / 255.0;
+        template_darkR = 181.0 / 255.0;
+        template_darkG = 136.0 / 255.0;
+        template_darkB = 99.0 / 255.0;
     } else if (strcmp(template_name, "Blue Ocean") == 0) {
         template_lightR = 200.0 / 255.0;
         template_lightG = 220.0 / 255.0;
@@ -171,7 +171,7 @@ static void update_template_selection(BoardThemeDialog* dialog) {
     theme_data_get_light_square_color(dialog->theme, &lightR, &lightG, &lightB);
     theme_data_get_dark_square_color(dialog->theme, &darkR, &darkG, &darkB);
     
-    const char* templates[] = {"Classic Wood", "Green & White", "Blue Ocean", "Dark Mode"};
+    const char* templates[] = {"Green & White", "Classic Wood", "Blue Ocean", "Dark Mode"};
     guint selected = 4; // Default to "Custom"
     
     // Check which template matches
@@ -201,7 +201,7 @@ static void on_template_changed(GObject* object, GParamSpec* pspec, gpointer use
     }
     
     guint selected = gtk_drop_down_get_selected(combo);
-    const char* templates[] = {"Classic Wood", "Green & White", "Blue Ocean", "Dark Mode"};
+    const char* templates[] = {"Green & White", "Classic Wood", "Blue Ocean", "Dark Mode"};
     
     // If "Custom" (index 4) is selected, do nothing
     if (selected >= 4) {
@@ -407,7 +407,7 @@ static void board_theme_dialog_build_ui(BoardThemeDialog* dialog) {
     gtk_box_append(GTK_BOX(controls_box), template_label);
     
     GtkStringList* template_list = gtk_string_list_new((const char*[]) {
-        "Classic Wood", "Green & White", "Blue Ocean", "Dark Mode", "Custom", NULL
+        "Green & White", "Classic Wood", "Blue Ocean", "Dark Mode", "Custom", NULL
     });
     dialog->template_combo = gtk_drop_down_new(G_LIST_MODEL(template_list), NULL);
     g_signal_connect(dialog->template_combo, "notify::selected", G_CALLBACK(on_template_changed), dialog);

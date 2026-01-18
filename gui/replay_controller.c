@@ -10,7 +10,7 @@
 #include "config_manager.h"
 #include <string.h>
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 // Forward decl for internal timer
 static gboolean replay_timer_callback(gpointer user_data);

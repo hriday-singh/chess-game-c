@@ -93,13 +93,13 @@ ThemeData* theme_data_new(void) {
     ThemeData* theme = (ThemeData*)calloc(1, sizeof(ThemeData));
     if (!theme) return NULL;
     
-    // Default board colors (Classic Wood)
-    theme->lightSquareR = 240.0 / 255.0;
-    theme->lightSquareG = 217.0 / 255.0;
-    theme->lightSquareB = 181.0 / 255.0;
-    theme->darkSquareR = 181.0 / 255.0;
-    theme->darkSquareG = 136.0 / 255.0;
-    theme->darkSquareB = 99.0 / 255.0;
+    // Default board colors (Green & White)
+    theme->lightSquareR = 238.0 / 255.0;
+    theme->lightSquareG = 238.0 / 255.0;
+    theme->lightSquareB = 210.0 / 255.0;
+    theme->darkSquareR = 118.0 / 255.0;
+    theme->darkSquareG = 150.0 / 255.0;
+    theme->darkSquareB = 86.0 / 255.0;
     
     // Default white piece colors
     theme->whitePieceR = 1.0;
@@ -603,20 +603,20 @@ void theme_data_reset_piece_colors_only(ThemeData* theme) {
 void theme_data_apply_board_template(ThemeData* theme, const char* template_name) {
     if (!theme || !template_name) return;
     
-    if (strcmp(template_name, "Classic Wood") == 0) {
-        theme->lightSquareR = 240.0 / 255.0;
-        theme->lightSquareG = 217.0 / 255.0;
-        theme->lightSquareB = 181.0 / 255.0;
-        theme->darkSquareR = 181.0 / 255.0;
-        theme->darkSquareG = 136.0 / 255.0;
-        theme->darkSquareB = 99.0 / 255.0;
-    } else if (strcmp(template_name, "Green & White") == 0) {
+    if (strcmp(template_name, "Green & White") == 0) {
         theme->lightSquareR = 238.0 / 255.0;
         theme->lightSquareG = 238.0 / 255.0;
         theme->lightSquareB = 210.0 / 255.0;
         theme->darkSquareR = 118.0 / 255.0;
         theme->darkSquareG = 150.0 / 255.0;
         theme->darkSquareB = 86.0 / 255.0;
+    } else if (strcmp(template_name, "Classic Wood") == 0) {
+        theme->lightSquareR = 240.0 / 255.0;
+        theme->lightSquareG = 217.0 / 255.0;
+        theme->lightSquareB = 181.0 / 255.0;
+        theme->darkSquareR = 181.0 / 255.0;
+        theme->darkSquareG = 136.0 / 255.0;
+        theme->darkSquareB = 99.0 / 255.0;
     } else if (strcmp(template_name, "Blue Ocean") == 0) {
         theme->lightSquareR = 200.0 / 255.0;
         theme->lightSquareG = 220.0 / 255.0;

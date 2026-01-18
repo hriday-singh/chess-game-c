@@ -18,7 +18,7 @@
 #define MKDIR(path) mkdir(path, 0755)
 #endif
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 // Global configuration instance
 static AppConfig g_config;
@@ -77,11 +77,19 @@ static void determine_config_path(void) {
 
 // Helper to set defaults
 static void set_defaults(void) {
+    memset(&g_config, 0, sizeof(g_config));
+
     // General
     snprintf(g_config.theme, sizeof(g_config.theme), "%s", DEFAULT_THEME);
     g_config.is_dark_mode = DEFAULT_DARK_MODE;
     g_config.show_tutorial_dialog = true;
 
+    // Window Defaults (0 means use default/dynamic)
+    g_config.window_width = 0;
+    g_config.window_height = 0;
+    g_config.is_fullscreen = false;
+    g_config.is_maximized = false;
+    
     // Game Settings
     g_config.game_mode = 1; // Default: PVC
     g_config.play_as = 0;   // Default: White
@@ -92,7 +100,6 @@ static void set_defaults(void) {
     g_config.show_advantage_bar = true;
     g_config.show_mate_warning = true;
     g_config.show_hanging_pieces = true;
-    g_config.show_move_rating = true;
     g_config.show_move_rating = true;
     g_config.analysis_use_custom = false;
     
@@ -178,6 +185,8 @@ static void parse_line(char* line) {
     // BOOLEAN
     else if (strncmp(val_start, "true", 4) == 0) {
         if (strcmp(key, "is_dark_mode") == 0) g_config.is_dark_mode = true;
+        else if (strcmp(key, "is_fullscreen") == 0) g_config.is_fullscreen = true;
+        else if (strcmp(key, "is_maximized") == 0) g_config.is_maximized = true;
         else if (strcmp(key, "show_tutorial_dialog") == 0) g_config.show_tutorial_dialog = true;
         else if (strcmp(key, "int_is_advanced") == 0) g_config.int_is_advanced = true;
         else if (strcmp(key, "nnue_enabled") == 0) g_config.nnue_enabled = true;
@@ -194,6 +203,8 @@ static void parse_line(char* line) {
     } 
     else if (strncmp(val_start, "false", 5) == 0) {
         if (strcmp(key, "is_dark_mode") == 0) g_config.is_dark_mode = false;
+        else if (strcmp(key, "is_fullscreen") == 0) g_config.is_fullscreen = false;
+        else if (strcmp(key, "is_maximized") == 0) g_config.is_maximized = false;
         else if (strcmp(key, "show_tutorial_dialog") == 0) g_config.show_tutorial_dialog = false;
         else if (strcmp(key, "int_is_advanced") == 0) g_config.int_is_advanced = false;
         else if (strcmp(key, "nnue_enabled") == 0) g_config.nnue_enabled = false;
@@ -211,12 +222,13 @@ static void parse_line(char* line) {
     // NUMBERS
     else {
         if (strcmp(key, "int_elo") == 0) g_config.int_elo = atoi(val_start);
+        else if (strcmp(key, "window_width") == 0) g_config.window_width = atoi(val_start);
+        else if (strcmp(key, "window_height") == 0) g_config.window_height = atoi(val_start);
         else if (strcmp(key, "int_depth") == 0) g_config.int_depth = atoi(val_start);
         else if (strcmp(key, "game_mode") == 0) g_config.game_mode = atoi(val_start);
         else if (strcmp(key, "play_as") == 0) g_config.play_as = atoi(val_start);
         else if (strcmp(key, "custom_elo") == 0) g_config.custom_elo = atoi(val_start);
         else if (strcmp(key, "custom_depth") == 0) g_config.custom_depth = atoi(val_start);
-        else if (strcmp(key, "white_stroke_width") == 0) g_config.white_stroke_width = atof(val_start);
         else if (strcmp(key, "white_stroke_width") == 0) g_config.white_stroke_width = atof(val_start);
         else if (strcmp(key, "black_stroke_width") == 0) g_config.black_stroke_width = atof(val_start);
         else if (strcmp(key, "clock_minutes") == 0) g_config.clock_minutes = atoi(val_start);
@@ -242,31 +254,75 @@ bool config_load(void) {
     }
     
     fclose(f);
+
+    // VALIDATION / SANITY CHECK (Auto-heal corruption)
+    if (g_config.custom_elo < 0 || g_config.custom_elo > 5000) g_config.custom_elo = 1500;
+    if (g_config.custom_depth < 1 || g_config.custom_depth > 128) g_config.custom_depth = 20;
+    if (g_config.int_elo < 0 || g_config.int_elo > 5000) g_config.int_elo = 1500;
+    
+    // Auto-fix layout if zero (will be overridden by dynamic resolution if startup, 
+    // but if loaded later, safeguards against 0x0 window)
+    if (g_config.window_width > 0 && g_config.window_width < 200) g_config.window_width = 1200;
+    if (g_config.window_height > 0 && g_config.window_height < 200) g_config.window_height = 800;
+
     if (debug_mode) {
         printf("Config loaded from %s\n", g_config_path);
         printf("--- [ConfigManager] Config Summary ---\n");
-        printf("  Theme: %s\n", g_config.theme);
-        printf("  Dark Mode: %s\n", g_config.is_dark_mode ? "true" : "false");
-        printf("  Tutorial: %s\n", g_config.show_tutorial_dialog ? "true" : "false");
-        printf("  Game Mode: %d\n", g_config.game_mode);
-        printf("  Play As: %d\n", g_config.play_as);
-        printf("  Hints: %s\n", g_config.hints_dots ? "Dots" : "Squares");
-        printf("  Animations: %s\n", g_config.enable_animations ? "ON" : "OFF");
-        printf("  SFX: %s\n", g_config.enable_sfx ? "ON" : "OFF");
-        printf("  Live Analysis: %s\n", g_config.enable_live_analysis ? "ON" : "OFF");
-        printf("  Advantage Bar: %s\n", g_config.show_advantage_bar ? "ON" : "OFF");
-        printf("  Mate Warning: %s\n", g_config.show_mate_warning ? "ON" : "OFF");
-        printf("  Hanging Pieces: %s\n", g_config.show_hanging_pieces ? "ON" : "OFF");
-        printf("  Move Rating: %s\n", g_config.show_move_rating ? "ON" : "OFF");
-        printf("  Internal AI: ELO=%d, Depth=%d\n", g_config.int_elo, g_config.int_depth);
-        printf("  NNUE: %s (Path: %s)\n", g_config.nnue_enabled ? "ON" : "OFF", g_config.nnue_path);
-        printf("  Custom Engine: %s (ELO=%d)\n", g_config.custom_engine_path, g_config.custom_elo);
+        printf("Theme: %s\n", g_config.theme);
+        printf("NNUE Path: %s\n", g_config.nnue_path);
+        printf("Custom Engine Path: %s\n", g_config.custom_engine_path);
+        printf("Board Theme Name: %s\n", g_config.board_theme_name);
+        printf("Light Square Color: %s\n", g_config.light_square_color);
+        printf("Dark Square Color: %s\n", g_config.dark_square_color);
+        printf("Piece Set: %s\n", g_config.piece_set);
+        printf("White Piece Color: %s\n", g_config.white_piece_color);
+        printf("White Stroke Color: %s\n", g_config.white_stroke_color);
+        printf("Black Piece Color: %s\n", g_config.black_piece_color);
+        printf("Black Stroke Color: %s\n", g_config.black_stroke_color);
+        printf("Is Dark Mode: %s\n", g_config.is_dark_mode ? "true" : "false");
+        printf("Is Fullscreen: %s\n", g_config.is_fullscreen ? "true" : "false");
+        printf("Is Maximized: %s\n", g_config.is_maximized ? "true" : "false");
+        printf("Show Tutorial Dialog: %s\n", g_config.show_tutorial_dialog ? "true" : "false");
+        printf("Int Is Advanced: %s\n", g_config.int_is_advanced ? "true" : "false");
+        printf("NNUE Enabled: %s\n", g_config.nnue_enabled ? "true" : "false");
+        printf("Custom Is Advanced: %s\n", g_config.custom_is_advanced ? "true" : "false");
+        printf("Hints Dots: %s\n", g_config.hints_dots ? "true" : "false");
+        printf("Enable Animations: %s\n", g_config.enable_animations ? "true" : "false");
+        printf("Enable SFX: %s\n", g_config.enable_sfx ? "true" : "false");
+        printf("Enable Live Analysis: %s\n", g_config.enable_live_analysis ? "true" : "false");
+        printf("Show Advantage Bar: %s\n", g_config.show_advantage_bar ? "true" : "false");
+        printf("Show Mate Warning: %s\n", g_config.show_mate_warning ? "true" : "false");
+        printf("Show Hanging Pieces: %s\n", g_config.show_hanging_pieces ? "true" : "false");
+        printf("Show Move Rating: %s\n", g_config.show_move_rating ? "true" : "false");
+        printf("Analysis Use Custom: %s\n", g_config.analysis_use_custom ? "true" : "false");
+        printf("Int Elo: %d\n", g_config.int_elo);
+        printf("Window Width: %d\n", g_config.window_width);
+        printf("Window Height: %d\n", g_config.window_height);
+        printf("Int Depth: %d\n", g_config.int_depth);
+        printf("Game Mode: %d\n", g_config.game_mode);
+        printf("Play As: %d\n", g_config.play_as);
+        printf("Custom Elo: %d\n", g_config.custom_elo);
+        printf("Custom Depth: %d\n", g_config.custom_depth);
+        printf("White Stroke Width: %f\n", g_config.white_stroke_width);
+        printf("Black Stroke Width: %f\n", g_config.black_stroke_width);
+        printf("Clock Minutes: %d\n", g_config.clock_minutes);
+        printf("Clock Increment: %d\n", g_config.clock_increment);
         printf("------------------------------\n");
     }
     return true;
 }
 
 bool config_save(void) {
+    // VALIDATION / SANITY CHECK (Auto-heal corruption BEFORE saving)
+    if (g_config.custom_elo < 0 || g_config.custom_elo > 5000) g_config.custom_elo = 1500;
+    if (g_config.custom_depth < 1 || g_config.custom_depth > 128) g_config.custom_depth = 20;
+    if (g_config.int_elo < 0 || g_config.int_elo > 5000) g_config.int_elo = 1500;
+    
+    // Auto-fix layout if zero (will be overridden by dynamic resolution if startup, 
+    // but if loaded later, safeguards against 0x0 window)
+    if (g_config.window_width > 0 && g_config.window_width < 200) g_config.window_width = 1200;
+    if (g_config.window_height > 0 && g_config.window_height < 200) g_config.window_height = 800;
+
     determine_config_path();
     
     FILE* f = fopen(g_config_path, "w");
@@ -278,6 +334,10 @@ bool config_save(void) {
     fprintf(f, "{\n");
     fprintf(f, "    \"theme\": \"%s\",\n", g_config.theme);
     fprintf(f, "    \"is_dark_mode\": %s,\n", g_config.is_dark_mode ? "true" : "false");
+    fprintf(f, "    \"window_width\": %d,\n", g_config.window_width);
+    fprintf(f, "    \"window_height\": %d,\n", g_config.window_height);
+    fprintf(f, "    \"is_fullscreen\": %s,\n", g_config.is_fullscreen ? "true" : "false");
+    fprintf(f, "    \"is_maximized\": %s,\n", g_config.is_maximized ? "true" : "false");
     fprintf(f, "    \"show_tutorial_dialog\": %s,\n", g_config.show_tutorial_dialog ? "true" : "false");
     
     fprintf(f, "    \"game_mode\": %d,\n", g_config.game_mode);
@@ -322,25 +382,49 @@ bool config_save(void) {
     fprintf(f, "}\n");
     
     fclose(f);
+
     if (debug_mode) {
         printf("Config saved to %s\n", g_config_path);
         printf("--- [ConfigManager] Config Summary ---\n");
-        printf("  Theme: %s\n", g_config.theme);
-        printf("  Dark Mode: %s\n", g_config.is_dark_mode ? "true" : "false");
-        printf("  Tutorial: %s\n", g_config.show_tutorial_dialog ? "true" : "false");
-        printf("  Game Mode: %d\n", g_config.game_mode);
-        printf("  Play As: %d\n", g_config.play_as);
-        printf("  Hints: %s\n", g_config.hints_dots ? "Dots" : "Squares");
-        printf("  Animations: %s\n", g_config.enable_animations ? "ON" : "OFF");
-        printf("  SFX: %s\n", g_config.enable_sfx ? "ON" : "OFF");
-        printf("  Live Analysis: %s\n", g_config.enable_live_analysis ? "ON" : "OFF");
-        printf("  Advantage Bar: %s\n", g_config.show_advantage_bar ? "ON" : "OFF");
-        printf("  Mate Warning: %s\n", g_config.show_mate_warning ? "ON" : "OFF");
-        printf("  Hanging Pieces: %s\n", g_config.show_hanging_pieces ? "ON" : "OFF");
-        printf("  Move Rating: %s\n", g_config.show_move_rating ? "ON" : "OFF");
-        printf("  Internal AI: ELO=%d, Depth=%d\n", g_config.int_elo, g_config.int_depth);
-        printf("  NNUE: %s (Path: %s)\n", g_config.nnue_enabled ? "ON" : "OFF", g_config.nnue_path);
-        printf("  Custom Engine: %s (ELO=%d)\n", g_config.custom_engine_path, g_config.custom_elo);
+        printf("Theme: %s\n", g_config.theme);
+        printf("NNUE Path: %s\n", g_config.nnue_path);
+        printf("Custom Engine Path: %s\n", g_config.custom_engine_path);
+        printf("Board Theme Name: %s\n", g_config.board_theme_name);
+        printf("Light Square Color: %s\n", g_config.light_square_color);
+        printf("Dark Square Color: %s\n", g_config.dark_square_color);
+        printf("Piece Set: %s\n", g_config.piece_set);
+        printf("White Piece Color: %s\n", g_config.white_piece_color);
+        printf("White Stroke Color: %s\n", g_config.white_stroke_color);
+        printf("Black Piece Color: %s\n", g_config.black_piece_color);
+        printf("Black Stroke Color: %s\n", g_config.black_stroke_color);
+        printf("Is Dark Mode: %s\n", g_config.is_dark_mode ? "true" : "false");
+        printf("Is Fullscreen: %s\n", g_config.is_fullscreen ? "true" : "false");
+        printf("Is Maximized: %s\n", g_config.is_maximized ? "true" : "false");
+        printf("Show Tutorial Dialog: %s\n", g_config.show_tutorial_dialog ? "true" : "false");
+        printf("Int Is Advanced: %s\n", g_config.int_is_advanced ? "true" : "false");
+        printf("NNUE Enabled: %s\n", g_config.nnue_enabled ? "true" : "false");
+        printf("Custom Is Advanced: %s\n", g_config.custom_is_advanced ? "true" : "false");
+        printf("Hints Dots: %s\n", g_config.hints_dots ? "true" : "false");
+        printf("Enable Animations: %s\n", g_config.enable_animations ? "true" : "false");
+        printf("Enable SFX: %s\n", g_config.enable_sfx ? "true" : "false");
+        printf("Enable Live Analysis: %s\n", g_config.enable_live_analysis ? "true" : "false");
+        printf("Show Advantage Bar: %s\n", g_config.show_advantage_bar ? "true" : "false");
+        printf("Show Mate Warning: %s\n", g_config.show_mate_warning ? "true" : "false");
+        printf("Show Hanging Pieces: %s\n", g_config.show_hanging_pieces ? "true" : "false");
+        printf("Show Move Rating: %s\n", g_config.show_move_rating ? "true" : "false");
+        printf("Analysis Use Custom: %s\n", g_config.analysis_use_custom ? "true" : "false");
+        printf("Int Elo: %d\n", g_config.int_elo);
+        printf("Window Width: %d\n", g_config.window_width);
+        printf("Window Height: %d\n", g_config.window_height);
+        printf("Int Depth: %d\n", g_config.int_depth);
+        printf("Game Mode: %d\n", g_config.game_mode);
+        printf("Play As: %d\n", g_config.play_as);
+        printf("Custom Elo: %d\n", g_config.custom_elo);
+        printf("Custom Depth: %d\n", g_config.custom_depth);
+        printf("White Stroke Width: %f\n", g_config.white_stroke_width);
+        printf("Black Stroke Width: %f\n", g_config.black_stroke_width);
+        printf("Clock Minutes: %d\n", g_config.clock_minutes);
+        printf("Clock Increment: %d\n", g_config.clock_increment);
         printf("------------------------------\n");
     }
     return true;

@@ -131,7 +131,7 @@ Required format:
 ```bash
 make clean
 make all
-./build/chessgame_gui.exe
+./build/HalChess.exe
 ```
 
 Any deviation is a failure of process.

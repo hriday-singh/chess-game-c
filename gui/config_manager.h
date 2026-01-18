@@ -14,6 +14,12 @@ typedef struct {
     bool is_dark_mode;
     char theme[64]; // Theme ID (e.g. "theme_d_mocha_gold")
     
+    // Window Settings
+    int window_width;
+    int window_height;
+    bool is_fullscreen;
+    bool is_maximized;
+    
     // Game Settings
     int game_mode;      // 0:PVP, 1:PVC, 2:CVC
     int play_as;        // 0:White, 1:Black, 2:Random

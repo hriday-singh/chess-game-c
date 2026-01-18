@@ -19,7 +19,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 // Board widget state
 typedef struct {
@@ -49,6 +49,9 @@ typedef struct {
     double dragY;
     double pressStartX;     // Initial press position to detect if mouse moved
     double pressStartY;
+    // Drag target (hover)
+    int dragOverRow;
+    int dragOverCol;
     // Animation state
     bool isAnimating;
     Move* animatingMove;
@@ -134,13 +137,17 @@ static void play_move_sound(BoardWidget* board, Move* move) {
     if (!suppress_game_over_sfx && (gamelogic_is_checkmate(board->logic, PLAYER_WHITE) || 
         gamelogic_is_checkmate(board->logic, PLAYER_BLACK))) {
         // Determine winner
+        // Check who is at the bottom (The "Player")
+        // If flipped=false, White is bottom. If flipped=true, Black is bottom.
+        Player bottomPlayer = board->flipped ? PLAYER_BLACK : PLAYER_WHITE;
         Player winner = gamelogic_is_checkmate(board->logic, PLAYER_WHITE) ? PLAYER_BLACK : PLAYER_WHITE;
-        if (winner == board->logic->playerSide) {
+        
+        if (winner == bottomPlayer) {
             sound_engine_play(SOUND_WIN);
-            if (debug_mode) printf("[BoardWidget] Playing win sound\n");
+            if (debug_mode) printf("[BoardWidget] Playing win sound (Bottom Player Won)\n");
         } else {
             sound_engine_play(SOUND_DEFEAT);
-            if (debug_mode) printf("[BoardWidget] Playing defeat sound\n");
+            if (debug_mode) printf("[BoardWidget] Playing defeat sound (Bottom Player Lost)\n");
         }
         return;
     }
@@ -714,6 +721,22 @@ static void draw_square(GtkDrawingArea* area, cairo_t* cr, int width, int height
             cairo_fill(cr);
         }
     }
+
+    // Drag Highlights (Yellow Border + Light Fill to ensure visibility)
+    if (board->isDragging) {
+        bool isDragSource = (board->dragSourceRow == r && board->dragSourceCol == c);
+        bool isDragHover = (board->dragOverRow == r && board->dragOverCol == c);
+        
+        if (isDragSource || isDragHover) {
+            cairo_set_source_rgba(cr, 1.0, 1.0, 0.0, 0.3); // Yellow fill (low alpha)
+            cairo_rectangle(cr, 2, 2, width - 4, height - 4);
+            cairo_fill_preserve(cr); // Fill and keep path for stroke
+            
+            cairo_set_source_rgba(cr, 1.0, 1.0, 0.0, 0.8); // Yellow border (high alpha)
+            cairo_set_line_width(cr, 4.0);
+            cairo_stroke(cr);
+        }
+    }
     
     // Draw piece (unless it's being dragged or animated)
     if (piece && !hidePiece) {
@@ -970,6 +993,40 @@ static void on_grid_motion(GtkEventControllerMotion* motion, double x, double y,
     if (board->isDragging) {
         board->dragX = x;
         board->dragY = y;
+        
+        // Calculate drag over square
+        GtkWidget* grid = board->grid;
+        int grid_width = gtk_widget_get_width(grid);
+        int grid_height = gtk_widget_get_height(grid);
+        
+        if (grid_width > 0 && grid_height > 0) {
+            int visualCol = (int)((board->dragX / grid_width) * 8);
+            int visualRow = (int)((board->dragY / grid_height) * 8);
+            
+            // Clamp
+            if (visualRow < 0) visualRow = 0;
+            if (visualRow >= 8) visualRow = 7;
+            if (visualCol < 0) visualCol = 0;
+            if (visualCol >= 8) visualCol = 7;
+            
+            int newOverRow, newOverCol;
+            visual_to_logical(board, visualRow, visualCol, &newOverRow, &newOverCol);
+            
+            // If changed, update highlights
+            if (newOverRow != board->dragOverRow || newOverCol != board->dragOverCol) {
+                // Update old square to remove highlight
+                if (board->dragOverRow >= 0 && board->dragOverCol >= 0) {
+                    update_square(board, board->dragOverRow, board->dragOverCol);
+                }
+                
+                board->dragOverRow = newOverRow;
+                board->dragOverCol = newOverCol;
+                
+                // Update new square to add highlight
+                update_square(board, board->dragOverRow, board->dragOverCol);
+            }
+        }
+
         // Ensure overlay is visible and redraw it
         if (board->animOverlay) {
             gtk_widget_set_visible(board->animOverlay, TRUE);
@@ -1081,6 +1138,8 @@ static void on_release(GtkGestureClick* gesture, int n_press, double x, double y
                 board->dragPrepared = false;
                 board->dragSourceRow = -1;
                 board->dragSourceCol = -1;
+                board->dragOverRow = -1;
+                board->dragOverCol = -1;
                 
                  if (board->animOverlay) {
                     gtk_widget_set_visible(board->animOverlay, FALSE);
@@ -1431,6 +1490,8 @@ static void animate_return_piece(BoardWidget* board) {
     // DON'T clear dragSourceRow/Col - keep them so valid moves stay visible
     // board->dragSourceRow = -1;
     // board->dragSourceCol = -1;
+    board->dragOverRow = -1;
+    board->dragOverCol = -1;
     // Don't clear selection - user might want to try again or click elsewhere
     // DON'T clear valid moves - keep them visible for next drag attempt
     // free_valid_moves(board);
@@ -1490,6 +1551,8 @@ GtkWidget* board_widget_new(GameLogic* logic) {
     board->dragSourceCol = -1;
     board->dragX = 0;
     board->dragY = 0;
+    board->dragOverRow = -1;
+    board->dragOverCol = -1;
     board->pressStartX = 0;
     board->pressStartY = 0;
     board->isAnimating = false;

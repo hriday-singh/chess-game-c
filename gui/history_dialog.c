@@ -46,7 +46,7 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
     gtk_frame_set_child(GTK_FRAME(frame), row_box);
 
     // Mode & Result (Left Side)
-    char summary[256];
+    char summary[512];
     
     char readable_result[128];
     

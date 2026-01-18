@@ -901,6 +901,50 @@ static gboolean on_window_close_request(GtkWindow* window, gpointer user_data) {
     (void)window;
     AppState* state = (AppState*)user_data;
     
+    // SAVE WINDOW STATE
+    if (state->gui.window) {
+        AppConfig* cfg = config_get();
+        if (cfg) {
+            // Check for fullscreen & maximized
+            GtkNative* native = GTK_NATIVE(state->gui.window);
+            GdkSurface* surface = gtk_native_get_surface(native);
+            bool is_full = false;
+            bool is_max = false;
+            
+            if (surface) {
+                GdkToplevel* toplevel = GDK_TOPLEVEL(surface);
+                GdkToplevelState state_flags = gdk_toplevel_get_state(toplevel);
+                is_full = (state_flags & GDK_TOPLEVEL_STATE_FULLSCREEN) != 0;
+                is_max = (state_flags & GDK_TOPLEVEL_STATE_MAXIMIZED) != 0;
+            } else {
+                is_full = gtk_window_is_fullscreen(state->gui.window);
+                is_max = gtk_window_is_maximized(state->gui.window);
+            }
+
+            cfg->is_fullscreen = is_full;
+            cfg->is_maximized = is_max;
+
+            // Logic to save sizes:
+            // gtk_window_get_default_size returns the "restored" size (user resized size)
+            // It returns 0,0 if the user hasn't resized it yet.
+            int def_w = 0, def_h = 0;
+            gtk_window_get_default_size(state->gui.window, &def_w, &def_h);
+
+            if (def_w > 0 && def_h > 0) {
+                 // We have a stored "restored" size, trust it even if currently maximized
+                 cfg->window_width = def_w;
+                 cfg->window_height = def_h;
+            } else if (!is_max && !is_full) {
+                 // No stored default size, but we are in normal mode. Use current size.
+                 cfg->window_width = gtk_widget_get_width(GTK_WIDGET(state->gui.window));
+                 cfg->window_height = gtk_widget_get_height(GTK_WIDGET(state->gui.window));
+            }
+            // Else (Maximized/Full AND no default size): Change NOTHING. Keep old config values.
+            if (debug_mode) printf("[Main] Saving window state: %dx%d, Fullscreen: %d, Maximized: %d\n", 
+                                   cfg->window_width, cfg->window_height, cfg->is_fullscreen, cfg->is_maximized);
+        }
+    }
+    
     // Stop Settings Timer Immediately
     if (state->settings_timer_id > 0) {
         g_source_remove(state->settings_timer_id);
@@ -1358,21 +1402,44 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
             last_mark = now; \
         }
 
+    config_set_app_param("HalChess");
+    config_init(); // Initialize config from persistent storage
+    PROFILE_MARK("Config Init");
+
     AppState* state = (AppState*)user_data;
     state->gui.window = GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(app)));
     gtk_window_set_title(state->gui.window, "HAL :) Chess");
     
-    // Dynamically adjust resolution based on monitor size
-    apply_dynamic_resolution(state->gui.window);
-    gtk_window_set_default_size(state->gui.window, app_width, app_height);
-    PROFILE_MARK("Window & Resolution");
+    AppConfig* cfg = config_get();
 
-    config_set_app_param("HalChess");
-    config_init(); // Initialize config from persistent storage
-    PROFILE_MARK("Config Init");
+    // Dynamically adjust resolution based on monitor size OR use saved config
+    if (cfg && cfg->window_width > 0 && cfg->window_height > 0) {
+        gtk_window_set_default_size(state->gui.window, cfg->window_width, cfg->window_height);
+        if (debug_mode) printf("[Main] Restored window size: %dx%d\n", cfg->window_width, cfg->window_height);
+    } else {
+        apply_dynamic_resolution(state->gui.window);
+        gtk_window_set_default_size(state->gui.window, app_width, app_height);
+        
+        // Critical: Update config so we have a valid baseline for saving later
+        // (Prevents saving 0x0 if user closes immediately)
+        if (cfg) {
+            cfg->window_width = app_width;
+            cfg->window_height = app_height;
+        }
+    }    
+
+    // Apply Fullscreen OR Maximized if saved
+    if (cfg) {
+        if (cfg->is_fullscreen) {
+             gtk_window_fullscreen(state->gui.window);
+        } else if (cfg->is_maximized) {
+             gtk_window_maximize(state->gui.window);
+        }
+    }
+    PROFILE_MARK("Window & Resolution");
     
     // Apply saved config to Theme Manager
-    AppConfig* cfg = config_get();
+    // Apply saved config to Theme Manager (cfg already loaded above)
     
     // Init match history
     match_history_init();
