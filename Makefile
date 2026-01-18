@@ -183,7 +183,7 @@ $(GUI_TARGET): $(GAME_OBJS_FOR_GUI) $(GUI_OBJS_FOR_GUI) $(SF_OBJECTS) $(RES_OBJ)
 	@echo "  GUI objects: $(words $(GUI_OBJS_FOR_GUI)) files"
 	@echo "  Stockfish objects: $(words $(SF_OBJECTS)) files"
 	@echo "  Total object files: $(words $^)"
-	$(CXX) $(CXXFLAGS) $^ $(GTK_LIBS) -o $@
+	$(CXX) $(CXXFLAGS) -mwindows $^ $(GTK_LIBS) -o $@
 	@echo "Copying resources..."
 	@if [ -f icon.png ]; then cp icon.png $(BUILDDIR)/icon.png; fi
 	@if [ -d assets ]; then \
