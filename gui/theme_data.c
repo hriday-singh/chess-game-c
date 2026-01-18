@@ -563,12 +563,12 @@ bool theme_data_load_piece_json(ThemeData* theme, const char* json) {
 // Reset to defaults
 void theme_data_reset_board_defaults(ThemeData* theme) {
     if (!theme) return;
-    theme->lightSquareR = 240.0 / 255.0;
-    theme->lightSquareG = 217.0 / 255.0;
-    theme->lightSquareB = 181.0 / 255.0;
-    theme->darkSquareR = 181.0 / 255.0;
-    theme->darkSquareG = 136.0 / 255.0;
-    theme->darkSquareB = 99.0 / 255.0;
+    theme->lightSquareR = 238.0 / 255.0;
+    theme->lightSquareG = 238.0 / 255.0;
+    theme->lightSquareB = 210.0 / 255.0;
+    theme->darkSquareR = 118.0 / 255.0;
+    theme->darkSquareG = 150.0 / 255.0;
+    theme->darkSquareB = 86.0 / 255.0;
 }
 
 void theme_data_reset_piece_defaults(ThemeData* theme) {

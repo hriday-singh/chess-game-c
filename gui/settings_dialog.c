@@ -84,15 +84,20 @@ static void on_sidebar_row_selected(GtkListBox* box, GtkListBoxRow* row, gpointe
 // Helper: Create the About page
 static GtkWidget* create_about_page(SettingsDialog* dialog) {
     (void)dialog;
-    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 20);
+    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 24);
     gtk_widget_set_valign(vbox, GTK_ALIGN_CENTER);
     gtk_widget_set_halign(vbox, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(vbox, 40);
+    gtk_widget_set_margin_bottom(vbox, 40);
     
-    GtkWidget* logo_icon = gtk_image_new_from_icon_name("applications-games");
-    gtk_widget_set_size_request(logo_icon, 96, 96);
-    gtk_image_set_pixel_size(GTK_IMAGE(logo_icon), 96);
+    // Icon
+    GtkWidget* logo_icon = gtk_image_new_from_file("assets/images/icon/icon.png");
+    gtk_image_set_pixel_size(GTK_IMAGE(logo_icon), 128);
+    gtk_widget_set_halign(logo_icon, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(logo_icon, GTK_ALIGN_CENTER);
     gtk_box_append(GTK_BOX(vbox), logo_icon);
     
+    // Title
     GtkWidget* title = gtk_label_new("HAL :) Chess");
     gtk_widget_add_css_class(title, "title-1");
     gtk_box_append(GTK_BOX(vbox), title);

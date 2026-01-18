@@ -537,9 +537,8 @@ static void RecursiveDelete(const char* path) {
     do {
         if (strcmp(fd.cFileName, ".") != 0 && strcmp(fd.cFileName, "..") != 0) {
             char filePath[4096];
-            if (strlen(path) + strlen(fd.cFileName) + 2 < sizeof(filePath)) {
-                snprintf(filePath, sizeof(filePath), "%s\\%s", path, fd.cFileName);
-                
+            int res = snprintf(filePath, sizeof(filePath), "%s\\%s", path, fd.cFileName);
+            if (res > 0 && (size_t)res < sizeof(filePath)) {
                 if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
                     RecursiveDelete(filePath);
                     RemoveDirectoryA(filePath);

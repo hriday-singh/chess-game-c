@@ -32,6 +32,7 @@
 #include "replay_controller.h"
 #include "clock_widget.h"
 #include "gui_utils.h"
+#include "splash_screen.h"
 
 static bool debug_mode = true;
 static int app_ratio_height = 1075;
@@ -1480,379 +1481,348 @@ static gboolean force_layout_ratios(gpointer user_data) {
     return G_SOURCE_REMOVE;
 }
 
+static gboolean startup_step_idle(gpointer user_data);
+
+typedef struct {
+    AppState* state;
+    GtkWidget* splash;
+    int step;
+    int64_t total_start;
+} StartupState;
+
+static void on_startup_finished(gpointer user_data) {
+    StartupState* ss = (StartupState*)user_data;
+    if (debug_mode) printf("[Main] Splash Screen: Fade out complete. Application ready.\n");
+    g_free(ss);
+}
+
+static gboolean startup_step_idle(gpointer user_data) {
+    StartupState* ss = (StartupState*)user_data;
+    AppState* state = ss->state;
+    AppConfig* cfg = config_get();
+
+    switch (ss->step) {
+        case 0:
+            splash_screen_update_status(ss->splash, "Loading History...");
+            match_history_init();
+            ss->step++;
+            g_timeout_add(16, startup_step_idle, ss);
+            return G_SOURCE_REMOVE;
+
+        case 1:
+            splash_screen_update_status(ss->splash, "Initializing AI...");
+            state->gui.ai_dialog = ai_dialog_new_embedded();
+            if (cfg) ai_dialog_load_config(state->gui.ai_dialog, cfg);
+            ai_dialog_set_settings_changed_callback(state->gui.ai_dialog, on_ai_settings_changed, state);
+            ss->step++;
+            g_timeout_add(16, startup_step_idle, ss);
+            return G_SOURCE_REMOVE;
+
+        case 2:
+            splash_screen_update_status(ss->splash, "Loading Components...");
+            sound_engine_init();
+            state->theme = theme_data_new();
+            if (cfg) theme_data_load_config(state->theme, cfg);
+            state->ai_controller = ai_controller_new(state->logic, state->gui.ai_dialog);
+            gui_utils_init_icon_theme();
+            ss->step++;
+            g_timeout_add(16, startup_step_idle, ss);
+            return G_SOURCE_REMOVE;
+
+        case 3: {
+            splash_screen_update_status(ss->splash, "Building UI...");
+            // Now run the heavy UI building part
+            // (We essentially move the rest of on_app_activate here)
+            // But we need to be careful: some things might need to be in the main thread.
+            // Gtk works in main thread, so idle is fine.
+            
+            GtkApplication* app = gtk_window_get_application(state->gui.window);
+            
+            GtkWidget* header = gtk_header_bar_new();
+            GtkWidget* settings_btn = gui_utils_new_button_from_system_icon("emblem-system-symbolic");
+            gtk_widget_add_css_class(settings_btn, "header-button");
+            gtk_widget_set_tooltip_text(settings_btn, "Settings");
+            state->gui.settings_btn = settings_btn;
+
+            GSimpleAction* act_settings = g_simple_action_new("open-settings", G_VARIANT_TYPE_STRING);
+            g_signal_connect(act_settings, "activate", G_CALLBACK(on_open_settings_action), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_settings));
+            gtk_actionable_set_action_name(GTK_ACTIONABLE(settings_btn), "app.open-settings");
+            gtk_actionable_set_action_target(GTK_ACTIONABLE(settings_btn), "s", "");
+
+            GtkWidget* dark_mode_btn = dark_mode_button_new();
+            gtk_widget_set_valign(dark_mode_btn, GTK_ALIGN_CENTER);
+            gtk_widget_set_focusable(dark_mode_btn, FALSE);
+            state->gui.dark_mode_btn = dark_mode_btn;
+
+            GtkWidget* history_btn = gui_utils_new_button_from_system_icon("open-menu-symbolic");
+            gtk_widget_set_valign(history_btn, GTK_ALIGN_CENTER);
+            gtk_widget_set_tooltip_text(history_btn, "Game History");
+            gtk_widget_add_css_class(history_btn, "header-button");
+            state->gui.history_btn = history_btn;
+
+            GtkWidget* exit_replay_btn = gtk_button_new_with_label("Exit Replay");
+            gtk_widget_add_css_class(exit_replay_btn, "destructive-action");
+            gtk_widget_set_valign(exit_replay_btn, GTK_ALIGN_CENTER);
+            gtk_widget_set_visible(exit_replay_btn, FALSE);
+            state->gui.exit_replay_btn = exit_replay_btn;
+
+            gtk_header_bar_pack_end(GTK_HEADER_BAR(header), settings_btn);
+            gtk_header_bar_pack_end(GTK_HEADER_BAR(header), dark_mode_btn);
+            gtk_header_bar_pack_end(GTK_HEADER_BAR(header), history_btn);
+            gtk_header_bar_pack_start(GTK_HEADER_BAR(header), exit_replay_btn);
+            gtk_window_set_titlebar(state->gui.window, header);
+
+            // Actions setup
+            GSimpleAction* act_ai = g_simple_action_new("edit-ai-settings", NULL);
+            g_signal_connect(act_ai, "activate", G_CALLBACK(on_edit_ai_settings_action), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_ai));
+
+            GSimpleAction* act_bt = g_simple_action_new("edit-board-theme", NULL);
+            g_signal_connect(act_bt, "activate", G_CALLBACK(on_edit_board_theme), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_bt));
+
+            GSimpleAction* act_pt = g_simple_action_new("edit-piece-theme", NULL);
+            g_signal_connect(act_pt, "activate", G_CALLBACK(on_edit_piece_theme), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_pt));
+
+            GSimpleAction* act_about = g_simple_action_new("about", NULL);
+            g_signal_connect(act_about, "activate", G_CALLBACK(on_about_action), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_about));
+
+            GSimpleAction* act_tut = g_simple_action_new("tutorial", NULL);
+            g_signal_connect(act_tut, "activate", G_CALLBACK(on_tutorial_action), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_tut));
+
+            GSimpleAction* act_puzzles = g_simple_action_new("open-puzzles", NULL);
+            g_signal_connect(act_puzzles, "activate", G_CALLBACK(on_puzzles_action), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_puzzles));
+            
+            GSimpleAction* act_history = g_simple_action_new("open-history", NULL);
+            g_signal_connect(act_history, "activate", G_CALLBACK(on_history_clicked), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_history));
+            gtk_actionable_set_action_name(GTK_ACTIONABLE(history_btn), "app.open-history");
+
+            GSimpleAction* act_exit_replay = g_simple_action_new("exit-replay", NULL);
+            g_signal_connect(act_exit_replay, "activate", G_CALLBACK(on_exit_replay), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_exit_replay));
+            gtk_actionable_set_action_name(GTK_ACTIONABLE(exit_replay_btn), "app.exit-replay");
+
+            GSimpleAction* act_start_puzzle = g_simple_action_new("start-puzzle", G_VARIANT_TYPE_INT32);
+            g_signal_connect(act_start_puzzle, "activate", G_CALLBACK(on_start_puzzle_action), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_start_puzzle));
+
+            GSimpleAction* act_start_replay = g_simple_action_new("start-replay", G_VARIANT_TYPE_STRING);
+            g_signal_connect(act_start_replay, "activate", G_CALLBACK(on_start_replay_action), state);
+            g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_start_replay));
+
+            // Paned Hierarchy
+            GtkWidget* root_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+            int w_total = gtk_widget_get_width(GTK_WIDGET(state->gui.window)); // Use current or default?
+            if (w_total == 0) w_total = app_width;
+            int info_width_target = w_total * 0.2;
+            int board_width_target = w_total * 0.6;
+            gtk_paned_set_position(GTK_PANED(root_paned), info_width_target);
+
+            state->gui.board = board_widget_new(state->logic);
+            board_widget_set_pre_move_callback(state->gui.board, on_board_before_move, state);
+            board_widget_set_theme(state->gui.board, state->theme);
+            
+            state->gui.info_panel = info_panel_new(state->logic, state->gui.board, state->theme);
+            g_object_set_data(G_OBJECT(state->gui.info_panel), "app_state", state);
+            info_panel_set_cvc_callback(state->gui.info_panel, on_cvc_control_action, state);
+            info_panel_set_ai_settings_callback(state->gui.info_panel, (GCallback)show_ai_settings_dialog, state);
+            info_panel_set_puzzle_list_callback(state->gui.info_panel, G_CALLBACK(on_panel_puzzle_selected_safe), state);
+            info_panel_set_game_reset_callback(state->gui.info_panel, on_game_reset, state);
+            info_panel_set_tutorial_callbacks(state->gui.info_panel, G_CALLBACK(tutorial_reset_step), G_CALLBACK(on_tutorial_exit), state);
+            info_panel_set_undo_callback(state->gui.info_panel, on_undo_move, state);
+            info_panel_set_replay_exit_callback(state->gui.info_panel, G_CALLBACK(on_replay_exit_requested), state);
+            
+            puzzle_controller_refresh_list(state);
+            gtk_widget_set_size_request(state->gui.info_panel, 100, -1);
+            gtk_paned_set_start_child(GTK_PANED(root_paned), state->gui.info_panel);
+            gtk_paned_set_resize_start_child(GTK_PANED(root_paned), TRUE);
+            gtk_paned_set_shrink_start_child(GTK_PANED(root_paned), TRUE);
+
+            GtkWidget* right_split_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+            gtk_paned_set_position(GTK_PANED(right_split_paned), board_width_target);
+            gtk_paned_set_resize_start_child(GTK_PANED(right_split_paned), TRUE);
+            gtk_paned_set_shrink_start_child(GTK_PANED(right_split_paned), TRUE);
+            gtk_paned_set_end_child(GTK_PANED(root_paned), right_split_paned);
+            gtk_paned_set_resize_end_child(GTK_PANED(root_paned), TRUE);
+            gtk_paned_set_shrink_end_child(GTK_PANED(root_paned), TRUE);
+
+            GtkWidget* board_area = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+            GtkLayoutManager* layout = gtk_custom_layout_new(NULL, board_layout_measure, board_layout_allocate);
+            gtk_widget_set_layout_manager(board_area, layout);
+            gtk_widget_set_hexpand(board_area, TRUE);
+            gtk_widget_set_vexpand(board_area, TRUE);
+            gtk_widget_set_margin_start(board_area, 8);
+            gtk_widget_set_margin_end(board_area, 8);
+
+            state->gui.top_clock = clock_widget_new(PLAYER_BLACK);
+            state->gui.bottom_clock = clock_widget_new(PLAYER_WHITE);
+
+            GtkWidget* top_clk = clock_widget_get_widget(state->gui.top_clock);
+            g_object_set_data(G_OBJECT(top_clk), "clock-owner", state->gui.top_clock);
+            gtk_widget_set_name(top_clk, "layout_top_clock");
+            gtk_box_append(GTK_BOX(board_area), top_clk);
+
+            gtk_widget_add_css_class(state->gui.board, "board-frame");
+            gtk_widget_set_name(state->gui.board, "layout_board");
+            gtk_box_append(GTK_BOX(board_area), state->gui.board);
+            
+            GtkWidget* bot_clk = clock_widget_get_widget(state->gui.bottom_clock);
+            g_object_set_data(G_OBJECT(bot_clk), "clock-owner", state->gui.bottom_clock);
+            gtk_widget_set_name(bot_clk, "layout_bot_clock");
+            gtk_box_append(GTK_BOX(board_area), bot_clk);
+            
+            gtk_paned_set_start_child(GTK_PANED(right_split_paned), board_area);
+            gtk_paned_set_resize_start_child(GTK_PANED(right_split_paned), TRUE);
+            gtk_paned_set_shrink_start_child(GTK_PANED(right_split_paned), FALSE);
+
+            state->gui.right_side_panel = right_side_panel_new(state->logic, state->theme);
+            right_side_panel_set_nav_callback(state->gui.right_side_panel, on_right_panel_nav, state);
+            GtkWidget* right_widget = right_side_panel_get_widget(state->gui.right_side_panel);
+            gtk_widget_set_size_request(right_widget, 100, -1);
+            gtk_paned_set_end_child(GTK_PANED(right_split_paned), right_widget);
+            gtk_paned_set_resize_end_child(GTK_PANED(right_split_paned), TRUE);
+            gtk_paned_set_shrink_end_child(GTK_PANED(right_split_paned), TRUE);
+
+            g_object_set_data(G_OBJECT(state->gui.window), "root_paned", root_paned);
+            g_object_set_data(G_OBJECT(state->gui.window), "right_split_paned", right_split_paned);
+
+            // Re-connect overlay
+            GtkWidget* main_overlay = gtk_widget_get_parent(ss->splash);
+            // We need to insert root_paned BELOW the splash in the overlay
+            gtk_overlay_set_child(GTK_OVERLAY(main_overlay), root_paned);
+
+            // Loading overlay for replays
+            state->gui.loading_overlay = gui_utils_create_loading_overlay(
+                GTK_OVERLAY(main_overlay), 
+                &state->gui.loading_spinner, 
+                "Loading Replay", 
+                "Preparing game state..."
+            );
+
+            // Onboarding Setup
+            gboolean show_onboarding = cfg ? cfg->show_tutorial_dialog : TRUE;
+            if (show_onboarding) {
+                GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
+                gtk_popover_set_has_arrow(popover, FALSE);
+                gtk_widget_set_parent(GTK_WIDGET(popover), GTK_WIDGET(header));
+                
+                GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+                gtk_widget_set_margin_top(main_vbox, 16);
+                gtk_widget_set_margin_bottom(main_vbox, 16);
+                gtk_widget_set_margin_start(main_vbox, 16);
+                gtk_widget_set_margin_end(main_vbox, 16);
+                
+                GtkWidget* lbl = gtk_label_new("New to chess?\nTry the tutorial!");
+                gtk_label_set_justify(GTK_LABEL(lbl), GTK_JUSTIFY_CENTER);
+                gtk_box_append(GTK_BOX(main_vbox), lbl);
+                
+                GtkWidget* btn_start = gtk_button_new_with_label("Start Tutorial");
+                gtk_widget_add_css_class(btn_start, "suggested-action");
+                g_signal_connect(btn_start, "clicked", G_CALLBACK(activate_tutorial_action), state);
+                g_signal_connect(btn_start, "clicked", G_CALLBACK(on_dismiss_onboarding), state);
+                g_object_set_data(G_OBJECT(state->gui.window), "tutorial-start-btn", btn_start);
+                gtk_box_append(GTK_BOX(main_vbox), btn_start);
+                
+                GtkWidget* btn_close = gtk_button_new_with_label("Close");
+                g_signal_connect(btn_close, "clicked", G_CALLBACK(on_dismiss_onboarding), state);
+                g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_widget_grab_focus), state->gui.board);
+                gtk_box_append(GTK_BOX(main_vbox), btn_close);
+                
+                gtk_popover_set_child(popover, main_vbox);
+                gtk_popover_set_position(popover, GTK_POS_BOTTOM);
+                gtk_popover_set_autohide(popover, TRUE);
+                
+                state->gui.onboarding_popover = GTK_WIDGET(popover);
+                state->onboarding_timer_id = g_timeout_add_seconds(1, popup_popover_delayed, state);
+            }
+
+            gamelogic_set_callback(state->logic, update_ui_callback);
+            state->settings_timer_id = g_timeout_add(500, sync_ai_settings_to_panel, state);
+            sync_live_analysis(state);
+            
+            on_game_reset(state);
+            
+            g_signal_connect(state->gui.window, "close-request", G_CALLBACK(on_window_close_request), state);
+            gtk_window_set_focus_visible(state->gui.window, TRUE);
+            g_signal_connect(state->gui.window, "notify::mapped", G_CALLBACK(on_window_mapped_notify), state);
+            
+            g_timeout_add(100, clock_tick_callback, state);
+            g_timeout_add(100, force_layout_ratios, state);
+
+            splash_screen_update_status(ss->splash, "Ready!");
+            splash_screen_finish(ss->splash, G_CALLBACK(on_startup_finished), ss);
+            
+            int64_t now = g_get_monotonic_time();
+            if (debug_mode) printf("[Startup Profile] Total Boot Time: %.2f ms\n", (now - ss->total_start) / 1000.0);
+            
+            return G_SOURCE_REMOVE;
+        }
+    }
+    return G_SOURCE_REMOVE;
+}
+
 static void on_app_activate(GtkApplication* app, gpointer user_data) {
     int64_t total_start = g_get_monotonic_time();
-    int64_t last_mark = total_start;
     
-    #define PROFILE_MARK(label) \
-        if (debug_mode) { \
-            int64_t now = g_get_monotonic_time(); \
-            printf("[Startup Profile] %-30s: %7.2f ms (Total: %7.2f ms)\n", \
-                   label, (now - last_mark) / 1000.0, (now - total_start) / 1000.0); \
-            last_mark = now; \
-        }
-
     config_set_app_param("HalChess");
-    config_init(); // Initialize config from persistent storage
-    PROFILE_MARK("Config Init");
-
+    config_init(); 
+    
     AppState* state = (AppState*)user_data;
     state->gui.window = GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(app)));
     gtk_window_set_title(state->gui.window, "HAL :) Chess");
     
     AppConfig* cfg = config_get();
 
-    // Dynamically adjust resolution based on monitor size OR use saved config
+    // Size initialization (Synchronous)
     if (cfg && cfg->window_width > 0 && cfg->window_height > 0) {
         gtk_window_set_default_size(state->gui.window, cfg->window_width, cfg->window_height);
-        if (debug_mode) printf("[Main] Restored window size: %dx%d\n", cfg->window_width, cfg->window_height);
     } else {
         apply_dynamic_resolution(state->gui.window);
         gtk_window_set_default_size(state->gui.window, app_width, app_height);
-        
-        // Critical: Update config so we have a valid baseline for saving later
-        // (Prevents saving 0x0 if user closes immediately)
         if (cfg) {
             cfg->window_width = app_width;
             cfg->window_height = app_height;
         }
     }    
 
-    // Apply Fullscreen OR Maximized if saved
     if (cfg) {
-        if (cfg->is_fullscreen) {
-             gtk_window_fullscreen(state->gui.window);
-        } else if (cfg->is_maximized) {
-             gtk_window_maximize(state->gui.window);
-        }
+        if (cfg->is_fullscreen) gtk_window_fullscreen(state->gui.window);
+        else if (cfg->is_maximized) gtk_window_maximize(state->gui.window);
     }
-    PROFILE_MARK("Window & Resolution");
-    
-    // Init match history
-    match_history_init();
-    PROFILE_MARK("Match History Init");
 
+    // Theme initialization (Synchronous)
     if (cfg) {
         theme_manager_set_dark(cfg->is_dark_mode);
         if (cfg->theme[0] != '\0' && strcmp(cfg->theme, "default") != 0) {
              theme_manager_set_theme_id(cfg->theme);
         }
     }
-    
-    theme_manager_init(); // Initialize global theme manager
-    PROFILE_MARK("Theme Init");
-    
-    // Initialize AI Dialog as embedded (View managed by SettingsDialog)
-    state->gui.ai_dialog = ai_dialog_new_embedded();
-    if (cfg) ai_dialog_load_config(state->gui.ai_dialog, cfg);
+    theme_manager_init();
 
-    ai_dialog_set_settings_changed_callback(state->gui.ai_dialog, on_ai_settings_changed, state);
-    sound_engine_init();
-    state->theme = theme_data_new();
-    if (cfg) theme_data_load_config(state->theme, cfg);
-    
-    state->ai_controller = ai_controller_new(state->logic, state->gui.ai_dialog);
-    PROFILE_MARK("AI & Components Init");
-
-    // Initialize local icon theme for sharp, recolorable icons
-    gui_utils_init_icon_theme();
-
-    GtkWidget* header = gtk_header_bar_new();
-    // Replacement for Menu: Settings Button
-    GtkWidget* settings_btn = gui_utils_new_button_from_system_icon("emblem-system-symbolic");
-    gtk_widget_add_css_class(settings_btn, "header-button");
-    gtk_widget_set_tooltip_text(settings_btn, "Settings");
-    state->gui.settings_btn = settings_btn; // Store reference
-    
-    // Register "open-settings" action with string parameter (optional page name)
-    GSimpleAction* act_settings = g_simple_action_new("open-settings", G_VARIANT_TYPE_STRING);
-    g_signal_connect(act_settings, "activate", G_CALLBACK(on_open_settings_action), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_settings));
-    
-    // Fix: Action name should just be "open-settings" when added to the App's action map
-    // or we use "app.open-settings" if it's indeed in the app map.
-    gtk_actionable_set_action_name(GTK_ACTIONABLE(settings_btn), "app.open-settings");
-    // Set default target to empty string (will trigger logic to use last page)
-    gtk_actionable_set_action_target(GTK_ACTIONABLE(settings_btn), "s", "");
-    
-    // Create Dark Mode Toggle Button
-    GtkWidget* dark_mode_btn = dark_mode_button_new();
-    gtk_widget_set_valign(dark_mode_btn, GTK_ALIGN_CENTER);
-    gtk_widget_set_focusable(dark_mode_btn, FALSE);
-    state->gui.dark_mode_btn = dark_mode_btn; // Store reference
-
-    // History Button
-    GtkWidget* history_btn = gui_utils_new_button_from_system_icon("open-menu-symbolic");
-    gtk_widget_set_valign(history_btn, GTK_ALIGN_CENTER);
-    gtk_widget_set_tooltip_text(history_btn, "Game History");
-    // Ensure it uses the transparent header button class
-    gtk_widget_add_css_class(history_btn, "header-button");
-    state->gui.history_btn = history_btn;
-
-    // Exit Replay Button (Initially Hidden)
-    GtkWidget* exit_replay_btn = gtk_button_new_with_label("Exit Replay");
-    gtk_widget_add_css_class(exit_replay_btn, "destructive-action");
-    gtk_widget_set_valign(exit_replay_btn, GTK_ALIGN_CENTER);
-    gtk_widget_set_visible(exit_replay_btn, FALSE);
-    state->gui.exit_replay_btn = exit_replay_btn;
-
-    // Pack buttons: [Exit Replay] [History] [Dark Mode] [Settings]
-    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), settings_btn);
-    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), dark_mode_btn);
-    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), history_btn);
-    gtk_header_bar_pack_start(GTK_HEADER_BAR(header), exit_replay_btn);
-    
-    gtk_window_set_titlebar(state->gui.window, header);
-    PROFILE_MARK("Header & Actions Init");
-
-    GSimpleAction* act_ai = g_simple_action_new("edit-ai-settings", NULL);
-    g_signal_connect(act_ai, "activate", G_CALLBACK(on_edit_ai_settings_action), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_ai));
-
-    GSimpleAction* act_bt = g_simple_action_new("edit-board-theme", NULL);
-    g_signal_connect(act_bt, "activate", G_CALLBACK(on_edit_board_theme), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_bt));
-
-    GSimpleAction* act_pt = g_simple_action_new("edit-piece-theme", NULL);
-    g_signal_connect(act_pt, "activate", G_CALLBACK(on_edit_piece_theme), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_pt));
-
-    GSimpleAction* act_about = g_simple_action_new("about", NULL);
-    g_signal_connect(act_about, "activate", G_CALLBACK(on_about_action), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_about));
-
-    GSimpleAction* act_tut = g_simple_action_new("tutorial", NULL);
-    g_signal_connect(act_tut, "activate", G_CALLBACK(on_tutorial_action), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_tut));
-
-    GSimpleAction* act_puzzles = g_simple_action_new("open-puzzles", NULL);
-    g_signal_connect(act_puzzles, "activate", G_CALLBACK(on_puzzles_action), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_puzzles));
-    
-    GSimpleAction* act_history = g_simple_action_new("open-history", NULL);
-    g_signal_connect(act_history, "activate", G_CALLBACK(on_history_clicked), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_history));
-    gtk_actionable_set_action_name(GTK_ACTIONABLE(history_btn), "app.open-history");
-
-    GSimpleAction* act_exit_replay = g_simple_action_new("exit-replay", NULL);
-    g_signal_connect(act_exit_replay, "activate", G_CALLBACK(on_exit_replay), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_exit_replay));
-    gtk_actionable_set_action_name(GTK_ACTIONABLE(exit_replay_btn), "app.exit-replay");
-
-    GSimpleAction* act_start_puzzle = g_simple_action_new("start-puzzle", G_VARIANT_TYPE_INT32);
-    g_signal_connect(act_start_puzzle, "activate", G_CALLBACK(on_start_puzzle_action), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_start_puzzle));
-
-    GSimpleAction* act_start_replay = g_simple_action_new("start-replay", G_VARIANT_TYPE_STRING);
-    g_signal_connect(act_start_replay, "activate", G_CALLBACK(on_start_replay_action), state);
-    g_action_map_add_action(G_ACTION_MAP(app), G_ACTION(act_start_replay));
-    
-    PROFILE_MARK("Registry & Actions Finish");
-
-    // Use GtkPaned for resizable panels: Info | Center | Right
-    // Root Paned: [Info Panel] | [Center + Right]
-    GtkWidget* root_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
-    
-    // Calculate initial widths (20% Side, 60% Board, 20% Side)
-    int info_width_target = app_width * 0.2;
-    int board_width_target = app_width * 0.6;
-    
-    gtk_paned_set_position(GTK_PANED(root_paned), info_width_target); // Initial info panel width
-    
-    // Board Widget
-    state->gui.board = board_widget_new(state->logic);
-    board_widget_set_pre_move_callback(state->gui.board, on_board_before_move, state);
-    board_widget_set_theme(state->gui.board, state->theme);
-    PROFILE_MARK("Board Widget Create");
-    
-    state->gui.info_panel = info_panel_new(state->logic, state->gui.board, state->theme);
-    g_object_set_data(G_OBJECT(state->gui.info_panel), "app_state", state);
-    info_panel_set_cvc_callback(state->gui.info_panel, on_cvc_control_action, state);
-    info_panel_set_ai_settings_callback(state->gui.info_panel, (GCallback)show_ai_settings_dialog, state);
-    info_panel_set_puzzle_list_callback(state->gui.info_panel, G_CALLBACK(on_panel_puzzle_selected_safe), state);
-    info_panel_set_game_reset_callback(state->gui.info_panel, on_game_reset, state);
-    info_panel_set_tutorial_callbacks(state->gui.info_panel, G_CALLBACK(tutorial_reset_step), G_CALLBACK(on_tutorial_exit), state);
-    info_panel_set_undo_callback(state->gui.info_panel, on_undo_move, state);
-    info_panel_set_replay_exit_callback(state->gui.info_panel, G_CALLBACK(on_replay_exit_requested), state);
-    PROFILE_MARK("Info Panel Create & Wiring");
-    
-    puzzle_controller_refresh_list(state);
-    gtk_widget_set_size_request(state->gui.info_panel, 100, -1); // Min width
-    
-    // Add Info Panel to Root Paned (Start)
-    gtk_paned_set_start_child(GTK_PANED(root_paned), state->gui.info_panel);
-    gtk_paned_set_resize_start_child(GTK_PANED(root_paned), TRUE); // Resizable
-    gtk_paned_set_shrink_start_child(GTK_PANED(root_paned), TRUE); // Allow shrink down to min size
-    
-    // Create Secondary Paned: [Board] | [Right Panel]
-    GtkWidget* right_split_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_paned_set_position(GTK_PANED(right_split_paned), board_width_target);
-    
-    // CRITICAL: Allow Board (start child) to resize!
-    gtk_paned_set_resize_start_child(GTK_PANED(right_split_paned), TRUE);
-    gtk_paned_set_shrink_start_child(GTK_PANED(right_split_paned), TRUE);
-    
-    // Add Secondary Paned to Root Paned (End)
-    gtk_paned_set_end_child(GTK_PANED(root_paned), right_split_paned);
-    gtk_paned_set_resize_end_child(GTK_PANED(root_paned), TRUE); // Right side expands
-    gtk_paned_set_shrink_end_child(GTK_PANED(root_paned), TRUE);
-    
-    // Store paneds for later enforcement
-    g_object_set_data(G_OBJECT(state->gui.window), "root_paned", root_paned);
-    g_object_set_data(G_OBJECT(state->gui.window), "right_split_paned", right_split_paned);
-    gtk_paned_set_position(GTK_PANED(right_split_paned), board_width_target);
-    
-    // CRITICAL: Allow Board (start child) to resize!
-    gtk_paned_set_resize_start_child(GTK_PANED(right_split_paned), TRUE);
-    gtk_paned_set_shrink_start_child(GTK_PANED(right_split_paned), TRUE);
-    
-    // Add Secondary Paned to Root Paned (End)
-    gtk_paned_set_end_child(GTK_PANED(root_paned), right_split_paned);
-    gtk_paned_set_resize_end_child(GTK_PANED(root_paned), TRUE); // Right side expands
-    gtk_paned_set_shrink_end_child(GTK_PANED(root_paned), TRUE);
-    
-    // Store paneds for later enforcement
-    g_object_set_data(G_OBJECT(state->gui.window), "root_paned", root_paned);
-    g_object_set_data(G_OBJECT(state->gui.window), "right_split_paned", right_split_paned);
-    
-    // Board Area (Center)
-    // Board Area (Custom Layout)
-    // We use a GtkBox but override its layout manager to center Board+Clocks as a unit
-    GtkWidget* board_area = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-    GtkLayoutManager* layout = gtk_custom_layout_new(NULL, board_layout_measure, board_layout_allocate);
-    gtk_widget_set_layout_manager(board_area, layout);
-    
-    gtk_widget_set_hexpand(board_area, TRUE);
-    gtk_widget_set_vexpand(board_area, TRUE);
-    // Margins affect the container itself
-    gtk_widget_set_margin_start(board_area, 8);
-    gtk_widget_set_margin_end(board_area, 8);
-
-    // Setup Clocks
-    state->gui.top_clock = clock_widget_new(PLAYER_BLACK);
-    state->gui.bottom_clock = clock_widget_new(PLAYER_WHITE);
-
-    // 1. Top Clock (Directly added)
-    GtkWidget* top_clk = clock_widget_get_widget(state->gui.top_clock);
-    g_object_set_data(G_OBJECT(top_clk), "clock-owner", state->gui.top_clock); // Binding for scaling
-    gtk_widget_set_name(top_clk, "layout_top_clock"); // ID for custom layout
-    gtk_widget_set_margin_top(top_clk, 0);
-    gtk_widget_set_margin_bottom(top_clk, 0);
-    gtk_box_append(GTK_BOX(board_area), top_clk);
-
-    // 2. Board (Directly added, NO AspectFrame)
-    gtk_widget_add_css_class(state->gui.board, "board-frame");
-    gtk_widget_set_name(state->gui.board, "layout_board"); // ID for custom layout
-    gtk_box_append(GTK_BOX(board_area), state->gui.board);
-    
-    // 3. Bottom Clock (Directly added)
-    GtkWidget* bot_clk = clock_widget_get_widget(state->gui.bottom_clock);
-    g_object_set_data(G_OBJECT(bot_clk), "clock-owner", state->gui.bottom_clock); // Binding for scaling
-    gtk_widget_set_name(bot_clk, "layout_bot_clock"); // ID for custom layout
-    gtk_widget_set_margin_top(bot_clk, 0);
-    gtk_widget_set_margin_bottom(bot_clk, 0);
-    gtk_box_append(GTK_BOX(board_area), bot_clk);
-    
-    // Add Board Area to Secondary Paned (Start)
-    gtk_paned_set_start_child(GTK_PANED(right_split_paned), board_area);
-    gtk_paned_set_resize_start_child(GTK_PANED(right_split_paned), TRUE);
-    gtk_paned_set_shrink_start_child(GTK_PANED(right_split_paned), FALSE);
-
-    PROFILE_MARK("Clocks & Center Layout");
-
-    // Right Side Panel
-    state->gui.right_side_panel = right_side_panel_new(state->logic, state->theme);
-    right_side_panel_set_nav_callback(state->gui.right_side_panel, on_right_panel_nav, state);
-    GtkWidget* right_widget = right_side_panel_get_widget(state->gui.right_side_panel);
-    gtk_widget_set_size_request(right_widget, 100, -1); // Min width
-    
-    // Add Right Panel to Secondary Paned (End)
-    gtk_paned_set_end_child(GTK_PANED(right_split_paned), right_widget);
-    gtk_paned_set_resize_end_child(GTK_PANED(right_split_paned), TRUE);
-    gtk_paned_set_shrink_end_child(GTK_PANED(right_split_paned), TRUE);
-
-    // Set splitter handle position for right panel (reverse from width)
-    // We can't set "end position" easily, so we just let it size naturally or set a large position
-    // GTK4 Paned position is from left. If we want right panel 280, position = Total - 280.
-    // Setting a broad value like 800 might work, or rely on size requests.
-    
-    // Use proper variable for overlay child
-    GtkWidget* main_box = root_paned;
-
+    // Create Root Overlay NOW so we can show splash
     GtkWidget* main_overlay = gtk_overlay_new();
-    gtk_overlay_set_child(GTK_OVERLAY(main_overlay), main_box);
-    
-    // Create loading overlay (hidden by default)
-    state->gui.loading_overlay = gui_utils_create_loading_overlay(
-        GTK_OVERLAY(main_overlay), 
-        &state->gui.loading_spinner, 
-        "Loading Replay", 
-        "Preparing game state..."
-    );
-
     gtk_window_set_child(state->gui.window, main_overlay);
-    PROFILE_MARK("Right Panel & Final Assembly");
 
-    // Onboarding Bubble
-    gboolean show_onboarding = cfg ? cfg->show_tutorial_dialog : TRUE;
-    if (show_onboarding) {
-        GtkPopover* popover = GTK_POPOVER(gtk_popover_new());
-        gtk_popover_set_has_arrow(popover, FALSE);
-        gtk_widget_set_parent(GTK_WIDGET(popover), GTK_WIDGET(header));
-        
-        GtkWidget* main_vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
-        gtk_widget_set_margin_top(main_vbox, 16);
-        gtk_widget_set_margin_bottom(main_vbox, 16);
-        gtk_widget_set_margin_start(main_vbox, 16);
-        gtk_widget_set_margin_end(main_vbox, 16);
-        
-        GtkWidget* lbl = gtk_label_new("New to chess?\nTry the tutorial!");
-        gtk_label_set_justify(GTK_LABEL(lbl), GTK_JUSTIFY_CENTER);
-        gtk_box_append(GTK_BOX(main_vbox), lbl);
-        
-        GtkWidget* btn_start = gtk_button_new_with_label("Start Tutorial");
-        gtk_widget_add_css_class(btn_start, "suggested-action");
-        g_signal_connect(btn_start, "clicked", G_CALLBACK(activate_tutorial_action), state);
-        g_signal_connect(btn_start, "clicked", G_CALLBACK(on_dismiss_onboarding), state);
-        g_object_set_data(G_OBJECT(state->gui.window), "tutorial-start-btn", btn_start);
-        gtk_box_append(GTK_BOX(main_vbox), btn_start);
-        
-        GtkWidget* btn_close = gtk_button_new_with_label("Close");
-        g_signal_connect(btn_close, "clicked", G_CALLBACK(on_dismiss_onboarding), state);
-        g_signal_connect_swapped(btn_close, "clicked", G_CALLBACK(gtk_widget_grab_focus), state->gui.board);
-        gtk_box_append(GTK_BOX(main_vbox), btn_close);
-        
-        gtk_popover_set_child(popover, main_vbox);
-        gtk_popover_set_position(popover, GTK_POS_BOTTOM);
-        gtk_popover_set_autohide(popover, TRUE);
-        
-        state->gui.onboarding_popover = GTK_WIDGET(popover);
-        state->onboarding_timer_id = g_timeout_add_seconds(1, popup_popover_delayed, state);
-        PROFILE_MARK("Onboarding Setup");
-    }
-
-    gamelogic_set_callback(state->logic, update_ui_callback);
-    state->settings_timer_id = g_timeout_add(500, sync_ai_settings_to_panel, state);
-    sync_live_analysis(state);
+    // Show Splash Screen
+    GtkWidget* splash = splash_screen_show(state->gui.window);
     
-    // Initial side/state sync (Fix for "Play as Black" on startup)
-    on_game_reset(state);
-    PROFILE_MARK("Initial State Sync");
+    // Show window immediately so user sees the splash
+    gtk_window_present(state->gui.window);
+
+    // Schedule rest of initialization
+    StartupState* ss = g_new0(StartupState, 1);
+    ss->state = state;
+    ss->splash = splash;
+    ss->step = 0;
+    ss->total_start = total_start;
     
-    g_signal_connect(state->gui.window, "close-request", G_CALLBACK(on_window_close_request), state);
-    gtk_window_set_focus_visible(state->gui.window, TRUE);
-    g_signal_connect(state->gui.window, "notify::mapped", G_CALLBACK(on_window_mapped_notify), state);
-    
-    // Clock tick timer (100ms precision)
-    g_timeout_add(100, clock_tick_callback, state);
-
-    // Schedule layout enforcement
-    g_timeout_add(100, force_layout_ratios, state);
-
-    gtk_window_present(GTK_WINDOW(state->gui.window));
-    PROFILE_MARK("Window Show");
-
-    #undef PROFILE_MARK
+    g_idle_add(startup_step_idle, ss);
 }
 
 // Helper to grab focus after window is fully realized
