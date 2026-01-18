@@ -34,12 +34,12 @@
 #include "gui_utils.h"
 
 static bool debug_mode = true;
-static int app_ratio_height = 1035;
-static int app_ratio_width = 1440;
+static int app_ratio_height = 1075;
+static int app_ratio_width = 1560;
 
-
-static int app_height = 1035;
-static int app_width = 1440;
+// Starting size for 720p screen with 70% as failsafe
+static int app_height = 490;
+static int app_width = 682;
 
 // Globals
 #include "history_dialog.h"
@@ -1565,7 +1565,12 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     // Use GtkPaned for resizable panels: Info | Center | Right
     // Root Paned: [Info Panel] | [Center + Right]
     GtkWidget* root_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
-    gtk_paned_set_position(GTK_PANED(root_paned), 290); // Initial info panel width
+    
+    // Calculate initial widths (20% Side, 60% Board, 20% Side)
+    int info_width_target = app_width * 0.2;
+    int board_width_target = app_width * 0.6;
+    
+    gtk_paned_set_position(GTK_PANED(root_paned), info_width_target); // Initial info panel width
     
     // Board Widget
     state->gui.board = board_widget_new(state->logic);
@@ -1585,19 +1590,21 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     PROFILE_MARK("Info Panel Create & Wiring");
     
     puzzle_controller_refresh_list(state);
-    gtk_widget_set_size_request(state->gui.info_panel, 290, -1); // Min width
+    gtk_widget_set_size_request(state->gui.info_panel, 100, -1); // Min width
     
     // Add Info Panel to Root Paned (Start)
     gtk_paned_set_start_child(GTK_PANED(root_paned), state->gui.info_panel);
-    gtk_paned_set_resize_start_child(GTK_PANED(root_paned), FALSE); // Fixed initial width, but resizable via handle
-    gtk_paned_set_shrink_start_child(GTK_PANED(root_paned), FALSE); // Don't shrink below min size
+    gtk_paned_set_resize_start_child(GTK_PANED(root_paned), TRUE); // Resizable
+    gtk_paned_set_shrink_start_child(GTK_PANED(root_paned), TRUE); // Allow shrink down to min size
     
     // Create Secondary Paned: [Board] | [Right Panel]
     GtkWidget* right_split_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
+    gtk_paned_set_position(GTK_PANED(right_split_paned), board_width_target);
+    
     // Add Secondary Paned to Root Paned (End)
     gtk_paned_set_end_child(GTK_PANED(root_paned), right_split_paned);
     gtk_paned_set_resize_end_child(GTK_PANED(root_paned), TRUE); // Right side expands
-    gtk_paned_set_shrink_end_child(GTK_PANED(root_paned), FALSE);
+    gtk_paned_set_shrink_end_child(GTK_PANED(root_paned), TRUE);
     
     // Board Area (Center)
     // Board Area (Custom Layout)
@@ -1649,12 +1656,12 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     right_side_panel_set_nav_callback(state->gui.right_side_panel, on_right_panel_nav, state);
     
     GtkWidget* right_widget = right_side_panel_get_widget(state->gui.right_side_panel);
-    gtk_widget_set_size_request(right_widget, 280, -1); // Min width
+    gtk_widget_set_size_request(right_widget, 100, -1); // Min width
     
     // Add Right Panel to Secondary Paned (End)
     gtk_paned_set_end_child(GTK_PANED(right_split_paned), right_widget);
-    gtk_paned_set_resize_end_child(GTK_PANED(right_split_paned), FALSE);
-    gtk_paned_set_shrink_end_child(GTK_PANED(right_split_paned), FALSE);
+    gtk_paned_set_resize_end_child(GTK_PANED(right_split_paned), TRUE);
+    gtk_paned_set_shrink_end_child(GTK_PANED(right_split_paned), TRUE);
 
     // Set splitter handle position for right panel (reverse from width)
     // We can't set "end position" easily, so we just let it size naturally or set a large position

@@ -1348,7 +1348,7 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     // Don't propagate natural width - keep fixed width regardless of content
     gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(scrolled), FALSE);
     // Set maximum width to prevent expansion
-    gtk_widget_set_size_request(scrolled, 290, -1);
+    gtk_widget_set_size_request(scrolled, 100, -1);
     
     // Scroll content (Main Wrapper)
     panel->scroll_content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0); // No spacing on wrapper
@@ -1555,7 +1555,7 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
 
     // Initial setup
     gtk_widget_set_hexpand(panel->scroll_content, FALSE);
-    gtk_widget_set_size_request(panel->scroll_content, 290, -1);
+    gtk_widget_set_size_request(panel->scroll_content, 100, -1);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scrolled), panel->scroll_content);
     
     // Store panel for callback retrieval
@@ -1861,7 +1861,7 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     
     // CSS for custom elements is now handled globally
 
-    gtk_widget_set_size_request(scrolled, 290, -1);
+    gtk_widget_set_size_request(scrolled, 100, -1);
     gtk_widget_set_vexpand(scrolled, TRUE);
     gtk_widget_set_focusable(scrolled, TRUE); // Replaced margin_all and enabled focus
     gtk_widget_add_css_class(scrolled, "info-panel");
