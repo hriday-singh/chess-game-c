@@ -698,6 +698,43 @@ static void update_ai_settings_visibility(InfoPanel* panel) {
     }
 }
 
+// Helper to sync a single side's UI with Config
+static void sync_single_side_ui(InfoPanel* panel, bool is_black) {
+    AppConfig* cfg = config_get();
+    GtkWidget* dropdown = is_black ? panel->black_ai.engine_dropdown : panel->white_ai.engine_dropdown;
+    GtkWidget* slider = is_black ? panel->black_ai.elo_slider : panel->white_ai.elo_slider;
+    // GtkWidget* spin = is_black ? panel->black_ai.elo_spin : panel->white_ai.elo_spin; // Unused
+    GtkWidget* depth_lbl = is_black ? panel->black_ai.depth_label : panel->white_ai.depth_label;
+    GtkWidget* elo_box = is_black ? panel->black_ai.elo_box : panel->white_ai.elo_box;
+    GtkWidget* adv_box = is_black ? panel->black_ai.adv_box : panel->white_ai.adv_box;
+
+    int selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(dropdown));
+    // 0 = Internal, 1 = Custom (if available) or Add Custom
+    bool is_custom = (selected == 1 && panel->custom_available);
+    
+    int target_elo = is_custom ? cfg->custom_elo : cfg->int_elo;
+    int target_depth = is_custom ? cfg->custom_depth : cfg->int_depth;
+    bool is_adv = is_custom ? cfg->custom_is_advanced : cfg->int_is_advanced;
+    
+    // Block signals to prevent feedback loop
+    g_signal_handlers_block_by_func(gtk_range_get_adjustment(GTK_RANGE(slider)), on_elo_adjustment_changed, panel);
+    
+    gtk_range_set_value(GTK_RANGE(slider), (double)target_elo);
+    // Spin button shares adjustment, so it updates automatically, but we can force if needed
+    
+    g_signal_handlers_unblock_by_func(gtk_range_get_adjustment(GTK_RANGE(slider)), on_elo_adjustment_changed, panel);
+
+    // Update Advanced UI visibility
+    set_ai_adv_ui(elo_box, adv_box, GTK_LABEL(depth_lbl), is_adv, target_depth);
+}
+
+// Sync both sides
+static void info_panel_sync_ai_ui_with_config(InfoPanel* panel) {
+    if (!panel) return;
+    sync_single_side_ui(panel, false); // White
+    sync_single_side_ui(panel, true);  // Black
+}
+
 static void on_engine_selection_changed(GObject* obj, GParamSpec* pspec, gpointer user_data) {
     (void)pspec;
     InfoPanel* panel = (InfoPanel*)user_data;
@@ -721,6 +758,11 @@ static void on_engine_selection_changed(GObject* obj, GParamSpec* pspec, gpointe
             void (*cb)(int, gpointer) = (void (*)(int, gpointer))panel->ai_settings_callback;
             cb(1, panel->ai_settings_callback_data);
         }
+    } else {
+        // Valid selection change -> Sync UI with Config for this new engine
+        // We know which dropdown triggered this, but syncing calls both is safe/fast enough
+        // Or we could check obj against white/black dropdowns.
+        info_panel_sync_ai_ui_with_config(panel);
     }
 
     reset_game(panel);
@@ -770,6 +812,33 @@ static void on_cvc_stop_clicked(GtkButton* btn, gpointer user_data) {
 static void on_elo_adjustment_changed(GtkAdjustment* adj, gpointer user_data) {
     (void)adj;
     InfoPanel* panel = (InfoPanel*)user_data;
+    
+    // Determine which side changed (White or Black)
+    // We can compare the adjustment object to find out
+    GtkAdjustment* white_adj = gtk_range_get_adjustment(GTK_RANGE(panel->white_ai.elo_slider));
+    GtkAdjustment* black_adj = gtk_range_get_adjustment(GTK_RANGE(panel->black_ai.elo_slider));
+    
+    bool is_white = (adj == white_adj);
+    bool is_black = (adj == black_adj);
+    
+    if (is_white || is_black) {
+        AppConfig* cfg = config_get();
+        GtkWidget* dropdown = is_black ? panel->black_ai.engine_dropdown : panel->white_ai.engine_dropdown;
+        int selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(dropdown));
+        bool is_custom = (selected == 1 && panel->custom_available);
+        
+        int new_val = (int)gtk_adjustment_get_value(adj);
+        
+        if (is_custom) {
+            cfg->custom_elo = new_val;
+        } else {
+            cfg->int_elo = new_val;
+        }
+        // Ideally we should save config here, but maybe overkill to write disk on every drag?
+        // Let's rely on app exit save or manual save. 
+        // OR: config_save(); if we want instant persistence.
+    }
+
     reset_game(panel);
 }
 
@@ -1804,6 +1873,9 @@ GtkWidget* info_panel_new(GameLogic* logic, GtkWidget* board_widget, ThemeData* 
     g_object_set_data(G_OBJECT(scrolled), "info-panel-data", panel);
     g_signal_connect(scrolled, "destroy", G_CALLBACK(info_panel_destroy), panel);
     
+    // Sync initial UI state with Config
+    info_panel_sync_ai_ui_with_config(panel);
+
     return scrolled;
 }
 

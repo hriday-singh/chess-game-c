@@ -298,7 +298,7 @@ static void on_custom_path_changed(GtkEditable* editable, gpointer user_data) {
     AppConfig* cfg = config_get();
     if (cfg) {
         ai_dialog_save_config(dialog, cfg);
-        // config_save();
+        config_save();
     }
     if (dialog->change_cb) dialog->change_cb(dialog->change_cb_data);
 }
@@ -1065,7 +1065,29 @@ void ai_dialog_load_config(AiDialog* dialog, void* config_struct) {
 
     // Custom Engine
     if (strlen(cfg->custom_engine_path) > 0) {
-        if (dialog->custom_path_entry) gtk_editable_set_text(GTK_EDITABLE(dialog->custom_path_entry), cfg->custom_engine_path);
+        if (dialog->custom_path_entry) {
+            gtk_editable_set_text(GTK_EDITABLE(dialog->custom_path_entry), cfg->custom_engine_path);
+            
+            // Validation Logic (Manual trigger since signal returns early on is_loading)
+            if (ai_engine_test_binary(cfg->custom_engine_path)) {
+                gtk_label_set_text(GTK_LABEL(dialog->custom_status_label), "Configured successfully");
+                gtk_widget_add_css_class(dialog->custom_status_label, "success-text");
+                gtk_widget_remove_css_class(dialog->custom_status_label, "error-text");
+                dialog->is_custom_configured = true;
+            } else {
+                gtk_label_set_text(GTK_LABEL(dialog->custom_status_label), "Invalid UCI engine path");
+                gtk_widget_add_css_class(dialog->custom_status_label, "error-text");
+                gtk_widget_remove_css_class(dialog->custom_status_label, "success-text");
+                dialog->is_custom_configured = false;
+            }
+        }
+    } else {
+        // Clear if empty
+        if (dialog->custom_path_entry) gtk_editable_set_text(GTK_EDITABLE(dialog->custom_path_entry), "");
+        if (dialog->custom_status_label) {
+             gtk_label_set_text(GTK_LABEL(dialog->custom_status_label), "");
+             dialog->is_custom_configured = false;
+        }
     }
     if (cfg->custom_elo >= 100) ai_dialog_set_elo(dialog, cfg->custom_elo, true);
     if (dialog->custom_depth_spin) gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->custom_depth_spin), (double)cfg->custom_depth);
