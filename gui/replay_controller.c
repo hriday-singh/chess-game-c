@@ -181,11 +181,19 @@ static gboolean replay_tick_callback(gpointer user_data) {
          int64_t b_time = self->precalc_black_time[self->current_ply];
          
          if (turn_now == PLAYER_WHITE) {
-             w_time -= elapsed_ms;
-             if (w_time < 0) w_time = 0;
+             if (self->clock_initial_ms <= 0) {
+                 w_time += elapsed_ms; // Count up
+             } else {
+                 w_time -= elapsed_ms;
+                 if (w_time < 0) w_time = 0;
+             }
          } else {
-             b_time -= elapsed_ms;
-             if (b_time < 0) b_time = 0;
+             if (self->clock_initial_ms <= 0) {
+                 b_time += elapsed_ms; // Count up
+             } else {
+                 b_time -= elapsed_ms;
+                 if (b_time < 0) b_time = 0;
+             }
          }
          
          // Update widgets
@@ -280,6 +288,10 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
     
     // clock setup
     self->clock_enabled = clock_enabled;
+    // If No Clock (0), we enable it as Stopwatch internally
+    if (!clock_enabled && initial_ms <= 0) {
+        self->clock_enabled = true;
+    }
     self->clock_initial_ms = initial_ms;
     self->clock_increment_ms = increment_ms;
     
@@ -522,6 +534,12 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
         int64_t w = self->clock_initial_ms;
         int64_t b = self->clock_initial_ms;
         
+        // If stopwatch mode, start at 0
+        if (self->clock_initial_ms <= 0) {
+            w = 0;
+            b = 0;
+        }
+        
         // Ply 0
         self->precalc_white_time[0] = w;
         self->precalc_black_time[0] = b;
@@ -543,30 +561,31 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
              Player mover = self->snapshots[i].turn; // Current turn at ply i
              
              if (mover == PLAYER_WHITE) {
-                 w -= duration;
-                 if (w < 0) w = 0;
-                 w += self->clock_increment_ms;
+                 if (self->clock_initial_ms <= 0) {
+                     // Stopwatch: Time Increases
+                     w += duration;
+                 } else {
+                     // Countdown: Time Decreases
+                     w -= duration;
+                     if (w < 0) w = 0;
+                     w += self->clock_increment_ms;
+                 }
              } else {
-                 b -= duration;
-                 if (b < 0) b = 0;
-                 b += self->clock_increment_ms;
+                 if (self->clock_initial_ms <= 0) {
+                     // Stopwatch: Time Increases
+                     b += duration;
+                 } else {
+                     // Countdown: Time Decreases
+                     b -= duration;
+                     if (b < 0) b = 0;
+                     b += self->clock_increment_ms;
+                 }
              }
              
              self->precalc_white_time[i+1] = w;
              self->precalc_black_time[i+1] = b;
         }
     }
-    
-    // Copy result if available (passed from entry usually? No, entry passed fields.)
-    // Wait, load_match doesn't take result string.
-    // Need to update signature or header?
-    // User requested "Show Result Status".
-    // I can't update signature easily without breaking callers (main.c).
-    // Let's assume the caller will set the result fields manually after load?
-    // OR we infer from logic? Logic doesn't know "Timeout".
-    // I will read result from app_state->gui.history_dialog selection? No.
-    // MatchHistoryEntry pointer is safer.
-    // I will modify main.c to set these fields on the controller directly after load!
 
     // Initialize highlighting to first move (ply 0)
     if (self->app_state && self->app_state->gui.right_side_panel) {

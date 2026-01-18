@@ -35,26 +35,22 @@ void clock_reset(ClockState* clock, int minutes, int increment_sec) {
     if (!clock) return;
     
     if (minutes <= 0) {
-        clock->enabled = false;
+        // Stopwatch Mode (Count Up)
+        clock->enabled = true;
+        clock->count_up_mode = true;
         clock->white_time_ms = 0;
         clock->black_time_ms = 0;
         clock->initial_time_ms = 0;
-        clock->increment_ms = 0;
+        clock->increment_ms = 0; // Increment doesn't make sense in stopwatch usually, or maybe it does? 
+                                 // Standard "No Clock" means just count elapsed time.
+                                 // Let's force increment to 0 for simplicity unless specified otherwise.
         clock->active = false;
-        clock->flagged_player = 0; // PLAYER_NONE (assuming 0 is neutral/none generally, but strictly should be explicit)
-        // Check types.h for PLAYER_NONE? usually it's just 0 or handled carefully.
-        // Assuming typical enum: PLAYER_WHITE=0, PLAYER_BLACK=1. We need a sentinel.
-        // Let's assume the caller handles "flagged_player" check based on boolean result.
-        // Actually, let's use a safe value. If Player is enum 0/1, we need -1 or similar.
-        // But types.h usually has PLAYER_WHITE/BLACK. Let's just reset to -1.
-        // Ideally we'd modify types.h to include PLAYER_NONE, but let's stick to existing code.
-        // For now, flagged_player indicates *who lost*. 
-        // We'll reset it to a non-player value.
-        clock->flagged_player = -1; 
+        clock->flagged_player = -1;
         return;
     }
 
     clock->enabled = true;
+    clock->count_up_mode = false;
     clock->active = false; // Starts paused until first move (or explicit start)
     // Actually, usually white's clock starts running immediately? 
     // Or after first move? Standard rules: White's clock starts when game starts.
@@ -71,6 +67,14 @@ void clock_reset(ClockState* clock, int minutes, int increment_sec) {
 void clock_set(ClockState* clock, int64_t time_ms, int64_t inc_ms) {
     if (!clock) return;
     clock->enabled = true;
+    // Assume standard countdown if setting explicit time, unless time is 0?
+    // Usually clock_set is used for restoring state. 
+    // If restoring a stopwatch state, implementation needs to know.
+    // However, clock_set is mainly used for puzzle/setup.
+    // Let's assume countdown unless configured otherwise.
+    // Actually, if time_ms is passed, it overrides.
+    clock->count_up_mode = false; 
+    
     clock->white_time_ms = time_ms;
     clock->black_time_ms = time_ms;
     clock->initial_time_ms = time_ms;
@@ -92,20 +96,28 @@ bool clock_tick(ClockState* clock, Player current_turn) {
     clock->last_tick_time = now;
     
     if (current_turn == PLAYER_WHITE) {
-        clock->white_time_ms -= delta;
-        if (clock->white_time_ms <= 0) {
-            clock->white_time_ms = 0;
-            clock->flagged_player = PLAYER_WHITE;
-            clock->active = false;
-            return true;
+        if (clock->count_up_mode) {
+            clock->white_time_ms += delta;
+        } else {
+            clock->white_time_ms -= delta;
+            if (clock->white_time_ms <= 0) {
+                clock->white_time_ms = 0;
+                clock->flagged_player = PLAYER_WHITE;
+                clock->active = false;
+                return true;
+            }
         }
     } else {
-        clock->black_time_ms -= delta;
-        if (clock->black_time_ms <= 0) {
-            clock->black_time_ms = 0;
-            clock->flagged_player = PLAYER_BLACK;
-            clock->active = false;
-            return true;
+        if (clock->count_up_mode) {
+            clock->black_time_ms += delta;
+        } else {
+            clock->black_time_ms -= delta;
+            if (clock->black_time_ms <= 0) {
+                clock->black_time_ms = 0;
+                clock->flagged_player = PLAYER_BLACK;
+                clock->active = false;
+                return true;
+            }
         }
     }
     

@@ -111,7 +111,7 @@ static void draw_analog(GtkDrawingArea *area, cairo_t *cr, int width, int height
     // Formula: angle = ((initial - current) / 1000.0) * (M_PI / 2.0)
     
     double angle = 0;
-    if (clock->last_time_ms != -1 && clock->initial_time_ms > 0) {
+    if (clock->last_time_ms != -1) {
         int64_t current_logic_ms = clock->last_time_ms;
         
         // Interpolate for 60fps smoothness if active
@@ -120,11 +120,24 @@ static void draw_analog(GtkDrawingArea *area, cairo_t *cr, int width, int height
             int64_t system_delta_ms = (now_us - clock->last_sync_system_us) / 1000;
             if (system_delta_ms > 100) system_delta_ms = 100;
             if (system_delta_ms < 0) system_delta_ms = 0;
-            current_logic_ms -= system_delta_ms;
+            
+            // In stopwatch mode (initial <= 0), time increases. In countdown, it decreases.
+            if (clock->initial_time_ms <= 0) {
+                 current_logic_ms += system_delta_ms;
+            } else {
+                 current_logic_ms -= system_delta_ms;
+            }
         }
 
-        // Calculate elapsed seconds since start of this match/period
-        double elapsed_sec = (double)(clock->initial_time_ms - current_logic_ms) / 1000.0;
+        double elapsed_sec;
+        if (clock->initial_time_ms <= 0) {
+            // Stopwatch: Time itself is the elapsed time
+            elapsed_sec = (double)current_logic_ms / 1000.0;
+        } else {
+            // Countdown: Elapsed = Initial - Current
+            elapsed_sec = (double)(clock->initial_time_ms - current_logic_ms) / 1000.0;
+        }
+        
         // 90 degrees (M_PI/2) per second
         angle = elapsed_sec * (M_PI / 2.0);
     }
@@ -247,7 +260,7 @@ void clock_widget_update(ClockWidget* clock, int64_t time_ms, int64_t initial_ti
     if (!clock->time_label || !GTK_IS_LABEL(clock->time_label)) return;
     if (!clock->main_container || !GTK_IS_WIDGET(clock->main_container)) return;
     
-    // Store initial time for rotation base
+    // Store initial time for rotation base (0 means stopwatch)
     clock->initial_time_ms = initial_time_ms;
 
     if (clock->active != is_active) {

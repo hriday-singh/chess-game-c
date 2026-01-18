@@ -18,6 +18,7 @@ typedef struct {
     
     bool active;       // Is clock running?
     bool enabled;      // Is clock feature enabled for this game?
+    bool count_up_mode; // If true, clock counts UP (Stopwatch mode)
     
     // Who ran out of time?
     Player flagged_player; // PLAYER_NONE if no flag fall
