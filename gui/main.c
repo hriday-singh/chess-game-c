@@ -1388,6 +1388,96 @@ static void apply_dynamic_resolution(GtkWindow* window) {
                    geom.width, geom.height, app_width, app_height, aspect);
         }
     }
+}// Debug helper for layout investigation
+// Force ratio enforcement on startup
+// Stateful layout enforcement
+typedef struct {
+    int attempts;
+    int stage; // 0=Wait, 1=Force, 2=Relax
+} LayoutEnforcerState;
+
+static gboolean force_layout_ratios(gpointer user_data) {
+    AppState* state = (AppState*)user_data;
+    if (!state || !state->gui.window) return G_SOURCE_REMOVE;
+
+    // Persist state across calls using static or object data
+    // Simpler: use static variable since app is singleton-ish, or attached data
+    // We'll attach a small struct to the window to track state
+    LayoutEnforcerState* les = (LayoutEnforcerState*)g_object_get_data(G_OBJECT(state->gui.window), "layout_enforcer");
+    if (!les) {
+        les = g_new0(LayoutEnforcerState, 1);
+        g_object_set_data_full(G_OBJECT(state->gui.window), "layout_enforcer", les, g_free);
+    }
+
+    int w_total = gtk_widget_get_width(GTK_WIDGET(state->gui.window));
+    if (w_total <= 200) return G_SOURCE_CONTINUE; // Wait for real window
+    
+    // Widgets
+    GtkWidget* w_info = state->gui.info_panel;
+    GtkWidget* w_board = state->gui.board;
+    GtkWidget* w_right = right_side_panel_get_widget(state->gui.right_side_panel);
+    
+    // Paneds
+    GtkPaned* root = GTK_PANED(g_object_get_data(G_OBJECT(state->gui.window), "root_paned"));
+    GtkPaned* right_split = GTK_PANED(g_object_get_data(G_OBJECT(state->gui.window), "right_split_paned"));
+
+    if (!root || !right_split) return G_SOURCE_REMOVE;
+
+    // Targets: 20% - 60% - 20%
+    int t_info = (int)(w_total * 0.20);
+    int t_board = (int)(w_total * 0.60);
+    int t_right = w_total - t_info - t_board; // Remainder to right to be exact
+
+    if (les->stage == 0) {
+        // Wait for mapping
+        if (!gtk_widget_get_mapped(GTK_WIDGET(state->gui.window))) return G_SOURCE_CONTINUE;
+        les->stage = 1;
+        return G_SOURCE_CONTINUE;
+    }
+    
+    if (les->stage == 1) { 
+        // STAGE 1: FORCE
+        // We set MINIMUM sizes to the targets to force the Paned to comply
+        gtk_widget_set_size_request(w_info, t_info, -1);
+        gtk_widget_set_size_request(w_board, t_board, -1);
+        
+        // IMPORTANT: We don't force Right Panel min width too high, 
+        // as it might push the window wider. We rely on board driving the middle.
+        // But forcing it ensures the divider moves.
+        gtk_widget_set_size_request(w_right, t_right, -1);
+        
+        // Also set pane positions as hints
+        gtk_paned_set_position(root, t_info);
+        gtk_paned_set_position(right_split, t_board);
+        
+        printf("[Layout] STAGE 1: FORCED Constraints -> Info: %d, Board: %d, Right: %d\n", t_info, t_board, t_right);
+        
+        les->stage = 2;
+        return G_SOURCE_CONTINUE; // Come back next tick to relax
+    }
+    
+    if (les->stage == 2) {
+        // STAGE 2: RELAX
+        // Restore resizability
+        gtk_widget_set_size_request(w_info, 100, -1);
+        gtk_widget_set_size_request(w_board, 100, -1);
+        gtk_widget_set_size_request(w_right, 100, -1);
+        
+        // Verify final result
+        int act_info = gtk_widget_get_width(w_info);
+        int act_board = gtk_widget_get_width(w_board);
+        int act_right = gtk_widget_get_width(w_right);
+        
+        printf("\n=== LAYOUT FINAL ===\n");
+        printf("Window: %d\n", w_total);
+        printf("Info:   %d px (Target: %d)\n", act_info, t_info);
+        printf("Board:  %d px (Target: %d)\n", act_board, t_board);
+        printf("Right:  %d px (Target: %d)\n", act_right, t_right);
+        
+        return G_SOURCE_REMOVE; // Be free
+    }
+
+    return G_SOURCE_REMOVE;
 }
 
 static void on_app_activate(GtkApplication* app, gpointer user_data) {
@@ -1437,9 +1527,6 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
         }
     }
     PROFILE_MARK("Window & Resolution");
-    
-    // Apply saved config to Theme Manager
-    // Apply saved config to Theme Manager (cfg already loaded above)
     
     // Init match history
     match_history_init();
@@ -1601,10 +1688,32 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     GtkWidget* right_split_paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     gtk_paned_set_position(GTK_PANED(right_split_paned), board_width_target);
     
+    // CRITICAL: Allow Board (start child) to resize!
+    gtk_paned_set_resize_start_child(GTK_PANED(right_split_paned), TRUE);
+    gtk_paned_set_shrink_start_child(GTK_PANED(right_split_paned), TRUE);
+    
     // Add Secondary Paned to Root Paned (End)
     gtk_paned_set_end_child(GTK_PANED(root_paned), right_split_paned);
     gtk_paned_set_resize_end_child(GTK_PANED(root_paned), TRUE); // Right side expands
     gtk_paned_set_shrink_end_child(GTK_PANED(root_paned), TRUE);
+    
+    // Store paneds for later enforcement
+    g_object_set_data(G_OBJECT(state->gui.window), "root_paned", root_paned);
+    g_object_set_data(G_OBJECT(state->gui.window), "right_split_paned", right_split_paned);
+    gtk_paned_set_position(GTK_PANED(right_split_paned), board_width_target);
+    
+    // CRITICAL: Allow Board (start child) to resize!
+    gtk_paned_set_resize_start_child(GTK_PANED(right_split_paned), TRUE);
+    gtk_paned_set_shrink_start_child(GTK_PANED(right_split_paned), TRUE);
+    
+    // Add Secondary Paned to Root Paned (End)
+    gtk_paned_set_end_child(GTK_PANED(root_paned), right_split_paned);
+    gtk_paned_set_resize_end_child(GTK_PANED(root_paned), TRUE); // Right side expands
+    gtk_paned_set_shrink_end_child(GTK_PANED(root_paned), TRUE);
+    
+    // Store paneds for later enforcement
+    g_object_set_data(G_OBJECT(state->gui.window), "root_paned", root_paned);
+    g_object_set_data(G_OBJECT(state->gui.window), "right_split_paned", right_split_paned);
     
     // Board Area (Center)
     // Board Area (Custom Layout)
@@ -1654,7 +1763,6 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     // Right Side Panel
     state->gui.right_side_panel = right_side_panel_new(state->logic, state->theme);
     right_side_panel_set_nav_callback(state->gui.right_side_panel, on_right_panel_nav, state);
-    
     GtkWidget* right_widget = right_side_panel_get_widget(state->gui.right_side_panel);
     gtk_widget_set_size_request(right_widget, 100, -1); // Min width
     
@@ -1738,7 +1846,10 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     // Clock tick timer (100ms precision)
     g_timeout_add(100, clock_tick_callback, state);
 
-    gtk_widget_set_visible(GTK_WIDGET(state->gui.window), TRUE);
+    // Schedule layout enforcement
+    g_timeout_add(100, force_layout_ratios, state);
+
+    gtk_window_present(GTK_WINDOW(state->gui.window));
     PROFILE_MARK("Window Show");
 
     #undef PROFILE_MARK

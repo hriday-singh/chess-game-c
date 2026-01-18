@@ -547,10 +547,9 @@ BoardThemeDialog* board_theme_dialog_new_embedded(ThemeData* theme, BoardThemeUp
     
     board_theme_dialog_build_ui(dialog);
     
-    // Take ownership of the widget
-    if (dialog->content_box) {
-        g_object_ref_sink(dialog->content_box);
-    }
+    // Embedded mode: content_box is floating. 
+    // The caller (SettingsDialog) will add it to a container (Stack), which will take ownership.
+    // We hold a weak reference (dialog->content_box) but do not own it.
     
     return dialog;
 }
@@ -609,22 +608,17 @@ void board_theme_dialog_free(BoardThemeDialog* dialog) {
     if (debug_mode) printf("[BoardTheme] Freeing dialog %p\n", (void*)dialog);
     if (!dialog) return;
 
-    if (dialog->content_box) {
-        g_object_unref(dialog->content_box);
-        dialog->content_box = NULL;
-    }
+    // Content Box is owned by parent container (embedded) or window (standalone)
+    // Do not unref here to avoid double-free/use-after-free if parent already destroyed it.
+    dialog->content_box = NULL;
 
     if (dialog->window) {
         if (debug_mode) printf("[BoardTheme] Destroying window\n");
         gtk_window_destroy(dialog->window);
     }
     
-    if (dialog->light_color_dialog && G_IS_OBJECT(dialog->light_color_dialog)) {
-        g_object_unref(dialog->light_color_dialog);
-    }
-    if (dialog->dark_color_dialog && G_IS_OBJECT(dialog->dark_color_dialog)) {
-        g_object_unref(dialog->dark_color_dialog);
-    }
+    // Color dialogs are owned by their buttons/widgets, which are destroyed with content_box
+    // No manual unref needed here to avoid double-free
     free(dialog);
     if (debug_mode) printf("[BoardTheme] Dialog freed\n");
 }
@@ -656,16 +650,17 @@ void board_theme_dialog_save_config(BoardThemeDialog* dialog, void* config_struc
     AppConfig* cfg = (AppConfig*)config_struct;
     
     // Save template name
-    if (dialog->template_combo) {
+    if (dialog->template_combo && GTK_IS_DROP_DOWN(dialog->template_combo)) {
         guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(dialog->template_combo));
         GListModel* model = gtk_drop_down_get_model(GTK_DROP_DOWN(dialog->template_combo));
-        const char* name = gtk_string_list_get_string(GTK_STRING_LIST(model), selected);
-        if (name) {
-            snprintf(cfg->board_theme_name, sizeof(cfg->board_theme_name), "%s", name);
+        if (model && GTK_IS_STRING_LIST(model)) {
+            const char* name = gtk_string_list_get_string(GTK_STRING_LIST(model), selected);
+            if (name) {
+                snprintf(cfg->board_theme_name, sizeof(cfg->board_theme_name), "%s", name);
+            }
         }
     } else {
-        // Fallback if UI not created (should not happen if saving from dialog)
-        // Assume default
+        // Fallback or ignore if UI not ready
     }
     
     // Save colors
