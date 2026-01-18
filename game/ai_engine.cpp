@@ -19,7 +19,7 @@
 #include <fcntl.h>
 #endif
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 
 using namespace Stockfish;
 

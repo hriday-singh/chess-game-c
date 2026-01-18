@@ -5,7 +5,7 @@
 #include "move.h"
 #include <stdbool.h>
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 static const int64_t overhead_ms = 5000;
 static const int64_t DEFAULT_TIMEOUT_US = 5000000; // 5s baseline
 

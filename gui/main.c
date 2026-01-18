@@ -34,13 +34,48 @@
 #include "gui_utils.h"
 #include "splash_screen.h"
 
-static bool debug_mode = true;
+static bool debug_mode = false;
 static int app_ratio_height = 1075;
 static int app_ratio_width = 1560;
+
+// HELPER: Calculate ideal height based on width (60% board + clocks + padding)
+static int gui_layout_calculate_target_height(int width) {
+    // Current design: board is 60% of total width.
+    // To keep it square, board_h = board_w = width * 0.6.
+    // Clock 'bits' add ~15% overhead to the board height.
+    double aspect_factor = (double)app_ratio_height / app_ratio_width; // ~0.689
+    return (int)(width * aspect_factor);
+}
 
 // Starting size for 720p screen with 70% as failsafe
 static int app_height = 490;
 static int app_width = 682;
+
+static void on_window_default_width_notify(GObject* object, GParamSpec* pspec, gpointer user_data) {
+    (void)object;
+    (void)pspec;
+    AppState* state = (AppState*)user_data;
+    if (!state || !state->gui.window) return;
+
+    // We only enforce ratio if not in fullscreen/maximized
+    if (gtk_window_is_maximized(GTK_WINDOW(state->gui.window)) || 
+        gtk_window_is_fullscreen(GTK_WINDOW(state->gui.window))) return;
+
+    int width = 0, height = 0;
+    gtk_window_get_default_size(GTK_WINDOW(state->gui.window), &width, &height);
+    
+    int target_h = gui_layout_calculate_target_height(width);
+    
+    // Use a small static guard to prevent recursive loops if GTK triggers notifies immediately
+    static bool in_rescale = false;
+    if (in_rescale) return;
+    
+    if (abs(height - target_h) > 15) {
+        in_rescale = true;
+        gtk_window_set_default_size(GTK_WINDOW(state->gui.window), width, target_h);
+        in_rescale = false;
+    }
+}
 
 // Globals
 #include "history_dialog.h"
@@ -1365,31 +1400,30 @@ static void apply_dynamic_resolution(GtkWindow* window) {
         GdkRectangle geom;
         gdk_monitor_get_geometry(monitor, &geom);
         
-        // Target aspect ratio from original hardcoded values (1430x1035)
-        double aspect = (double)app_ratio_width / app_ratio_height;
-        
         // Target area: 70% of screen width and height
         double max_w = geom.width * 0.7;
         double max_h = geom.height * 0.7;
         
-        // Calculate dimensions to fit 70% bounds while maintaining aspect
-        double sw = max_w;
-        double sh = sw / aspect;
+        // Calculate dimensions to fit 70% bounds
+        app_width = (int)max_w;
+        app_height = gui_layout_calculate_target_height(app_width);
         
-        if (sh > max_h) {
-            sh = max_h;
-            sw = sh * aspect;
+        if (app_height > max_h) {
+            app_height = (int)max_h;
+            // Reverse map width: width = height / aspect_factor
+            double aspect_factor = (double)app_ratio_height / app_ratio_width;
+            app_width = (int)(app_height / aspect_factor);
         }
         
-        app_width = (int)sw;
-        app_height = (int)sh;
-        
         if (debug_mode) {
+            double aspect = (double)app_ratio_width / app_ratio_height;
             printf("[Main] Dynamic Resolution: Screen %dx%d -> App %dx%d (70%% scale, aspect %.4f)\n", 
                    geom.width, geom.height, app_width, app_height, aspect);
         }
     }
-}// Debug helper for layout investigation
+}
+
+// Debug helper for layout investigation
 // Force ratio enforcement on startup
 // Stateful layout enforcement
 typedef struct {
@@ -1427,7 +1461,8 @@ static gboolean force_layout_ratios(gpointer user_data) {
     // Targets: 20% - 60% - 20%
     int t_info = (int)(w_total * 0.20);
     int t_board = (int)(w_total * 0.60);
-    int t_right = w_total - t_info - t_board; // Remainder to right to be exact
+    int t_right = w_total - t_info - t_board;
+    int t_height = gui_layout_calculate_target_height(w_total);
 
     if (les->stage == 0) {
         // Wait for mapping
@@ -1441,17 +1476,17 @@ static gboolean force_layout_ratios(gpointer user_data) {
         // We set MINIMUM sizes to the targets to force the Paned to comply
         gtk_widget_set_size_request(w_info, t_info, -1);
         gtk_widget_set_size_request(w_board, t_board, -1);
-        
-        // IMPORTANT: We don't force Right Panel min width too high, 
-        // as it might push the window wider. We rely on board driving the middle.
-        // But forcing it ensures the divider moves.
         gtk_widget_set_size_request(w_right, t_right, -1);
+        
+        // Force window height to match the ratio
+        gtk_window_set_default_size(GTK_WINDOW(state->gui.window), w_total, t_height);
         
         // Also set pane positions as hints
         gtk_paned_set_position(root, t_info);
         gtk_paned_set_position(right_split, t_board);
         
-        printf("[Layout] STAGE 1: FORCED Constraints -> Info: %d, Board: %d, Right: %d\n", t_info, t_board, t_right);
+        printf("[Layout] STAGE 1: FORCED Constraints -> Info: %d, Board: %d, Right: %d, Target Height: %d\n", 
+               t_info, t_board, t_right, t_height);
         
         les->stage = 2;
         return G_SOURCE_CONTINUE; // Come back next tick to relax
@@ -1812,6 +1847,9 @@ static void on_app_activate(GtkApplication* app, gpointer user_data) {
     // Show Splash Screen
     GtkWidget* splash = splash_screen_show(state->gui.window);
     
+    // Setup continuous ratio enforcement via property notifications
+    g_signal_connect(state->gui.window, "notify::default-width", G_CALLBACK(on_window_default_width_notify), state);
+
     // Show window immediately so user sees the splash
     gtk_window_present(state->gui.window);
 
