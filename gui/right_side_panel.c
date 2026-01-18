@@ -949,11 +949,10 @@ void right_side_panel_highlight_ply(RightSidePanel* panel, int ply_index) {
         set_pill_active(panel, ply_index, true);
     }
 
-    panel->last_highlighted_ply = ply_index;
     panel->viewed_ply = ply_index;
     panel->locked_ply = ply_index;
+    panel->last_highlighted_ply = ply_index;
 
-    // 3. Auto-scroll: In Replay Mode, always scroll to top. Otherwise, scroll to active row.
     // 3. Auto-scroll: follow the active row
     if (ply_index >= 0) {
         ScrollData* data = g_new0(ScrollData, 1);

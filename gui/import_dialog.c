@@ -82,8 +82,8 @@ static void do_import(const char* content) {
         entry.clock.enabled = false;
         
         // Use Parsed Metadata or Defaults
-        snprintf(entry.white.engine_path, sizeof(entry.white.engine_path), "%s", res.white[0] ? res.white : "White");
-        snprintf(entry.black.engine_path, sizeof(entry.black.engine_path), "%s", res.black[0] ? res.black : "Black");
+        snprintf(entry.white.player_name, sizeof(entry.white.player_name), "%s", res.white[0] ? res.white : "White");
+        snprintf(entry.black.player_name, sizeof(entry.black.player_name), "%s", res.black[0] ? res.black : "Black");
         entry.white.is_ai = false;
         entry.black.is_ai = false;
         

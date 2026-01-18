@@ -18,7 +18,7 @@
 #define MKDIR(path) mkdir(path, 0755)
 #endif
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 // Global configuration instance
 static AppConfig g_config;
@@ -670,13 +670,13 @@ static void save_single_match(MatchHistoryEntry* m) {
     fprintf(f, "  },\n");
     
     fprintf(f, "  \"white\": {\n");
-    fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-            m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.engine_type, m->white.engine_path);
+    fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\", \"player_name\": \"%s\"\n",
+            m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.engine_type, m->white.engine_path, m->white.player_name);
     fprintf(f, "  },\n");
     
     fprintf(f, "  \"black\": {\n");
-    fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-            m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.engine_type, m->black.engine_path);
+    fprintf(f, "    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\", \"player_name\": \"%s\"\n",
+            m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.engine_type, m->black.engine_path, m->black.player_name);
     fprintf(f, "  },\n");
     
     fprintf(f, "  \"result\": \"%s\",\n", m->result);
@@ -714,13 +714,13 @@ static void save_single_match(MatchHistoryEntry* m) {
         printf("  },\n");
         
         printf("  \"white\": {\n");
-        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-                m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.engine_type, m->white.engine_path);
+        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\", \"player_name\": \"%s\"\n",
+                m->white.is_ai ? "true" : "false", m->white.elo, m->white.depth, m->white.engine_type, m->white.engine_path, m->white.player_name);
         printf("  },\n");
         
         printf("  \"black\": {\n");
-        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\"\n",
-                m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.engine_type, m->black.engine_path);
+        printf("    \"is_ai\": %s, \"elo\": %d, \"depth\": %d, \"engine_type\": %d, \"engine_path\": \"%s\", \"player_name\": \"%s\"\n",
+                m->black.is_ai ? "true" : "false", m->black.elo, m->black.depth, m->black.engine_type, m->black.engine_path, m->black.player_name);
         printf("  },\n");
         
         printf("  \"result\": \"%s\",\n", m->result);
@@ -989,6 +989,10 @@ static void parse_match_file(const char* path) {
             if (strstr(line, "\"engine_path\"")) {
                 extract_json_str(line, "engine_path", p_cfg->engine_path, sizeof(p_cfg->engine_path));
             }
+            if (strstr(line, "\"player_name\"")) {
+                extract_json_str(line, "player_name", p_cfg->player_name, sizeof(p_cfg->player_name));
+            }
+
         }
         // Think time array parsing
         else if (strstr(line, "\"think_time_ms\"")) {
@@ -1227,6 +1231,19 @@ MatchHistoryEntry* match_history_find_by_id(const char* id) {
     return NULL;
 }
 
+void match_history_update_names(const char* id, const char* white_name, const char* black_name) {
+    MatchHistoryEntry* entry = match_history_find_by_id(id);
+    if (!entry) return;
+
+    if (white_name) snprintf(entry->white.player_name, sizeof(entry->white.player_name), "%s", white_name);
+    if (black_name) snprintf(entry->black.player_name, sizeof(entry->black.player_name), "%s", black_name);
+
+    save_single_match(entry);
+    
+    // Ensure the new metadata is picked up by rescuers
+    invalidate_cache();
+}
+
 MatchHistoryEntry* match_history_get_list(int* count) {
     if (count) *count = g_history_count;
     return g_history_list;
@@ -1351,6 +1368,10 @@ static bool load_match_by_id(const char* id, MatchHistoryEntry* entry) {
             if (strstr(line, "\"engine_path\"")) {
                 extract_json_str(line, "engine_path", p_cfg->engine_path, sizeof(p_cfg->engine_path));
             }
+            if (strstr(line, "\"player_name\"")) {
+                extract_json_str(line, "player_name", p_cfg->player_name, sizeof(p_cfg->player_name));
+            }
+
         }
         else if (strstr(line, "\"game_mode\"")) {
             char* p = strchr(line, ':');

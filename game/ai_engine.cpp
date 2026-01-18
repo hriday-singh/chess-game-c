@@ -437,4 +437,29 @@ void ai_engine_set_skill_level(EngineHandle* handle, int skill) {
     handle->last_skill_level = skill;
 }
 
+void ai_engine_set_elo(EngineHandle* handle, int elo) {
+    if (!handle) return;
+
+    // Clamp ELO
+    elo = (elo < 200) ? 200 : (elo > 3200) ? 3200 : elo;
+
+    char elo_str[16];
+    snprintf(elo_str, sizeof(elo_str), "%d", elo);
+
+    if (debug_mode) fprintf(stderr, "[AI Engine] Setting ELO to %s\n", elo_str);
+
+    // Modern method
+    ai_engine_set_option(handle, "UCI_LimitStrength", "true");
+    ai_engine_set_option(handle, "UCI_Elo", elo_str);
+
+    // Fallback method (Skill Level)
+    // We map ELO to Skill Level just in case the engine doesn't support UCI_Elo
+    int skill = ai_engine_elo_to_skill(elo);
+    ai_engine_set_skill_level(handle, skill);
+
+    // Ensure options are processed
+    ai_engine_send_command(handle, "isready");
+    ai_engine_wait_for_token(handle, "readyok", 1000);
+}
+
 } // extern "C"

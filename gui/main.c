@@ -1030,7 +1030,7 @@ static gboolean delayed_replay_load_task(gpointer user_data) {
                                  entry->think_time_ms, entry->think_time_count,
                                  entry->started_at_ms, entry->ended_at_ms,
                                  entry->clock.enabled, entry->clock.initial_ms, entry->clock.increment_ms,
-                                 entry->white, entry->black);
+                                 &entry->white, &entry->black);
                                  
     // Pass result metadata
     replay_controller_set_result(state->replay_controller, entry->result, entry->result_reason);

@@ -145,16 +145,16 @@ static gpointer ai_think_thread(gpointer user_data) {
     }
     if (debug_mode && drained > 0) printf("[AI Thread] Drained %d stale messages.\n", drained);
 
-    // Set Skill Level (Mandatory for consistency across modes)
-    int skill = 20; // Default to max for advanced/high-ELO
+    // Set Difficulty (Mode Dependent)
     if (!is_advanced_mode && data->target_elo > 0) {
-        skill = ai_engine_elo_to_skill(data->target_elo);
+        if (debug_mode) printf("[AI Thread] Applying ELO: %d\n", data->target_elo);
+        ai_engine_set_elo(data->engine, data->target_elo);
+    } else {
+        // Advanced mode or generic max strength
+        if (debug_mode) printf("[AI Thread] Applying Max Strength (Skill 20, No Limit)\n");
+        ai_engine_set_option(data->engine, "UCI_LimitStrength", "false");
+        ai_engine_set_skill_level(data->engine, 20);
     }
-    
-    if (debug_mode) printf("[AI Thread] Applying Skill Level: %d (Mode: %s)\n", 
-                           skill, is_advanced_mode ? "Advanced" : "ELO-based");
-    
-    ai_engine_set_skill_level(data->engine, skill);
 
     ai_engine_send_command(data->engine, pos_cmd);
 

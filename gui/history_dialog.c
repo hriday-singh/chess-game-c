@@ -23,6 +23,7 @@ struct _HistoryDialog {
 static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* dialog);
 static void on_replay_clicked(GtkButton* btn, gpointer user_data);
 static void on_delete_clicked(GtkButton* btn, gpointer user_data);
+static void on_edit_clicked(GtkButton* btn, gpointer user_data); // NEW
 static void import_btn_clicked(GtkButton* btn, gpointer user_data); // Forward decl
 static void load_next_page(HistoryDialog* dialog);  // NEW: Load next page
 static void on_scroll_edge_reached(GtkScrolledWindow* sw, GtkPositionType pos, gpointer user_data);  // NEW: Scroll handler
@@ -46,7 +47,6 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
 
     // Mode & Result (Left Side)
     char summary[256];
-    const char* mode_str = (m->game_mode == 0) ? "PvP" : (m->game_mode == 1) ? "PvC" : "CvC";
     
     char readable_result[128];
     
@@ -65,7 +65,8 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
             snprintf(readable_result, sizeof(readable_result), "AI Won (White AI)");
         } else {
             // PvP or CvC
-            snprintf(readable_result, sizeof(readable_result), "White %s Won", white_role);
+            const char* w_name = m->white.player_name[0] ? m->white.player_name : white_role;
+            snprintf(readable_result, sizeof(readable_result), "%s Won", w_name);
         }
     } else if (strcmp(m->result, "0-1") == 0) {
         // Black won
@@ -77,7 +78,8 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
             snprintf(readable_result, sizeof(readable_result), "AI Won (Black AI)");
         } else {
             // PvP or CvC
-            snprintf(readable_result, sizeof(readable_result), "Black %s Won", black_role);
+            const char* b_name = m->black.player_name[0] ? m->black.player_name : black_role;
+            snprintf(readable_result, sizeof(readable_result), "%s Won", b_name);
         }
     } else if (strcmp(m->result, "1/2-1/2") == 0) {
         snprintf(readable_result, sizeof(readable_result), "Draw");
@@ -92,8 +94,11 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
         reason = "Unknown";
     }
 
-    snprintf(summary, sizeof(summary), "<b>%s</b>  <span alpha='45%%'>|</span>  %s (%s)", 
-             mode_str, readable_result, reason);
+    const char* white_name = m->white.is_ai ? "AI" : (m->white.player_name[0] ? m->white.player_name : "Player");
+    const char* black_name = m->black.is_ai ? "AI" : (m->black.player_name[0] ? m->black.player_name : "Player");
+
+    snprintf(summary, sizeof(summary), "<b>%s vs %s</b>  <span alpha='45%%'>|</span>  %s (%s)", 
+             white_name, black_name, readable_result, reason);
     
     GtkWidget* summary_lbl = gtk_label_new(NULL);
     gtk_label_set_markup(GTK_LABEL(summary_lbl), summary);
@@ -123,15 +128,20 @@ static GtkWidget* create_match_row(const MatchHistoryEntry* m, HistoryDialog* di
     gtk_widget_set_tooltip_text(btn_replay, "Replay this match");
     g_object_set_data_full(G_OBJECT(btn_replay), "match-id", g_strdup(m->id), g_free);
     g_signal_connect(btn_replay, "clicked", G_CALLBACK(on_replay_clicked), dialog);
-    
     gtk_box_append(GTK_BOX(row_box), btn_replay);
+
+    GtkWidget* btn_edit = gui_utils_new_button_from_system_icon("document-edit-symbolic");
+    gtk_widget_add_css_class(btn_edit, "suggested-action");
+    gtk_widget_set_tooltip_text(btn_edit, "Edit player names");
+    g_object_set_data_full(G_OBJECT(btn_edit), "match-id", g_strdup(m->id), g_free);
+    g_signal_connect(btn_edit, "clicked", G_CALLBACK(on_edit_clicked), dialog);
+    gtk_box_append(GTK_BOX(row_box), btn_edit);
 
     GtkWidget* btn_del = gui_utils_new_button_from_system_icon("user-trash-symbolic");
     gtk_widget_add_css_class(btn_del, "destructive-action");
     gtk_widget_set_tooltip_text(btn_del, "Delete match record");
     g_object_set_data_full(G_OBJECT(btn_del), "match-id", g_strdup(m->id), g_free);
     g_signal_connect(btn_del, "clicked", G_CALLBACK(on_delete_clicked), dialog);
-    
     gtk_box_append(GTK_BOX(row_box), btn_del);
 
     return frame; // Return frame instead of box
@@ -227,6 +237,93 @@ static void on_delete_clicked(GtkButton* btn, gpointer user_data) {
         // Refresh list content ONLY, do not re-present window which can toggle focus state
         refresh_match_list(dialog);
     }
+}
+
+typedef struct {
+    char id[64];
+    GtkWidget* white_entry;
+    GtkWidget* black_entry;
+    HistoryDialog* dialog;
+    GtkWidget* edit_dialog;
+} EditContext;
+
+static void on_edit_save_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn;
+    EditContext* ctx = (EditContext*)user_data;
+    const char* white_name = gtk_editable_get_text(GTK_EDITABLE(ctx->white_entry));
+    const char* black_name = gtk_editable_get_text(GTK_EDITABLE(ctx->black_entry));
+    
+    match_history_update_names(ctx->id, white_name, black_name);
+    
+    // Refresh history dialog
+    refresh_match_list(ctx->dialog);
+    
+    gtk_window_destroy(GTK_WINDOW(ctx->edit_dialog));
+    g_free(ctx);
+}
+
+static void on_edit_cancel_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn;
+    EditContext* ctx = (EditContext*)user_data;
+    gtk_window_destroy(GTK_WINDOW(ctx->edit_dialog));
+    g_free(ctx);
+}
+
+static void on_edit_clicked(GtkButton* btn, gpointer user_data) {
+    (void)btn;
+    HistoryDialog* dialog = (HistoryDialog*)user_data;
+    const char* id = (const char*)g_object_get_data(G_OBJECT(btn), "match-id");
+    if (!id) return;
+    
+    MatchHistoryEntry* m = match_history_find_by_id(id);
+    if (!m) return;
+    
+    EditContext* ctx = g_new0(EditContext, 1);
+    snprintf(ctx->id, sizeof(ctx->id), "%s", id);
+    ctx->dialog = dialog;
+    
+    ctx->edit_dialog = gtk_window_new();
+    gtk_window_set_title(GTK_WINDOW(ctx->edit_dialog), "Edit Player Names");
+    gtk_window_set_transient_for(GTK_WINDOW(ctx->edit_dialog), dialog->window);
+    gtk_window_set_modal(GTK_WINDOW(ctx->edit_dialog), TRUE);
+    gtk_window_set_default_size(GTK_WINDOW(ctx->edit_dialog), 350, 200);
+    
+    GtkWidget* vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 12);
+    gtk_widget_set_margin_start(vbox, 20);
+    gtk_widget_set_margin_end(vbox, 20);
+    gtk_widget_set_margin_top(vbox, 20);
+    gtk_widget_set_margin_bottom(vbox, 20);
+    gtk_window_set_child(GTK_WINDOW(ctx->edit_dialog), vbox);
+    
+    // White Player
+    gtk_box_append(GTK_BOX(vbox), gtk_label_new("White Player Name:"));
+    ctx->white_entry = gtk_entry_new();
+    gtk_editable_set_text(GTK_EDITABLE(ctx->white_entry), m->white.is_ai ? "AI" : (m->white.player_name[0] ? m->white.player_name : "Player"));
+    gtk_widget_set_sensitive(ctx->white_entry, !m->white.is_ai);
+    gtk_box_append(GTK_BOX(vbox), ctx->white_entry);
+    
+    // Black Player
+    gtk_box_append(GTK_BOX(vbox), gtk_label_new("Black Player Name:"));
+    ctx->black_entry = gtk_entry_new();
+    gtk_editable_set_text(GTK_EDITABLE(ctx->black_entry), m->black.is_ai ? "AI" : (m->black.player_name[0] ? m->black.player_name : "Player"));
+    gtk_widget_set_sensitive(ctx->black_entry, !m->black.is_ai);
+    gtk_box_append(GTK_BOX(vbox), ctx->black_entry);
+    
+    // Buttons
+    GtkWidget* btn_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_widget_set_halign(btn_box, GTK_ALIGN_END);
+    gtk_box_append(GTK_BOX(vbox), btn_box);
+    
+    GtkWidget* btn_cancel = gtk_button_new_with_label("Cancel");
+    g_signal_connect(btn_cancel, "clicked", G_CALLBACK(on_edit_cancel_clicked), ctx);
+    gtk_box_append(GTK_BOX(btn_box), btn_cancel);
+    
+    GtkWidget* btn_save = gtk_button_new_with_label("Save");
+    gtk_widget_add_css_class(btn_save, "suggested-action");
+    g_signal_connect(btn_save, "clicked", G_CALLBACK(on_edit_save_clicked), ctx);
+    gtk_box_append(GTK_BOX(btn_box), btn_save);
+    
+    gtk_window_present(GTK_WINDOW(ctx->edit_dialog));
 }
 
 static void on_replay_clicked(GtkButton* btn, gpointer user_data) {

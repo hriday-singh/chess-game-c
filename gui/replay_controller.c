@@ -10,7 +10,7 @@
 #include "config_manager.h"
 #include <string.h>
 
-static bool debug_mode = false;
+static bool debug_mode = true;
 
 // Forward decl for internal timer
 static gboolean replay_timer_callback(gpointer user_data);
@@ -19,11 +19,12 @@ static gboolean replay_tick_callback(gpointer user_data);
 // Helper helper
 static void refresh_clock_display(ReplayController* self);
 
-static const char* get_name_for_config(MatchPlayerConfig cfg) {
-    if (cfg.is_ai) {
-        if (cfg.engine_type == 0) return "Inbuilt Stockfish Engine";
+static const char* get_name_for_config(const MatchPlayerConfig* cfg) {
+    if (cfg->is_ai) {
+        if (cfg->engine_type == 0) return "Inbuilt Stockfish Engine";
         return "Custom Engine";
     }
+    if (cfg->player_name[0]) return cfg->player_name;
     return "Player";
 }
 
@@ -248,11 +249,14 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
                                   const int* think_times, int think_time_count, 
                                   int64_t started_at, int64_t ended_at,
                                   bool clock_enabled, int initial_ms, int increment_ms,
-                                  MatchPlayerConfig white, MatchPlayerConfig black) {
+                                  const MatchPlayerConfig* white, const MatchPlayerConfig* black) {
     if (!self) return;
     
-    self->white_config = white;
-    self->black_config = black;
+    if (white) self->white_config = *white;
+    else memset(&self->white_config, 0, sizeof(MatchPlayerConfig));
+    
+    if (black) self->black_config = *black;
+    else memset(&self->black_config, 0, sizeof(MatchPlayerConfig));
     
     (void)started_at; (void)ended_at; // Validation logic optional/removed for now
 
@@ -265,11 +269,11 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
         printf("  Clock: %s (Initial: %d ms, Increment: %d ms)\n", 
                clock_enabled ? "ENABLED" : "DISABLED", initial_ms, increment_ms);
         printf("  White: %s (ELO=%d, Depth=%d, Engine=%d, Path=%s)\n",
-               white.is_ai ? "AI" : "Human", white.elo, white.depth, 
-               white.engine_type, white.engine_path[0] != '\0' ? white.engine_path : "N/A");
+               white->is_ai ? "AI" : "Human", white->elo, white->depth, 
+               white->engine_type, white->engine_path[0] != '\0' ? white->engine_path : "N/A");
         printf("  Black: %s (ELO=%d, Depth=%d, Engine=%d, Path=%s)\n",
-               black.is_ai ? "AI" : "Human", black.elo, black.depth, 
-               black.engine_type, black.engine_path[0] != '\0' ? black.engine_path : "N/A");
+               black->is_ai ? "AI" : "Human", black->elo, black->depth, 
+               black->engine_type, black->engine_path[0] != '\0' ? black->engine_path : "N/A");
     }
 
     replay_controller_pause(self);
@@ -439,21 +443,8 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
         
         // Use the existing helper (I'll need to define it or find it)
         // Actually I'll use the logic from get_name_for_config
-        char w_name[64], b_name[64];
-        if (self->white_config.is_ai) {
-             snprintf(w_name, sizeof(w_name), "%s", self->white_config.engine_type == 1 ? "Custom Engine" : "Inbuilt STOCKFISH ENGINE");
-        } else {
-             snprintf(w_name, sizeof(w_name), "Player");
-        }
-        
-        if (self->black_config.is_ai) {
-             snprintf(b_name, sizeof(b_name), "%s", self->black_config.engine_type == 1 ? "Custom Engine" : "Inbuilt STOCKFISH ENGINE");
-        } else {
-             snprintf(b_name, sizeof(b_name), "Player");
-        }
-        
-        clock_widget_set_name(white_clk, w_name);
-        clock_widget_set_name(black_clk, b_name);
+        clock_widget_set_name(white_clk, get_name_for_config(&self->white_config));
+        clock_widget_set_name(black_clk, get_name_for_config(&self->black_config));
         
         clock_widget_set_disabled(white_clk, !self->clock_enabled);
         clock_widget_set_disabled(black_clk, !self->clock_enabled);
@@ -1217,8 +1208,8 @@ void replay_controller_enter_replay_mode(ReplayController* self) {
         ClockWidget* white_clk = flipped ? self->app_state->gui.top_clock : self->app_state->gui.bottom_clock;
         ClockWidget* black_clk = flipped ? self->app_state->gui.bottom_clock : self->app_state->gui.top_clock;
         
-        clock_widget_set_name(white_clk, get_name_for_config(self->white_config));
-        clock_widget_set_name(black_clk, get_name_for_config(self->black_config));
+        clock_widget_set_name(white_clk, get_name_for_config(&self->white_config));
+        clock_widget_set_name(black_clk, get_name_for_config(&self->black_config));
     }
 }
 

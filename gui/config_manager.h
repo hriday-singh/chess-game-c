@@ -110,6 +110,7 @@ typedef struct {
     int depth;
     int engine_type; // 0: Internal, 1: Custom
     char engine_path[512];
+    char player_name[64]; // NEW: Dedicated player name field
 } MatchPlayerConfig;
 
 typedef struct {
@@ -160,6 +161,9 @@ void match_history_delete(const char* id);
 
 // Free memory for a match entry (especially moves_uci)
 void match_history_free_entry(MatchHistoryEntry* entry);
+
+// Update player names for a match
+void match_history_update_names(const char* id, const char* white_name, const char* black_name);
 
 // Get the list of historical matches (LEGACY: loads all matches)
 MatchHistoryEntry* match_history_get_list(int* count);

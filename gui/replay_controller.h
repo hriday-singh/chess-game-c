@@ -79,7 +79,7 @@ void replay_controller_load_match(ReplayController* self, const char* moves_uci,
                                  const int* think_times, int think_time_count, 
                                  int64_t started_at, int64_t ended_at,
                                  bool clock_enabled, int initial_ms, int increment_ms,
-                                 MatchPlayerConfig white, MatchPlayerConfig black);
+                                 const MatchPlayerConfig* white, const MatchPlayerConfig* black);
 void replay_controller_set_result(ReplayController* self, const char* result, const char* reason);
 void replay_controller_exit(ReplayController* self);  // Exit replay mode
 

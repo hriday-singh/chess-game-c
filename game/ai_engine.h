@@ -90,6 +90,12 @@ void ai_engine_set_skill_level(EngineHandle* handle, int skill);
  */
 AiDifficultyParams ai_get_difficulty_params(int elo);
 
+/**
+ * Sets the UCI_Elo and UCI_LimitStrength options.
+ * Also sets Skill Level as fallback.
+ */
+void ai_engine_set_elo(EngineHandle* handle, int elo);
+
 #ifdef __cplusplus
 }
 #endif
