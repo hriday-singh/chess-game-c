@@ -56,6 +56,13 @@ pacman -S mingw-w64-x86_64-gtk4 mingw-w64-x86_64-gcc make mingw-w64-x86_64-gdb m
     ```
     *   This creates `build/HalChess.exe`.
 
+### Using a Custom NNUE Network
+If you wish to use a different neural network for the engine:
+1.  Download or train your `.nnue` file.
+2.  Place the file inside the `src/` directory.
+3.  Open `src/evaluate.h` and change `EvalFileDefaultName` to match your new filename.
+4.  Run `make clean` and then `make` to recompile with the new network.
+
 ### Build Commands
 | Command | Description |
 | :--- | :--- |
