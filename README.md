@@ -1,74 +1,99 @@
-# ChessGameC - Chess Engine with GUI and Training
+# ChessGameC
 
-This is a complete conversion of the Java chess game to C, integrated with Stockfish engine.
+A modern, high-performance Chess Engine and GUI written in C11, featuring a custom engine integrated with Stockfish, GTK4-based UI, and an immutable state architecture.
 
-## Structure
+## Prerequisites & Installation Guide
 
-- `src/` - Stockfish engine source code
-- `game/` - Chess game logic (converted from Java)
-- `gui/` - GUI implementation (GTK4)
-- `training/` - AI training system
+This project is built for **Windows** using the **MSYS2 MinGW-w64** environment. Follow these steps strictly if you are setting this up from scratch.
 
-## Dependencies
+### 1. Install MSYS2
+1.  Download the **installer** from [msys2.org](https://www.msys2.org/).
+2.  Run the installer and follow the default installation steps (usually installs to `C:\msys64`).
+3.  When finished, check "Run MSYS2 now" or open **"MSYS2 MSYS"** from your start menu.
+4.  Update the package database by running:
+    ```bash
+    pacman -Syu
+    ```
+5.  If it asks to close the terminal, close it and open **"MSYS2 MinGW 64-bit"** (IMPORTANT: Always use the *MinGW 64-bit* terminal for development, not UCRT64 or Clang64 unless you know what you are doing).
 
-### Required Libraries:
-
-1. **GTK4** (for GUI) - Download from: https://www.gtk.org/docs/installations/windows/
-
-   - Or use MSYS2: `pacman -S mingw-w64-x86_64-gtk4`
-   - Or use vcpkg: `vcpkg install gtk`
-
-2. **Make** (build system)
-
-   - Windows (MSYS2): `pacman -S make`
-   - Linux: Usually pre-installed
-   - macOS: Usually pre-installed
-
-3. **C/C++ Compiler**
-   - Windows (MSYS2): `pacman -S mingw-w64-x86_64-gcc`
-   - Linux: `sudo apt-get install build-essential gcc g++`
-   - macOS: `xcode-select --install`
-
-## Building
-
-### Quick Build (MSYS2 MinGW 64-bit Terminal)
+### 2. Install Dependencies
+Open your **MSYS2 MinGW 64-bit** terminal and run the following command to install all required libraries (GTK4, GCC, Make, etc.):
 
 ```bash
-cd /c/Users/clash/OneDrive/Desktop/Codes/Java/Hriday\ Chess/ChessGameC
-make
+pacman -S mingw-w64-x86_64-gtk4 mingw-w64-x86_64-gcc mingw-w64-x86_64-make mingw-w64-x86_64-gdb mingw-w64-x86_64-pkg-config mingw-w64-x86_64-librsvg
 ```
 
-### Available Make Targets
+*   `gtk4`: The GUI toolkit.
+*   `gcc`: The C compiler.
+*   `make`: The build tool.
+*   `gdb`: The debugger.
+*   `pkg-config`: Helper to find library paths.
+*   `librsvg`: Required for loading SVG chess pieces.
 
-- `make` or `make all` - Build all test executables
-- `make clean` - Remove all build files
-- `make test` - Build and run basic test
-- `make test-suite` - Build and run comprehensive test suite
+### 3. Setup VS Code (Optional but Recommended)
+1.  Install [Visual Studio Code](https://code.visualstudio.com/).
+2.  Install the **C/C++ Extension** by Microsoft.
+3.  Add the MinGW64 `bin` folder to your Windows PATH:
+    *   Open Windows Search -> "Edit the system environment variables".
+    *   Click "Environment Variables".
+    *   Under "System variables", select "Path" and click "Edit".
+    *   Click "New" and add: `C:\msys64\mingw64\bin`
+    *   This allows VS Code to automatically find `gcc.exe` and `gdb.exe`.
 
-## Testing
+## Building the Project
 
-```bash
-# Run basic test
-make test
+1.  Open **MSYS2 MinGW 64-bit**.
+2.  Navigate to the project folder:
+    ```bash
+    # Adjust to your actual path
+    cd /path/to/ChessGameC
+    ```
+    *Note: In MSYS2, Windows drives are accessed like `/c/`, `/d/`, etc.*
 
-# Run full test suite (matches Java ChessTest.java)
-make test-suite
-```
+3.  Compile the game:
+    ```bash
+    make
+    ```
+    *   This creates `build/HalChess.exe`.
 
-## Features
+### Build Commands
+| Command | Description |
+| :--- | :--- |
+| `make` | Compiles the main game executable. |
+| `make clean` | Removes all compiled object files and executables (use if build is stuck). |
+| `make test` | Compiles and runs the basic unit tests. |
+| `make test-suite` | Runs the comprehensive test suite. |
 
-- ✅ Complete chess game logic (fully tested)
-- ✅ Full Stockfish engine integration (not external process)
-- ⏳ Chess GUI with theming (GTK4)
-- ⏳ AI training system
-- ⏳ UCI protocol support
-- ⏳ Custom AI profiles
+## Creating a Redistributable Installer
 
-## Current Status
+To create a standalone installer that you can share with others (who don't have MSYS2 installed):
 
-- ✅ Game logic fully implemented and tested
-- ✅ Build system (Makefile)
-- ✅ Comprehensive test suite
-- ⏳ GUI implementation (pending)
-- ⏳ Stockfish integration (pending)
-- ⏳ Training system (pending)
+1.  Run the distribution command:
+    ```bash
+    make dist
+    ```
+2.  What this does:
+    *   Compiles a fresh Release build.
+    *   Collects all necessary DLLs (GTK4, libc, etc.) automatically using `ldd`.
+    *   Bundles assets (images, sounds, fonts).
+    *   Compiles the custom installer (`HalChessSetup.exe`).
+
+3.  **Output**: You will find the final installer at `dist/HalChessSetup.exe`.
+    *   You can send this single `.exe` file to anyone, and they can install and play the game without needing MSYS2.
+
+## Project Structure
+
+*   `game/` - **Core Logic**: Pure C code for chess rules, move generation, and board state. Zero GUI dependencies.
+*   `gui/` - **User Interface**: GTK4 code that handles windows, widgets, and input.
+*   `src/` - **Stockfish**: The integrated chess engine source (C++).
+*   `installer/` - Source code for the custom installer.
+*   `assets/` - Images, sounds, and CSS themes.
+
+## Troubleshooting
+
+*   **"d3d11.dll not found" or graphics issues**:
+    *   Ensure your GPU drivers are up to date. GTK4 uses OpenGL/Vulkan.
+*   **Images/Icons missing**:
+    *   Make sure `librsvg` is installed (`pacman -S mingw-w64-x86_64-librsvg`).
+*   **Build fails after git pull**:
+    *   Always run `make clean` before `make` after fetching new changes to ensure a clean build.
