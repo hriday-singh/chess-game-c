@@ -104,3 +104,22 @@ To create a standalone installer that you can share with others (who don't have 
     *   Make sure `librsvg` is installed (`pacman -S mingw-w64-x86_64-librsvg`).
 *   **Build fails after git pull**:
     *   Always run `make clean` before `make` after fetching new changes to ensure a clean build.
+
+## Contributing
+
+We welcome contributions from the community! This project is open source, and we value your help in improving it.
+
+1.  **Fork** the repository.
+2.  **Clone** your fork to your local machine.
+3.  **Create a branch** for your feature or bug fix.
+4.  **Make changes** and ensure the code compiles and tests pass.
+5.  **Submit a Pull Request** describing your changes in detail.
+
+Please ensure appropriate credit is given when using or modifying this codebase. If you use major portions of this logic, a link back to this repository is appreciated.
+
+## License
+
+This project is licensed under the **MIT License**.
+
+See the [LICENSE](LICENSE) file for details. You are free to use, modify, and distribute this software, provided the original copyright notice and permission notice are included in all copies or substantial portions of the software.
+
