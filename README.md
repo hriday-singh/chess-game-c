@@ -20,7 +20,7 @@ This project is built for **Windows** using the **MSYS2 MinGW-w64** environment.
 Open your **MSYS2 MinGW 64-bit** terminal and run the following command to install all required libraries (GTK4, GCC, Make, etc.):
 
 ```bash
-pacman -S mingw-w64-x86_64-gtk4 mingw-w64-x86_64-gcc mingw-w64-x86_64-make mingw-w64-x86_64-gdb mingw-w64-x86_64-pkg-config mingw-w64-x86_64-librsvg
+pacman -S mingw-w64-x86_64-gtk4 mingw-w64-x86_64-gcc make mingw-w64-x86_64-gdb mingw-w64-x86_64-pkg-config mingw-w64-x86_64-librsvg
 ```
 
 *   `gtk4`: The GUI toolkit.
