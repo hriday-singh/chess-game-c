@@ -111,7 +111,7 @@ void right_side_panel_set_analyze_callback(RightSidePanel* panel, GCallback call
         printf("[RightSidePanel] Error: Cannot set analyze callback (panel or btn is NULL)\n");
         return;
     }
-    printf("[RightSidePanel] Connecting analyze callback to button %p\n", (void*)panel->analyze_btn);
+    if (debug_mode) printf("[RightSidePanel] Connecting analyze callback to button %p\n", (void*)panel->analyze_btn);
     // Disconnect any previous handlers to avoid duplicates if called multiple times?
     // For now simple connection.
     g_signal_connect(panel->analyze_btn, "clicked", callback, user_data);

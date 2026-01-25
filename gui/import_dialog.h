@@ -10,6 +10,6 @@
  * 
  * @param state The internal application state.
  */
-void import_dialog_show(AppState* state);
+void import_dialog_show(AppState* state, GtkWindow* parent);
 
 #endif // IMPORT_DIALOG_H

@@ -1241,7 +1241,7 @@ void replay_controller_enter_replay_mode(ReplayController* self) {
         printf("[ReplayController] Error: Enter replay mode called with NULL self or app_state\n");
         return;
     }
-    printf("[ReplayController] Entering replay mode...\n");
+    if (debug_mode) printf("[ReplayController] Entering replay mode...\n");
     
     // Wire up the new Analyze button in RightSidePanel
     if (self->app_state->gui.right_side_panel) {

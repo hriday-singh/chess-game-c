@@ -187,7 +187,7 @@ static void on_cancel_clicked(GtkWidget* btn, gpointer user_data) {
     if (s_dialog) gtk_window_close(GTK_WINDOW(s_dialog));
 }
 
-void import_dialog_show(AppState* state) {
+void import_dialog_show(AppState* state, GtkWindow* parent) {
     if (s_dialog) {
         gtk_window_present(GTK_WINDOW(s_dialog));
         return;
@@ -197,19 +197,28 @@ void import_dialog_show(AppState* state) {
     
     s_dialog = gtk_window_new();
     gtk_window_set_title(GTK_WINDOW(s_dialog), "Import Game");
-    if (state->gui.window) {
+    if (parent) {
+        gui_utils_set_window_size_relative(GTK_WINDOW(s_dialog), parent, 0.6, 0.7);
+    } else if (state->gui.window) {
         gui_utils_set_window_size_relative(GTK_WINDOW(s_dialog), GTK_WINDOW(state->gui.window), 0.6, 0.7);
     } else {
         gtk_window_set_default_size(GTK_WINDOW(s_dialog), 600, 700);
     }
     gtk_window_set_resizable(GTK_WINDOW(s_dialog), TRUE);
     gtk_window_set_modal(GTK_WINDOW(s_dialog), TRUE);
-    if (state->gui.window) {
+    
+    // Set parent
+    if (parent) {
+        gtk_window_set_transient_for(GTK_WINDOW(s_dialog), parent);
+    } else if (state->gui.window) {
         gtk_window_set_transient_for(GTK_WINDOW(s_dialog), GTK_WINDOW(state->gui.window));
     }
     
     g_signal_connect(s_dialog, "destroy", G_CALLBACK(on_dialog_destroy), NULL);
     gui_utils_add_esc_close(s_dialog);
+    
+    // NEW: Ensure focus returns to parent (e.g. History Dialog) automatically
+    gui_utils_setup_auto_focus_restore(GTK_WINDOW(s_dialog));
     
     // Overlay to hold content + loading
     GtkWidget* overlay = gtk_overlay_new();
@@ -242,6 +251,13 @@ void import_dialog_show(AppState* state) {
     GtkWidget* lbl = gtk_label_new("Paste PGN, UCI moves, or a list of SAN moves below:");
     gtk_widget_set_halign(lbl, GTK_ALIGN_START);
     gtk_box_append(GTK_BOX(main_vbox), lbl);
+
+    GtkWidget* tip_lbl = gtk_label_new("Tip: You can download PGN files from <a href=\"https://www.chessgames.com\">chessgames.com</a>");
+    gtk_widget_set_halign(tip_lbl, GTK_ALIGN_START);
+    gtk_label_set_use_markup(GTK_LABEL(tip_lbl), TRUE);
+    gtk_widget_add_css_class(tip_lbl, "dim-label");
+    gtk_widget_set_margin_bottom(tip_lbl, 8);
+    gtk_box_append(GTK_BOX(main_vbox), tip_lbl);
     
     // Text View with Scroller
     GtkWidget* scrolled = gtk_scrolled_window_new();

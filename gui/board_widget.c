@@ -1582,6 +1582,8 @@ GtkWidget* board_widget_new(GameLogic* logic) {
     // Create a frame to add border around the board
     GtkWidget* frame = gtk_frame_new(NULL);
     gtk_widget_add_css_class(frame, "chess-board-frame");
+    // CRITICAL: Make frame focusable so gtk_widget_grab_focus works
+    gtk_widget_set_focusable(frame, TRUE);
     
     board->grid = gtk_grid_new();
     gtk_grid_set_row_homogeneous(GTK_GRID(board->grid), TRUE);

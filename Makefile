@@ -305,6 +305,9 @@ stage: $(GUI_TARGET)
 	@gdk-pixbuf-query-loaders /mingw64/lib/gdk-pixbuf-2.0/2.10.0/loaders/pixbufloader_svg.dll | sed -E "s|.*[\\\\/]lib[\\\\/]gdk-pixbuf|lib/gdk-pixbuf|g" | sed "s|\\\\|/|g" > $(STAGE_DIR)/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
 	@echo "Copying gdbus.exe (fixes GLib-GIO warning)..."
 	@cp /mingw64/bin/gdbus.exe $(STAGE_DIR)/ 2>/dev/null || echo "Warning: gdbus.exe not found"
+	@echo "Copying GSettings schemas..."
+	@mkdir -p $(STAGE_DIR)/share/glib-2.0/schemas
+	@cp /mingw64/share/glib-2.0/schemas/gschemas.compiled $(STAGE_DIR)/share/glib-2.0/schemas/
 	@echo "Copying local system icons..."
 	@mkdir -p $(STAGE_DIR)/assets/images/system
 	@cp -r assets/images/system/* $(STAGE_DIR)/assets/images/system/ 2>/dev/null || true

@@ -7,10 +7,11 @@ typedef struct {
     GtkWidget* status_label;
     GtkWidget* overlay;
     double scale;
-    double time;
     GCallback on_finished;
     gpointer user_data;
     guint tick_id;
+    guint delay_timer_id; // For the initial 800ms wait
+    guint fade_timer_id;  // For the fade out animation loop
 } SplashData;
 
 static gboolean splash_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpointer user_data) {
@@ -19,33 +20,45 @@ static gboolean splash_tick(GtkWidget* widget, GdkFrameClock* frame_clock, gpoin
     gint64 frame_time = gdk_frame_clock_get_frame_time(frame_clock);
     
     // Breathing effect: scale oscillates between 0.90 and 1.10
-    // sin(time * speed) * amplitude + base
     double t = frame_time / 1000000.0; // seconds
     data->scale = sin(t * 3.0) * 0.10 + 1.0;
     
-    // Apply scale to icon
-    // In Gtk4, we can use a GtkFixed and transform, or just set scale request if it respect it (unlikely)
-    // Better: use snapshot to scale. But for simplicity, let's use a wrapper that we scale.
-    // Or just animate opacity? User said breathing effect.
-    // Let's use CSS scale if possible or just adjust size request.
-    
-    // Actually, let's use a simpler approach: 
-    // GtkCenterBox or Box and we use gtk_widget_set_size_request based on scale
     // Base size for icon: 256x256
     int base_size = 256;
     int size = (int)(base_size * data->scale);
-    gtk_image_set_pixel_size(GTK_IMAGE(data->icon), size);
+    
+    if (GTK_IS_IMAGE(data->icon)) {
+        gtk_image_set_pixel_size(GTK_IMAGE(data->icon), size);
+    }
     
     return G_SOURCE_CONTINUE;
 }
 
 static void on_splash_destroy(gpointer data) {
     SplashData* sd = (SplashData*)data;
-    if (sd->tick_id) {
-        // Find the widget it was attached to? 
-        // It's usually better to remove it in the "unrealize" or just rely on widget death.
+    if (sd) {
+        if (sd->tick_id > 0) {
+           // Tick callback is attached to widget, automatically removed when widget dies usually,
+           // but good practice to clear if we managed it manually. 
+           // gtk_widget_add_tick_callback returns an id that can be removed.
+           // However, since the widget is being destroyed, we don't need to manually remove_tick_callback 
+           // on the widget itself as long as we don't access 'sd' in it after free.
+           // The GData destroy notification happens often during finalize.
+           // Safe to just let it be, but let's clear our IDs.
+        }
+        
+        if (sd->delay_timer_id > 0) {
+            g_source_remove(sd->delay_timer_id);
+            sd->delay_timer_id = 0;
+        }
+        
+        if (sd->fade_timer_id > 0) {
+            g_source_remove(sd->fade_timer_id);
+            sd->fade_timer_id = 0;
+        }
+        
+        g_free(sd);
     }
-    g_free(sd);
 }
 
 GtkWidget* splash_screen_show(GtkWindow* parent_window) {
@@ -120,14 +133,10 @@ GtkWidget* splash_screen_show(GtkWindow* parent_window) {
     data->tick_id = gtk_widget_add_tick_callback(data->overlay, splash_tick, data, NULL);
 
     // Add to window overlay
-    // We need to find the GtkOverlay in the window child hierarchy
     GtkWidget* window_child = gtk_window_get_child(parent_window);
     if (GTK_IS_OVERLAY(window_child)) {
         gtk_overlay_add_overlay(GTK_OVERLAY(window_child), data->overlay);
     } else {
-        // Fallback: if no overlay, just set it as child? NO, main.c has overlay.
-        // If this is called BEFORE main.c sets up overlay, it might fail.
-        // We will ensure main.c sets up overlay first.
         g_warning("Splash screen: Parent window has no GtkOverlay child!");
     }
 
@@ -135,14 +144,19 @@ GtkWidget* splash_screen_show(GtkWindow* parent_window) {
 }
 
 void splash_screen_update_status(GtkWidget* splash, const char* status) {
+    if (!GTK_IS_WIDGET(splash)) return;
     SplashData* data = (SplashData*)g_object_get_data(G_OBJECT(splash), "splash-data");
-    if (data && data->status_label) {
+    if (data && data->status_label && GTK_IS_LABEL(data->status_label)) {
         gtk_label_set_text(GTK_LABEL(data->status_label), status);
     }
 }
 
 static gboolean fade_out_step(gpointer user_data) {
     GtkWidget* splash = (GtkWidget*)user_data;
+    
+    // Safety check: widget destruction check
+    if (!GTK_IS_WIDGET(splash)) return G_SOURCE_REMOVE;
+    
     SplashData* data = (SplashData*)g_object_get_data(G_OBJECT(splash), "splash-data");
     if (!data) return G_SOURCE_REMOVE;
 
@@ -152,18 +166,27 @@ static gboolean fade_out_step(gpointer user_data) {
     if (opacity <= 0.0) {
         gtk_widget_set_opacity(splash, 0.0);
         
+        // Cache callback data BEFORE removing widget (which might destroy it and free 'data')
+        GCallback on_finished = data->on_finished;
+        gpointer user_data = data->user_data;
+
         // Remove from parent overlay
         GtkWidget* parent = gtk_widget_get_parent(splash);
         if (GTK_IS_OVERLAY(parent)) {
             gtk_overlay_remove_overlay(GTK_OVERLAY(parent), splash);
         }
         
-        // Trigger callback
-        if (data->on_finished) {
-            void (*cb)(gpointer) = (void (*)(gpointer))data->on_finished;
-            cb(data->user_data);
+        // Trigger callback using cached value
+        if (on_finished) {
+            void (*cb)(gpointer) = (void (*)(gpointer))on_finished;
+            cb(user_data);
         }
         
+        // Timer is finishing normally. 
+        // Note: If widget was destroyed above, 'data' is already freed, so we can't touch it.
+        // If widget is still alive (somehow), we typically would clear the ID.
+        // But since we are returning G_SOURCE_REMOVE, the source is gone anyway.
+        // Accessing data->fade_timer_id = 0 here is UNSAFE if widget died.
         return G_SOURCE_REMOVE;
     }
     
@@ -173,18 +196,32 @@ static gboolean fade_out_step(gpointer user_data) {
 
 static gboolean start_fade_out(gpointer user_data) {
     GtkWidget* splash = (GtkWidget*)user_data;
-    g_timeout_add(16, fade_out_step, splash);
+    
+    // Widget validity check
+    if (!GTK_IS_WIDGET(splash)) return G_SOURCE_REMOVE;
+
+    SplashData* data = (SplashData*)g_object_get_data(G_OBJECT(splash), "splash-data");
+    if (!data) return G_SOURCE_REMOVE;
+
+    // Delay timer finished
+    data->delay_timer_id = 0;
+
+    // Start fade timer
+    data->fade_timer_id = g_timeout_add(16, fade_out_step, splash);
     return G_SOURCE_REMOVE;
 }
 
 void splash_screen_finish(GtkWidget* splash, GCallback on_finished, gpointer user_data) {
-    (void)on_finished; (void)user_data;
+    if (!GTK_IS_WIDGET(splash)) return;
+    
     SplashData* data = (SplashData*)g_object_get_data(G_OBJECT(splash), "splash-data");
     if (data) {
         data->on_finished = on_finished;
         data->user_data = user_data;
         
         // 800ms delay then start fade out
-        g_timeout_add(800, start_fade_out, splash);
+        if (data->delay_timer_id == 0 && data->fade_timer_id == 0) {
+            data->delay_timer_id = g_timeout_add(800, start_fade_out, splash);
+        }
     }
 }

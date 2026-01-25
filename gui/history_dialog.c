@@ -372,9 +372,8 @@ HistoryDialog* history_dialog_new(GtkWindow* parent) {
     gtk_widget_add_css_class(btn_import, "suggested-action"); 
     // We need to pass g_app_state to import_dialog_show.
     // Since history_dialog_new doesn't take AppState, we use the global g_app_state.
-    // Alternatively, we could attach it to the button data.
-    // For now, let's allow a static callback that uses g_app_state.
-    g_signal_connect(btn_import, "clicked", G_CALLBACK(import_btn_clicked), NULL);
+    // We pass 'dialog' as user_data so we can set it as the parent window.
+    g_signal_connect(btn_import, "clicked", G_CALLBACK(import_btn_clicked), dialog);
     gtk_box_append(GTK_BOX(header_box), btn_import);
 
     GtkWidget* scrolled = gtk_scrolled_window_new();
@@ -439,9 +438,11 @@ void history_dialog_free(HistoryDialog* dialog) {
 }
 
 static void import_btn_clicked(GtkButton* btn, gpointer user_data) {
-    (void)btn; (void)user_data;
+    (void)btn; 
+    HistoryDialog* dialog = (HistoryDialog*)user_data;
     if (g_app_state) {
-        import_dialog_show(g_app_state);
+        // Pass the history dialog window as the parent
+        import_dialog_show(g_app_state, dialog ? dialog->window : NULL);
         // Note: history_dialog doesn't close here, we let import dialog handle success actions
     }
 }

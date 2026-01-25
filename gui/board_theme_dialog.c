@@ -650,7 +650,12 @@ void board_theme_dialog_save_config(BoardThemeDialog* dialog, void* config_struc
     AppConfig* cfg = (AppConfig*)config_struct;
     
     // Save template name
-    if (dialog->template_combo && GTK_IS_DROP_DOWN(dialog->template_combo)) {
+    // CRITICAL FIX: extensive validity check on the widget before access
+    if (dialog->template_combo && 
+        GTK_IS_WIDGET(dialog->template_combo) && 
+        gtk_widget_get_root(dialog->template_combo) != NULL && // Ensure it's still attached to something valid
+        GTK_IS_DROP_DOWN(dialog->template_combo)) {
+        
         guint selected = gtk_drop_down_get_selected(GTK_DROP_DOWN(dialog->template_combo));
         GListModel* model = gtk_drop_down_get_model(GTK_DROP_DOWN(dialog->template_combo));
         if (model && GTK_IS_STRING_LIST(model)) {
@@ -660,7 +665,7 @@ void board_theme_dialog_save_config(BoardThemeDialog* dialog, void* config_struc
             }
         }
     } else {
-        // Fallback or ignore if UI not ready
+        // Fallback or ignore if UI not ready/destroyed
     }
     
     // Save colors

@@ -4,6 +4,7 @@
 #include "config_manager.h"
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
@@ -1485,7 +1486,7 @@ static gboolean force_layout_ratios(gpointer user_data) {
         gtk_paned_set_position(root, t_info);
         gtk_paned_set_position(right_split, t_board);
         
-        printf("[Layout] STAGE 1: FORCED Constraints -> Info: %d, Board: %d, Right: %d, Target Height: %d\n", 
+        if(debug_mode) printf("[Layout] STAGE 1: FORCED Constraints -> Info: %d, Board: %d, Right: %d, Target Height: %d\n", 
                t_info, t_board, t_right, t_height);
         
         les->stage = 2;
@@ -1504,11 +1505,13 @@ static gboolean force_layout_ratios(gpointer user_data) {
         int act_board = gtk_widget_get_width(w_board);
         int act_right = gtk_widget_get_width(w_right);
         
-        printf("\n=== LAYOUT FINAL ===\n");
-        printf("Window: %d\n", w_total);
-        printf("Info:   %d px (Target: %d)\n", act_info, t_info);
-        printf("Board:  %d px (Target: %d)\n", act_board, t_board);
-        printf("Right:  %d px (Target: %d)\n", act_right, t_right);
+        if(debug_mode){
+            printf("\n=== LAYOUT FINAL ===\n");
+            printf("Window: %d\n", w_total);
+            printf("Info:   %d px (Target: %d)\n", act_info, t_info);
+            printf("Board:  %d px (Target: %d)\n", act_board, t_board);
+            printf("Right:  %d px (Target: %d)\n", act_right, t_right);
+        }
         
         return G_SOURCE_REMOVE; // Be free
     }
@@ -1525,9 +1528,32 @@ typedef struct {
     int64_t total_start;
 } StartupState;
 
+// Delayed focus grabber to ensure window manager is ready
+static gboolean delayed_focus_grab(gpointer user_data) {
+    AppState* state = (AppState*)user_data;
+    if (state && state->gui.board) {
+        if (debug_mode) printf("[Main] Executing delayed focus grab on board\n");
+        gtk_widget_grab_focus(state->gui.board);
+    }
+    return G_SOURCE_REMOVE;
+}
+
 static void on_startup_finished(gpointer user_data) {
     StartupState* ss = (StartupState*)user_data;
+    if (!ss) return;
+
     if (debug_mode) printf("[Main] Splash Screen: Fade out complete. Application ready.\n");
+    
+    // Ensure window has focus
+    if (ss->state && ss->state->gui.window) {
+         gtk_window_present(ss->state->gui.window);
+    }
+     
+    // Schedule focus grab for next idle cycle to ensure window state is finalized
+    if (ss->state) {
+        g_idle_add(delayed_focus_grab, ss->state);
+    }
+
     g_free(ss);
 }
 
@@ -1716,6 +1742,12 @@ static gboolean startup_step_idle(gpointer user_data) {
             gtk_paned_set_resize_start_child(GTK_PANED(right_split_paned), TRUE);
             gtk_paned_set_shrink_start_child(GTK_PANED(right_split_paned), FALSE);
 
+            // IMMEDIATE FOCUS GRAB: Don't wait for startup sequence to finish
+            if (state->gui.board && gtk_widget_get_focusable(state->gui.board)) {
+                if(debug_mode) printf("[Main] Step 3: IMMEDIATE Focus Grab on Board\n");
+                gtk_widget_grab_focus(state->gui.board);
+            }
+
             state->gui.right_side_panel = right_side_panel_new(state->logic, state->theme);
             right_side_panel_set_nav_callback(state->gui.right_side_panel, on_right_panel_nav, state);
             GtkWidget* right_widget = right_side_panel_get_widget(state->gui.right_side_panel);
@@ -1874,6 +1906,8 @@ static gboolean grab_board_focus_idle(gpointer user_data) {
 }
 
 int main(int argc, char** argv) {
+    // Force OpenGL renderer to avoid Vulkan drivers issues on some PCs
+    _putenv("GSK_RENDERER=gl");
     GtkApplication* app = gtk_application_new("com.hriday.chessc", G_APPLICATION_DEFAULT_FLAGS);
     AppState* state = g_new0(AppState, 1);
     g_app_state = state;
